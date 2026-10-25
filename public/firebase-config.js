@@ -1,11 +1,12 @@
-// Firebase web uygulaması ayarları. Kendi projeni kurunca buraya yapıştır (bkz. README).
-// Bu değerler gizli değildir; erişimi firestore.rules korur.
+// Firebase web uygulaması ayarları (firebase apps:sdkconfig ile alındı).
+// Bu değerler gizli değildir; erişimi firestore.rules korur. Kendi kopyanı kurarken
+// buraya kendi projenin ayarlarını yapıştır (bkz. README).
 // localhost'ta açıldığında firebase.js bunun yerine emülatöre bağlanır.
 export const firebaseConfig = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "demo-kervan",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
+  apiKey: "AIzaSyBJ9EB4ahVeOVNFdzLswwNvlAttBYEnHUI",
+  authDomain: "kervan-7c9f64.firebaseapp.com",
+  projectId: "kervan-7c9f64",
+  storageBucket: "kervan-7c9f64.firebasestorage.app",
+  messagingSenderId: "741291354514",
+  appId: "1:741291354514:web:d109c591b408ed52fcb94b",
 };
