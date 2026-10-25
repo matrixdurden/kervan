@@ -1,0 +1,184 @@
+rules_version = '2';
+
+// Kimlik: Google ile giriş. Her işletme (firms) sadece ortaklarına görünür.
+// İşletmeye katılmak için geçerli bir davet kodu (invites/{kod}) gerekir.
+//
+// Hareketler (moves) silinemez ve değiştirilemez; sadece bir kez iptal edilebilir.
+// Ürünlerin stok ve kişilerin bakiye alanları hareketle aynı batch'te güncellenir.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    function isMember(firmId) {
+      return signedIn()
+        && request.auth.uid in get(/databases/$(database)/documents/firms/$(firmId)).data.members;
+    }
+
+    function memberUid(firmId, uid) {
+      return uid is string && uid in get(/databases/$(database)/documents/firms/$(firmId)).data.members;
+    }
+
+    // Ortak: uygulamadaki bir ortak ya da uygulamayı kullanmayan (guests) biri.
+    function partnerId(firmId, id) {
+      return memberUid(firmId, id)
+        || (id is string && id in get(/databases/$(database)/documents/firms/$(firmId)).data.get('guests', {}));
+    }
+
+    function text(s, max) {
+      return s is string && s.size() <= max;
+    }
+
+    function name(s) {
+      return s is string && s.size() > 0 && s.size() <= 80;
+    }
+
+    function validFirm(d) {
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 40
+        && d.members is list && d.members.size() <= 20
+        && d.people is map
+        && d.get('shares', {}) is map
+        && d.get('deals', {}) is map && d.get('deals', {}).size() <= 100
+        && d.get('guests', {}) is map && d.get('guests', {}).size() <= 50;
+    }
+
+    function optNumber(d, key) {
+      return !(key in d) || d[key] is number;
+    }
+
+    function validProduct(d) {
+      return name(d.name)
+        && text(d.unit, 12)
+        && d.price is int && d.price >= 0
+        && d.stock is number && d.value is number && d.lastCost is number
+        && optNumber(d, 'consigned')
+        && text(d.get('barcode', ''), 64)
+        && text(d.get('thumb', ''), 40000);
+    }
+
+    function validParty(d) {
+      return d.kind in ['supplier', 'seller']
+        && name(d.name)
+        && text(d.phone, 24)
+        && text(d.note, 200)
+        && d.balance is number
+        && (!('currency' in d) || d.currency in ['TRY', 'USD', 'EUR'])
+        && (!('shelf' in d) || d.shelf is map);
+    }
+
+    function validLines(d) {
+      return d.lines is list && d.lines.size() > 0 && d.lines.size() <= 40;
+    }
+
+    function validMove(firmId, d) {
+      return d.type in ['purchase', 'payment', 'sale', 'collection', 'consign', 'consignSale', 'return',
+          'expense', 'capitalIn', 'withdraw', 'transfer', 'opening']
+        && text(d.party, 40) && text(d.partyName, 80)
+        && (d.type in ['opening', 'expense', 'capitalIn', 'withdraw', 'transfer'] || d.party.size() > 0)
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.total is int
+        && text(d.note, 200)
+        && d.by == request.auth.uid
+        && !('voided' in d)
+        && (!('currency' in d) || (d.currency in ['USD', 'EUR'] && d.rate is number && d.rate > 0))
+        && (!('holder' in d) || memberUid(firmId, d.holder))
+        && (!('partner' in d) || (d.type in ['capitalIn', 'withdraw'] && partnerId(firmId, d.partner)))
+        && (!('deal' in d) || (d.type == 'expense' && text(d.deal, 40)))
+        && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return'] && validLines(d))
+          || (d.type in ['payment', 'collection', 'expense', 'capitalIn', 'withdraw'] && d.amount is int && d.amount > 0)
+          || (d.type == 'transfer' && d.amount is int && d.amount > 0 && memberUid(firmId, d.to) && d.to != d.holder)
+          || (d.type == 'opening' && (validLines(d) || d.amount is int)));
+    }
+
+    match /firms/{firmId} {
+      // Yeni ortak: sadece kendini ekleyebilir, sadece kendi kişi bilgisini yazabilir
+      // ve bu işletmeye ait geçerli bir davet kodu göstermelidir.
+      function joining() {
+        let before = resource.data;
+        let after = request.resource.data;
+        return !(request.auth.uid in before.members)
+          && after.members.toSet() == before.members.toSet().union([request.auth.uid].toSet())
+          && after.diff(before).affectedKeys().hasOnly(['members', 'people', 'joinedWith'])
+          && after.people.diff(before.people).affectedKeys().hasOnly([request.auth.uid])
+          && after.joinedWith is string
+          && get(/databases/$(database)/documents/invites/$(after.joinedWith)).data.firmId == firmId;
+      }
+
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+      allow create: if signedIn()
+        && validFirm(request.resource.data)
+        && request.resource.data.members == [request.auth.uid]
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update: if signedIn()
+        && validFirm(request.resource.data)
+        && (request.auth.uid in resource.data.members || joining());
+
+      match /products/{id} {
+        allow read: if isMember(firmId);
+        allow create, update: if isMember(firmId) && validProduct(request.resource.data);
+        // Hareketlerde ürün adı saklandığı için defter bozulmaz; yine de stoğu olan ürün silinmez.
+        allow delete: if isMember(firmId) && resource.data.stock == 0 && resource.data.value == 0;
+      }
+
+      match /parties/{id} {
+        allow read: if isMember(firmId);
+        allow create: if isMember(firmId) && validParty(request.resource.data);
+        // Tür değişmez; para birimi sadece bakiye sıfırken değişir.
+        allow update: if isMember(firmId)
+          && validParty(request.resource.data)
+          && request.resource.data.kind == resource.data.kind
+          && (request.resource.data.get('currency', 'TRY') == resource.data.get('currency', 'TRY')
+            || resource.data.balance == 0);
+        allow delete: if isMember(firmId) && resource.data.balance == 0;
+      }
+
+      // Ürünün büyük fotoğrafı (küçültülmüş JPEG data URL; ücretsiz planda Storage olmadığı için).
+      match /images/{productId} {
+        allow read, delete: if isMember(firmId);
+        allow create, update: if isMember(firmId)
+          && request.resource.data.keys().hasOnly(['data'])
+          && request.resource.data.data is string
+          && request.resource.data.data.size() <= 400000
+          && request.resource.data.data.matches('^data:image/(jpeg|png|webp);base64,.*');
+      }
+
+      // Ortak kasaları ve aylık kâr özetleri (hareketlerle aynı batch'te güncellenir).
+      match /accounts/{uid} {
+        allow read: if isMember(firmId);
+        allow create, update: if isMember(firmId)
+          && optNumber(request.resource.data, 'cash') && optNumber(request.resource.data, 'capital');
+      }
+
+      match /months/{month} {
+        allow read: if isMember(firmId);
+        allow create, update: if isMember(firmId)
+          && month.matches('^[0-9]{4}-[0-9]{2}$')
+          && optNumber(request.resource.data, 'revenue')
+          && optNumber(request.resource.data, 'cogs')
+          && optNumber(request.resource.data, 'expenses');
+      }
+
+      match /moves/{id} {
+        allow read: if isMember(firmId);
+        allow create: if isMember(firmId) && validMove(firmId, request.resource.data);
+        // İptal: sadece "voided" alanı bir kez yazılabilir.
+        allow update: if isMember(firmId)
+          && !('voided' in resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['voided'])
+          && request.resource.data.voided.by == request.auth.uid
+          && text(request.resource.data.voided.reason, 200);
+      }
+    }
+
+    match /invites/{code} {
+      allow get: if signedIn();
+      // İşletme ile aynı batch içinde oluşturulduğu için getAfter kullanılır.
+      allow create: if signedIn()
+        && code.matches('^[A-Z0-9]{6}$')
+        && request.auth.uid in getAfter(/databases/$(database)/documents/firms/$(request.resource.data.firmId)).data.members;
+    }
+  }
+}

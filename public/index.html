@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F6F2EA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121A19" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="Alış, satış, stok ve cari hesap; ortaklarla birlikte.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="kervan">
+  <title>kervan</title>
+  <!-- İlk boyama CSS'ten önce doğru renkte olsun (beyaz parlama olmasın). -->
+  <style>
+    html { background: #F6F2EA; }
+    @media (prefers-color-scheme: dark) { html { background: #121A19; } }
+  </style>
+  <script>
+    document.head.insertAdjacentHTML("beforeend", '<link rel="manifest" href="/manifest'
+      + (matchMedia("(prefers-color-scheme: dark)").matches ? "-dark" : "") + '.webmanifest">');
+  </script>
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&family=Tajawal:wght@400;500;800&display=swap">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div id="loading" class="loading" aria-hidden="true">
+    <img src="/icons/icon.svg" alt="">
+    <span>kervan</span>
+  </div>
+
+  <!-- Giriş -->
+  <main id="login" hidden>
+    <div class="hero">
+      <img class="hero-icon" src="/icons/icon.svg" alt="">
+      <h1 class="wordmark">kervan</h1>
+      <p data-i18n="tagline"></p>
+    </div>
+    <button id="google" class="google block" type="button">
+      <svg class="g-logo" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      <span data-i18n="continueGoogle"></span>
+    </button>
+    <p class="hint" data-i18n="loginHint"></p>
+    <p id="login-error" class="error" role="alert"></p>
+    <button id="install-login" class="block" type="button" hidden>📲 <span data-i18n="installApp"></span></button>
+    <button id="login-lang" class="link center" type="button" data-i18n="otherLang"></button>
+  </main>
+
+  <!-- İşletmeler -->
+  <main id="firms" hidden>
+    <header>
+      <button id="account-open" class="me" type="button" data-i18n-label="account">
+        <span id="me-avatar"></span>
+        <span class="me-text"><small data-i18n="hello"></small><strong id="me-name"></strong></span>
+      </button>
+    </header>
+    <div id="install-card" class="card install-card" hidden>
+      <span class="big-emoji" aria-hidden="true">📲</span>
+      <span class="main">
+        <span class="title" data-i18n="installApp"></span>
+        <span class="meta" data-i18n="installHint"></span>
+      </span>
+      <button id="install-card-button" class="ink small" type="button" data-i18n="install"></button>
+      <button id="install-card-close" class="icon" type="button" data-i18n-label="close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <h2 class="sec" data-i18n="yourFirms"></h2>
+    <ul id="firm-list" class="cards"></ul>
+    <p id="no-firms" class="empty" hidden><span class="big-emoji" aria-hidden="true">🐪</span><span data-i18n="noFirms"></span></p>
+    <div class="actions-col">
+      <button id="new-firm" class="primary block" type="button">+ <span data-i18n="newFirm"></span></button>
+      <button id="join-firm" class="block" type="button" data-i18n="joinWithCode"></button>
+    </div>
+  </main>
+
+  <!-- İşletme: sekmeler -->
+  <main id="firm" hidden>
+    <header class="top">
+      <button id="firm-back" class="icon back" type="button" data-i18n-label="back"><svg viewBox="0 0 24 24" class="flip"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <h1 id="firm-title"></h1>
+      <button id="firm-menu-open" class="avatars" type="button" data-i18n-label="firmSettings"></button>
+    </header>
+    <div id="view"></div>
+    <nav id="tabs" class="tabs"></nav>
+  </main>
+
+  <!-- Satıcı / tedarikçi hesabı -->
+  <main id="party" hidden>
+    <header class="top">
+      <button id="party-back" class="icon back" type="button" data-i18n-label="back"><svg viewBox="0 0 24 24" class="flip"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <h1 id="party-title"></h1>
+      <button id="party-edit" class="small" type="button" data-i18n="edit"></button>
+    </header>
+    <div id="party-view"></div>
+  </main>
+
+  <!-- Yeni işletme -->
+  <dialog id="new-firm-dialog">
+    <form id="new-firm-form" class="menu">
+      <h3 data-i18n="newFirm"></h3>
+      <label class="field">
+        <span data-i18n="firmName"></span>
+        <input id="new-firm-name" maxlength="40" dir="auto" data-i18n-placeholder="firmNamePlaceholder">
+      </label>
+      <p id="new-firm-error" class="error" role="alert"></p>
+      <button id="new-firm-create" class="primary block" data-i18n="create"></button>
+      <button class="block ghost" type="button" onclick="this.closest('dialog').close()" data-i18n="close"></button>
+    </form>
+  </dialog>
+
+  <!-- Davet koduyla katıl -->
+  <dialog id="join-dialog">
+    <form id="join-form" class="menu">
+      <h3 data-i18n="joinWithCode"></h3>
+      <p id="join-firm-name" class="muted"></p>
+      <label class="field">
+        <span data-i18n="inviteCode"></span>
+        <input id="join-code" maxlength="7" placeholder="ABC-123" dir="ltr" autocapitalize="characters" autocomplete="off" spellcheck="false">
+      </label>
+      <p id="join-error" class="error" role="alert"></p>
+      <button id="join-submit" class="primary block" data-i18n="join"></button>
+      <button class="block ghost" type="button" onclick="this.closest('dialog').close()" data-i18n="close"></button>
+    </form>
+  </dialog>
+
+  <!-- İşletme menüsü -->
+  <dialog id="firm-menu">
+    <form method="dialog" class="menu">
+      <h3 id="firm-menu-title"></h3>
+      <p class="muted center" data-i18n="inviteCode"></p>
+      <p id="firm-menu-code" class="big-code" dir="ltr"></p>
+      <p class="muted center small-text" data-i18n="inviteHint"></p>
+      <button id="invite" class="primary block" type="button" data-i18n="invite"></button>
+      <p class="label" data-i18n="partners"></p>
+      <ul id="member-list" class="member-list"></ul>
+      <button id="recompute" class="block" type="button" data-i18n="recompute"></button>
+      <p class="muted center small-text" data-i18n="recomputeHint"></p>
+      <button id="leave-firm" class="block danger" type="button" data-i18n="leaveFirm"></button>
+      <button class="block ghost" value="close" data-i18n="close"></button>
+    </form>
+  </dialog>
+
+  <!-- Hesap -->
+  <dialog id="account">
+    <form method="dialog" class="menu">
+      <h3 data-i18n="account"></h3>
+      <p id="account-email" class="muted center"></p>
+      <label class="field">
+        <span data-i18n="yourName"></span>
+        <input id="account-name" maxlength="24" dir="auto">
+      </label>
+      <div class="field">
+        <span data-i18n="language"></span>
+        <div class="seg" id="lang-seg">
+          <button type="button" data-lang="tr">Türkçe</button>
+          <button type="button" data-lang="ar">العربية</button>
+        </div>
+      </div>
+      <button id="sign-out" class="block danger" type="button" data-i18n="signOut"></button>
+      <button class="block ghost" value="close" data-i18n="close"></button>
+    </form>
+  </dialog>
+
+  <!-- iPhone: ana ekrana ekleme tarifi -->
+  <dialog id="ios-install">
+    <form method="dialog" class="menu">
+      <h3 data-i18n="installTitle"></h3>
+      <ol class="steps">
+        <li><span class="step-icon"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-8"/></svg></span><span data-i18n="iosStep1"></span></li>
+        <li><span class="step-icon"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8v8M8 12h8"/></svg></span><span data-i18n="iosStep2"></span></li>
+        <li><span class="step-icon"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span><span data-i18n="iosStep3"></span></li>
+      </ol>
+      <p class="muted center small-text" data-i18n="iosSafari"></p>
+      <button class="primary block" value="close" data-i18n="close"></button>
+    </form>
+  </dialog>
+
+  <!-- Formlar (ürün, kişi, hareket) burada açılır; içeriği forms.js kurar. -->
+  <dialog id="sheet" class="sheet"></dialog>
+
+  <!-- Barkod okutma: arka kamera -->
+  <dialog id="scanner" class="scanner">
+    <video playsinline muted></video>
+    <div class="scan-frame" aria-hidden="true"></div>
+    <p data-i18n="scanHint"></p>
+    <button type="button" class="block" data-close data-i18n="close"></button>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" popover="manual"><span></span><button type="button" class="link" data-i18n="undo" hidden></button></div>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <clipPath id="tile"><rect width="512" height="512" rx="112"/></clipPath>
+  <rect width="512" height="512" rx="112" fill="#1F6F68"/>
+  <!-- çöl güneşi -->
+  <circle cx="146" cy="148" r="46" fill="#E8A54B"/>
+  <!-- kum tepeleri -->
+  <path d="M0 420q128-44 256-10t256-6v108H0z" fill="#E8A54B" opacity=".35" clip-path="url(#tile)"/>
+  <!-- deve: gövde, hörgüç, boyun ve baş -->
+  <g fill="#F6F2EA">
+    <path d="M150 300c0-38 22-54 50-56 15-44 65-58 90-16 10 16 28 22 42 24 14-22 24-46 42-56l26-6c12 0 24 6 32 16l4 8c0 8-8 10-16 8l-22-4c-10 18-20 44-32 72-8 22-20 36-40 40H180c-18 0-30-12-30-30z"/>
+    <rect x="170" y="318" width="17" height="98" rx="8"/>
+    <rect x="198" y="318" width="17" height="98" rx="8"/>
+    <rect x="296" y="318" width="17" height="98" rx="8"/>
+    <rect x="324" y="318" width="17" height="98" rx="8"/>
+  </g>
+  <path d="M154 286c-16 8-20 22-16 44" fill="none" stroke="#F6F2EA" stroke-width="9" stroke-linecap="round"/>
+  <!-- hörgüçteki yük -->
+  <rect x="226" y="188" width="76" height="40" rx="9" fill="#E8A54B" transform="rotate(-4 264 208)"/>
+  <path d="M264 188v40" stroke="#1F6F68" stroke-width="6" transform="rotate(-4 264 208)"/>
+  <circle cx="404" cy="203" r="5" fill="#1F6F68"/>
+</svg>

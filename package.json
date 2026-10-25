@@ -1,0 +1,11 @@
+{
+  "name": "kervan",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "firebase emulators:start --project demo-kervan",
+    "test": "node --test",
+    "deploy": "firebase deploy --only hosting,firestore:rules,firestore:indexes"
+  }
+}
