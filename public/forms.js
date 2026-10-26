@@ -15,7 +15,8 @@ import {
   recordMoves, voidMoves, saveProduct, saveParty, deleteProduct, deleteParty, saveShares,
   saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode, productLabel, saveFirmSettings,
 } from "./data.js";
-import { byName, matches, searchBox, balanceText } from "./views.js";
+import { byName, matches, searchBox, balanceText, productThumb } from "./views.js";
+import { pickProducts } from "./picker.js";
 import { RECEIPT_LABEL_KEYS, receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
 import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
@@ -26,9 +27,16 @@ import { canPickContact, pickContact } from "./contacts.js";
 
 const sheet = $("#sheet");
 
-// onsubmit hata metni döndürürse form açık kalır ve metin gösterilir.
+// Form telefonda tam ekran bir sayfa gibi açılır: üstte geri oku ve başlık, ortada alanlar,
+// altta hep görünen ana düğme. Ana düğme (primary) ve "foot" sınıflı parçalar alta gider,
+// diğer düğmeler alanların sonuna. Kapat düğmesinin yerini üstteki geri oku alır.
+// onsubmit hata metni döndürürse form açık kalır ve metin ana düğmenin hemen üstünde görünür.
 function open(title, fields, buttons, onsubmit) {
   const error = h("p", { class: "error", role: "alert" });
+  const list = buttons.filter((b) => b && !b.hasAttribute?.("data-close"));
+  const foot = list.filter((b) => b.classList?.contains("primary") || b.classList?.contains("foot"));
+  const rest = list.filter((b) => !foot.includes(b));
+  const body = h("div", { class: "sheet-body" }, fields.filter(Boolean), rest, foot.length ? null : error);
   const form = h("form", {
     class: "menu", novalidate: true,
     onsubmit: (e) => {
@@ -42,11 +50,19 @@ function open(title, fields, buttons, onsubmit) {
         error.textContent = t("genericError");
       }
     },
-  }, h("h3", {}, title), fields.filter(Boolean), error, buttons.filter(Boolean));
+  },
+  h("header", { class: "sheet-top" },
+    h("button", { type: "button", class: "icon back", "aria-label": t("close"), onclick: () => sheet.close() }, icon("back")),
+    h("h3", {}, title)),
+  body,
+  foot.length > 0 && h("div", { class: "sheet-foot" }, error, foot));
   sheet.replaceChildren(form);
   if (!sheet.open) sheet.showModal(); // bir formdan diğerine geçerken pencere zaten açık
-  sheet.scrollTop = 0;
+  body.scrollTop = 0;
 }
+
+// Formun altındaki özet + ana düğme (toplam, sayılan…): solda özet, sağda düğme.
+const footBar = (summary, button) => h("div", { class: "foot foot-bar" }, summary, button);
 
 const failed = (err) => {
   console.error(err);
@@ -80,8 +96,18 @@ const numberInput = (attrs = {}) => h("input", { inputmode: "decimal", autocompl
 const select = (options, value, attrs = {}) =>
   h("select", attrs, options.map(([v, label]) => h("option", { value: v, selected: v === value }, label)));
 const fact = (label, value) => h("div", { class: "fact" }, h("span", {}, label), h("strong", {}, value));
+// Not alanı gizli başlar; "Not ekle"ye dokununca açılır (çoğu kayıtta not gerekmez).
+function noteField(input) {
+  const wrap = field(t("note"), input);
+  wrap.hidden = !input.value;
+  const toggle = h("button", {
+    type: "button", class: "pill-btn", hidden: Boolean(input.value),
+    onclick: () => { toggle.hidden = true; wrap.hidden = false; input.focus(); },
+  }, icon("pencil"), t("addNote"));
+  return h("div", { class: "note-field" }, toggle, wrap);
+}
 const saveButton = (label = t("save")) => h("button", { class: "primary block" }, label);
-const closeButton = () => h("button", { type: "button", class: "block ghost", onclick: () => sheet.close() }, t("close"));
+const closeButton = () => h("button", { type: "button", class: "block ghost", "data-close": true, onclick: () => sheet.close() }, t("close"));
 const dateInput = () => h("input", { type: "date", value: today(), required: true });
 const sum = (list, fn) => list.reduce((s, x) => s + fn(x), 0);
 
@@ -409,75 +435,68 @@ function rateField(onchange) {
 
 // --- Alış / satış / emanet (ürün satırlı) ve ödeme / tahsilat ----------------------------
 
-// Formda bir ürün satırı: ürün, miktar, birim fiyat.
-function lineRow(ctx, products, onchange, onremove) {
-  const product = select([["", t("chooseProduct")], ...products.map((p) => [p.id, productLabel(p)])], "");
-  const qty = numberInput({ placeholder: t("qty"), "aria-label": t("qty"), oninput: onchange });
-  const price = numberInput({ placeholder: t("price"), "aria-label": t("unitPrice"), oninput: onchange });
-  const unit = h("span", { class: "unit" });
+// Adet kutusu ve iki yanında − / + düğmeleri. onstep(d) adedi d kadar değiştirir.
+function stepper(input, onstep) {
+  return h("div", { class: "stepper" },
+    h("button", { type: "button", class: "step", "aria-label": t("stepLess"), onclick: () => onstep(-1) }, icon("minus")),
+    input,
+    h("button", { type: "button", class: "step", "aria-label": t("stepMore"), onclick: () => onstep(1) }, icon("plus")));
+}
+
+// Formda bir ürün kartı: ürün, adet (− / +), birim fiyat ve satır tutarı.
+function lineRow(ctx, p, onchange, onremove) {
+  const qty = numberInput({ value: "1", "aria-label": t("qty"), oninput: onchange });
+  const price = numberInput({ value: moneyInput(ctx.suggestPrice(p)), placeholder: "0,00", "aria-label": t("unitPrice"), oninput: onchange });
   const total = h("strong", { class: "line-total" });
   const hint = h("small", { class: "field-hint" });
+  const add = (d) => {
+    qty.value = qtyInput(Math.max(0, roundQty((parseQty(qty.value) ?? 0) + d)));
+    onchange();
+  };
 
   // Altta stok ve (satışta) bu fiyatla kâr marjı.
   const showHint = () => {
-    const p = session.firm.products.get(product.value);
-    if (!p) {
-      hint.textContent = "";
-      return;
-    }
     const parts = [t("inStockShort", { n: formatNumber(p.stock), unit: unitLabel(p.unit) })];
     if (ctx.margin) {
       const m = marginPct(parseMoney(price.value), p.stock > 0 ? avgCost(p) : p.lastCost);
       if (m != null) parts.push(t("marginShort", { pct: formatNumber(m) }));
     }
     hint.textContent = parts.join(" · ");
-    hint.classList.toggle("bad", isLow(p));
+    // Çıkışta depodakinden fazlası istenirse de kırmızı.
+    const over = ctx.outgoing && (parseQty(qty.value) ?? 0) > p.stock;
+    hint.classList.toggle("bad", isLow(p) || p.stock <= 0 || over);
   };
-  product.addEventListener("change", () => {
-    const p = session.firm.products.get(product.value);
-    unit.textContent = p ? unitLabel(p.unit) : "";
-    price.value = p ? moneyInput(ctx.suggestPrice(p)) : "";
-    onchange();
-    if (p) qty.focus();
-  });
 
   const row = {
     el: h("div", { class: "line" },
-      h("div", { class: "line-top" }, product, iconButton("x", t("remove"), () => onremove(row))),
+      h("div", { class: "line-top" },
+        productThumb(p, "sm"),
+        h("span", { class: "line-name" }, h("bdi", {}, productLabel(p))),
+        h("button", { type: "button", class: "icon remove", "aria-label": t("remove"), title: t("remove"), onclick: () => onremove(row) }, icon("trash"))),
       h("div", { class: "line-nums" },
-        h("span", { class: "qty" }, qty, unit), h("span", { class: "times" }, "×"), price, total),
-      hint),
+        h("div", { class: "mini" }, h("span", {}, t("qty"), ` (${unitLabel(p.unit)})`), stepper(qty, add)),
+        h("label", { class: "mini" }, h("span", {}, t("unitPrice"), ctx.symbol()), price)),
+      h("div", { class: "line-foot" }, hint, total)),
     total() {
       const q = parseQty(qty.value);
-      const p = parseMoney(price.value);
-      return q && p != null ? lineTotal({ qty: q, price: p }) : 0;
+      const pr = parseMoney(price.value);
+      return q && pr != null ? lineTotal({ qty: q, price: pr }) : 0;
     },
     refresh() {
       total.textContent = formatMoney(row.total(), ctx.currency());
       showHint();
     },
-    // Satır boşsa null, hatalıysa hata metni, doğruysa { product, qty, price }.
+    // Hatalıysa hata metni, doğruysa { product, qty, price }.
     read() {
-      if (!product.value && !qty.value.trim()) return null;
-      if (!product.value) return t("chooseProduct");
       const q = parseQty(qty.value);
-      if (!q) return t("badQty");
-      const p = price.value.trim() ? parseMoney(price.value) : null;
-      if (p == null) return t("enterPrice");
-      return { product: product.value, qty: q, price: p };
+      if (!q) return t("badQtyFor", { name: productLabel(p) });
+      const pr = price.value.trim() ? parseMoney(price.value) : null;
+      if (pr == null) return t("enterPriceFor", { name: productLabel(p) });
+      return { product: p.id, qty: q, price: pr };
     },
-    productId: () => product.value,
-    // Barkod okutulunca: ürünü seçer ya da aynı ürünse miktarı 1 artırır.
-    scanned(id) {
-      if (product.value !== id) {
-        product.value = id;
-        product.dispatchEvent(new Event("change"));
-        qty.value = "1";
-      } else {
-        qty.value = qtyInput(roundQty((parseQty(qty.value) ?? 0) + 1));
-      }
-      onchange();
-    },
+    product: p,
+    qty: () => parseQty(qty.value) ?? 0,
+    add,
   };
   row.refresh();
   return row;
@@ -544,9 +563,12 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
 
   if (hasLines(type)) {
     const list = h("div", { class: "lines" });
+    const empty = h("p", { class: "lines-empty" }, t("noLinesYet"));
     const ctx = {
       currency,
+      symbol,
       margin: type === "sale" || type === "consign",
+      outgoing: type === "sale" || type === "consign",
       // Satışta ürünün satış fiyatı, emanette o satıcıya son verilen fiyat, alışta son alış fiyatı.
       suggestPrice(p) {
         if (type === "sale") return p.price;
@@ -555,36 +577,43 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
         return currency() === "TRY" ? p.lastCost : r ? Math.round(p.lastCost / r) : 0;
       },
     };
-    const addLine = () => {
-      const row = lineRow(ctx, products, refresh, (r) => {
+    const showEmpty = () => { empty.hidden = rows.length > 0; };
+    // Ürün forma eklenir; zaten varsa adedi 1 artar.
+    const addProduct = (p) => {
+      const existing = rows.find((r) => r.product.id === p.id);
+      if (existing) {
+        existing.add(1);
+        return;
+      }
+      const row = lineRow(ctx, p, refresh, (r) => {
         rows = rows.filter((x) => x !== r);
         r.el.remove();
-        if (!rows.length) addLine();
+        showEmpty();
         refresh();
       });
       rows.push(row);
       list.append(row.el);
+      showEmpty();
+      refresh();
     };
-    addLine();
-    // Barkod okutunca ürün satıra gelir; aynı ürün tekrar okutulursa miktarı artar.
+    const pickLines = () => pickProducts({
+      products,
+      count: (p) => rows.find((r) => r.product.id === p.id)?.qty() ?? 0,
+      onpick: addProduct,
+    });
+    // Barkod okutunca ürün forma gelir; aynı ürün tekrar okutulursa adedi artar.
     const scanLine = async () => {
       const code = await scanBarcode();
       if (!code) return;
       const p = productByBarcode(code);
       if (!p) return toast(t("barcodeUnknown", { code }));
-      const row = rows.find((r) => r.productId() === p.id) ?? rows.find((r) => !r.productId());
-      if (row) row.scanned(p.id);
-      else {
-        addLine();
-        rows.at(-1).scanned(p.id);
-      }
-      return refresh();
+      return addProduct(p);
     };
     fields.push(
-      h("p", { class: "label" }, t("products"), symbol()), list,
-      h("div", { class: "line-actions" },
-        h("button", { type: "button", class: "small add-line", onclick: () => { addLine(); refresh(); } }, "+ ", t("addLine")),
-        canScan() && h("button", { type: "button", class: "small add-line", onclick: scanLine }, icon("barcode"), t("scanBarcode"))));
+      h("div", { class: `pick-actions${canScan() ? "" : " one"}` },
+        h("button", { type: "button", class: "ink", onclick: pickLines }, icon("listCheck"), t("pickProducts")),
+        canScan() && h("button", { type: "button", class: "scan-btn", onclick: scanLine }, icon("barcode"), t("scanBarcode"))),
+      empty, list);
     if (type === "consign") fields.push(h("small", { class: "field-hint" }, t("consignHint")));
     if (PAID_NOW[type]) {
       paidNow = numberInput({ placeholder: "0,00" });
@@ -607,12 +636,13 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
     holder = partnerField(t(type === "sale" || type === "collection" ? "holderIn" : "holderOut"));
     fields.push(holder.field);
   }
-  fields.push(field(t("note"), note), h("div", { class: "total" }, h("span", {}, t("total")), h("span", { class: "total-values" }, total, totalTry)));
+  fields.push(noteField(note));
 
   partySelect.addEventListener("change", () => rate.set(currency()));
   rate.set(currency());
 
-  open(title, fields, [saveButton(), closeButton()], () => {
+  const summary = h("div", { class: "foot-sum" }, h("span", {}, t("total")), total, totalTry);
+  open(title, fields, [footBar(summary, saveButton())], () => {
     const p = party();
     if (!p) return t(kind === "seller" ? "chooseSeller" : "chooseSupplier");
     if (!date.value) return t("chooseDate");
@@ -672,11 +702,14 @@ export function openShelfSheet(mode, fixedParty) {
   const date = dateInput();
   const list = h("div", { class: "lines" });
   const total = h("strong", {});
+  const progress = h("small", { class: "foot-progress" });
   let items = [];
 
   const refresh = () => {
     for (const it of items) it.refresh();
     total.textContent = formatMoney(sum(items, (it) => it.total()));
+    const done = items.filter((it) => it.touched()).length;
+    progress.textContent = items.length ? t(count ? "countedOf" : "returnedOf", { n: done, all: items.length }) : "";
   };
 
   const build = () => {
@@ -684,14 +717,29 @@ export function openShelfSheet(mode, fixedParty) {
     items = Object.entries(party?.shelf ?? {})
       .filter(([, s]) => s.stock > 0)
       .map(([id, s]) => shelfItem(id, s, count, refresh));
-    list.replaceChildren(...(items.length ? items.map((it) => it.el) : [h("p", { class: "muted center" }, t("chooseSeller"))]));
+    list.replaceChildren(...(items.length ? items.map((it) => it.el) : [h("p", { class: "lines-empty" }, t("chooseSeller"))]));
+    scan.hidden = !items.length || !canScan();
     refresh();
   };
+
+  // Barkod okutunca o ürün bir artar (sayımda kalan, iadede iade edilen).
+  const scan = h("button", {
+    type: "button", class: "scan-btn block", onclick: async () => {
+      const code = await scanBarcode();
+      if (!code) return;
+      const p = productByBarcode(code);
+      const item = p && items.find((it) => it.id === p.id);
+      if (!item) return toast(p ? t("notOnShelf", { name: productLabel(p) }) : t("barcodeUnknown", { code }));
+      item.add(1);
+      item.el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    },
+  }, icon("barcode"), t(count ? "scanToCount" : "scanToReturn"));
   partySelect.addEventListener("change", build);
 
   const fields = [
     h("div", { class: "row2" }, field(t("seller"), partySelect), field(t("date"), date)),
     h("small", { class: "field-hint" }, t(count ? "countHint" : "returnHint")),
+    scan,
     list,
   ];
   let paidNow;
@@ -701,10 +749,10 @@ export function openShelfSheet(mode, fixedParty) {
     holder = partnerField(t("holderIn"));
     fields.push(field(t("paidNowSale"), paidNow, t("paidNowHint")), holder.field);
   }
-  fields.push(h("div", { class: "total" }, h("span", {}, t(count ? "soldTotal" : "returnTotal")), total));
   build();
 
-  open(title, fields, [saveButton(), closeButton()], () => {
+  const summary = h("div", { class: "foot-sum" }, h("span", {}, t(count ? "soldTotal" : "returnTotal")), total, progress);
+  open(title, fields, [footBar(summary, saveButton(t(count ? "saveCount" : "saveReturn")))], () => {
     const party = partySelect.value;
     if (!party) return t("chooseSeller");
     const lines = [];
@@ -725,12 +773,15 @@ export function openShelfSheet(mode, fixedParty) {
   });
 }
 
-// Raftaki bir ürün. Sayımda "kalan" yazılır, satılan hesaplanır; iadede iade edilen miktar yazılır.
+// Raftaki bir ürün kartı. Sayımda rafta kalan sayılır (− / + ya da barkod), satılan hesaplanır;
+// iadede iade edilen miktar. Kartın rengi ve etiketi durumu söyler: sayılmadı (gri),
+// hepsi rafta (yeşil), satılmış (mavi), hatalı (kırmızı).
 function shelfItem(id, shelf, count, onchange) {
   const p = session.firm.products.get(id);
   const unit = unitLabel(p?.unit);
-  const input = numberInput({ placeholder: count ? t("remaining") : "0", "aria-label": count ? t("remaining") : t("returnQty"), oninput: onchange });
+  const input = numberInput({ placeholder: count ? "–" : "0", "aria-label": count ? t("remaining") : t("returnQty"), oninput: onchange });
   const price = numberInput({ value: moneyInput(shelf.price), "aria-label": t("unitPrice"), oninput: onchange });
+  const chip = h("span", { class: "chip-state" });
   const result = h("span", { class: "shelf-result" });
   // Sayımda satılan = raftaki − kalan; iadede yazılan miktar.
   const qty = () => {
@@ -738,17 +789,29 @@ function shelfItem(id, shelf, count, onchange) {
     if (v == null) return null;
     return count ? roundQty(shelf.stock - v) : v;
   };
+  // Sayılmamış üründe − sıfırdan başlar ("hiç kalmamış").
+  const add = (d) => {
+    const v = parseQty(input.value);
+    input.value = qtyInput(Math.max(0, roundQty(v == null ? Math.max(d, 0) : v + d)));
+    onchange();
+  };
+  const el = h("div", { class: "line shelf-card" },
+    h("div", { class: "line-top" },
+      p ? productThumb(p, "sm") : null,
+      h("span", { class: "line-name" }, h("bdi", {}, productLabel(p) || "?")),
+      chip),
+    h("div", { class: "shelf-nums" },
+      h("div", { class: "mini" }, h("span", {}, count ? t("remaining") : t("returnQty")),
+        h("div", { class: "count-row" }, stepper(input, add), h("span", { class: "of" }, `/ ${formatNumber(shelf.stock)} ${unit}`))),
+      count
+        ? h("label", { class: "mini" }, h("span", {}, t("unitPrice")), price)
+        : h("button", { type: "button", class: "small all", onclick: () => { input.value = qtyInput(shelf.stock); onchange(); } }, t("returnAll"))),
+    result);
   const item = {
-    el: h("div", { class: "line" },
-      h("div", { class: "shelf-top" },
-        h("span", { class: "title" }, h("bdi", {}, productLabel(p) || "?")),
-        h("span", { class: "meta" }, t("onShelfQty", { n: formatNumber(shelf.stock), unit }))),
-      h("div", { class: "shelf-nums" },
-        field(count ? t("remaining") : t("returnQty"), input),
-        count
-          ? field(t("unitPrice"), price)
-          : h("button", { type: "button", class: "small all", onclick: () => { input.value = qtyInput(shelf.stock); onchange(); } }, t("returnAll"))),
-      result),
+    id,
+    el,
+    add,
+    touched: () => Boolean(input.value.trim()) && (count || (parseQty(input.value) ?? 0) > 0),
     total() {
       const q = qty();
       const pr = count ? parseMoney(price.value) : shelf.price;
@@ -756,10 +819,16 @@ function shelfItem(id, shelf, count, onchange) {
     },
     refresh() {
       const q = qty();
-      if (!input.value.trim() || q == null) result.textContent = "";
-      else if (count) result.textContent = q > 0 ? t("soldLine", { n: formatNumber(q), unit, amount: formatMoney(item.total()) }) : t("noneSold");
-      else result.textContent = q > 0 ? t("returnLine", { n: formatNumber(q), unit }) : "";
-      result.classList.toggle("bad", q != null && (q < 0 || q > shelf.stock));
+      const bad = q != null && (q < 0 || q > shelf.stock);
+      let state = "pending";
+      let label = count ? t("notCounted") : "";
+      if (bad) [state, label] = ["bad", t(count ? "tooMany" : "tooManyReturn")];
+      else if (count && q === 0) [state, label] = ["full", t("allOnShelf")];
+      else if (q > 0) [state, label] = ["done", count ? t("soldCount", { n: formatNumber(q) }) : t("returnCount", { n: formatNumber(q) })];
+      el.dataset.state = state;
+      chip.textContent = label;
+      chip.hidden = !label;
+      result.textContent = count && q > 0 && !bad ? t("soldLine", { n: formatNumber(q), unit, amount: formatMoney(item.total()) }) : "";
     },
     read() {
       if (!input.value.trim()) return null;
@@ -767,7 +836,7 @@ function shelfItem(id, shelf, count, onchange) {
       if (q == null || q < 0 || q > shelf.stock) return t(count ? "badRemaining" : "badReturn", { name: productLabel(p) || "?" });
       if (q === 0) return null;
       const pr = count ? parseMoney(price.value) : shelf.price;
-      if (pr == null) return t("enterPrice");
+      if (pr == null) return t("enterPriceFor", { name: productLabel(p) || "?" });
       return { product: id, qty: q, price: pr };
     },
   };

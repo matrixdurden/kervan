@@ -406,7 +406,7 @@ button.avatars { height: auto; padding: 4px; border: 0; }
 .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
 .toolbar .primary { height: 44px; flex: none; }
 .search { position: relative; flex: 1; display: flex; align-items: center; min-width: 0; }
-.search svg { position: absolute; inset-inline-start: 16px; color: var(--text-3); pointer-events: none; }
+.search > svg { position: absolute; inset-inline-start: 16px; color: var(--text-3); pointer-events: none; }
 .search input { height: 44px; padding-inline-start: 42px; }
 
 .total-line { display: flex; justify-content: space-between; align-items: baseline; margin: 0 6px 10px; font-size: 14px; color: var(--text-2); }
@@ -678,7 +678,7 @@ button.whatsapp { font-size: 16px; height: 52px; }
 .variants { display: flex; flex-direction: column; gap: 6px; }
 button.variant {
   height: auto; min-height: 44px; padding: 6px 12px; border-radius: 12px;
-  display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: center;
+  display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
   font-weight: 600; text-align: start; background: var(--bg);
 }
 .v-stock { color: var(--text-3); font-size: 13px; }
@@ -811,3 +811,184 @@ dialog.sheet { padding: 22px 18px; }
 
 /* Fatura okuma hazır bilgisi */
 .card.ai-ready { display: block; margin: 0; font-weight: 700; color: var(--in); background: color-mix(in srgb, var(--in) 10%, var(--card)); border-color: color-mix(in srgb, var(--in) 30%, var(--card)); }
+
+/* --- Kolay kullanım düzeni ------------------------------------------------------ */
+/* Yeni kullanıcı için tek kural: o sayfanın ana işi hep altta, büyük düğmede. Ürün "Ürün seç"
+   ya da "Barkod oku" ile eklenir, adet − / + ile değişir; kartın rengi durumu söyler. */
+
+/* Formlar telefonda tam ekran sayfa: üstte geri + başlık, ortası kayar, altta ana düğme. */
+dialog.sheet {
+  width: 100%; max-width: 100%; height: 100dvh; max-height: 100dvh;
+  margin: 0; padding: 0; border: 0; border-radius: 0; overflow: hidden;
+}
+dialog.sheet[open] { display: flex; flex-direction: column; }
+dialog.sheet > .menu { flex: 1; min-height: 0; gap: 0; }
+.sheet-top {
+  flex: none; display: flex; align-items: center; gap: 4px;
+  padding: calc(8px + env(safe-area-inset-top)) 10px 8px;
+  background: var(--card); border-bottom: 1px solid var(--card-border);
+}
+.sheet-top h3 { flex: 1; min-width: 0; margin: 0; font-size: 20px; text-align: start; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sheet-top button.back { width: 44px; height: 44px; margin: 0; color: var(--text); }
+.sheet-top button.back svg { width: 24px; height: 24px; }
+.sheet-body {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 16px; display: flex; flex-direction: column; gap: 14px;
+}
+.sheet-body > * { flex-shrink: 0; } /* uzun formda öğeler ezilmesin, alan kaysın */
+.sheet-foot {
+  flex: none; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--card); border-top: 1px solid var(--card-border);
+}
+.sheet-foot .error:empty { display: none; }
+.sheet-foot button.primary { height: 56px; font-size: 17px; border-radius: 16px; }
+.foot-bar { display: flex; align-items: stretch; gap: 10px; }
+.foot-bar > button.primary { flex: 1; min-width: 0; }
+.foot-sum {
+  display: flex; flex-direction: column; justify-content: center;
+  min-width: 112px; max-width: 48%; padding: 4px 14px;
+  border-radius: 16px; background: var(--bg);
+}
+.foot-sum > span { font-size: 12.5px; font-weight: 700; color: var(--text-2); }
+.foot-sum > strong { font-size: 19px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot-sum small { margin: 0; font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot-sum small:empty { display: none; }
+@media (min-width: 640px) {
+  dialog.sheet {
+    width: min(560px, calc(100% - 48px)); height: auto; max-height: calc(100dvh - 48px);
+    margin: auto; border: 1px solid var(--card-border); border-radius: 24px;
+  }
+  .sheet-top { padding-top: 10px; }
+  .sheet-foot { padding-bottom: 14px; }
+}
+
+/* Sayfanın ana işlemi: altta sabit büyük düğme */
+.fab-bar {
+  position: fixed; z-index: 5; left: 0; right: 0; bottom: 0;
+  padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid var(--card-border);
+}
+.fab-bar > button.fab {
+  display: flex; max-width: 528px; margin: 0 auto; height: 58px;
+  font-size: 17.5px; border-radius: 16px; box-shadow: 0 4px 14px rgb(0 0 0 / 0.14);
+}
+.fab svg { width: 22px; height: 22px; stroke-width: 2.6; }
+#firm.has-fab { padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
+/* Açılış kayması (transform) sabit düğmeyi sayfayla birlikte kaydırmasın: burada sadece solma. */
+#firm.has-fab:not([hidden]) { animation-name: fade-in; }
+@keyframes fade-in { from { opacity: 0; } }
+.toast[popover] { bottom: calc(100px + env(safe-area-inset-bottom)); }
+
+/* Üstteki yan işlemler: eşit genişlikte, sade */
+.page-actions { display: flex; gap: 8px; }
+.page-actions > * { flex: 1; min-width: 0; }
+.page-actions .big-action:not(.primary) { height: 48px; font-size: 14.5px; }
+
+/* Sekmeler (Hepsi / Azalanlar) */
+.tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; overflow: hidden; border: 1px solid var(--card-border); border-radius: 14px; background: var(--card); }
+.tabs button { height: 48px; border: 0; border-radius: 0; font-size: 15.5px; font-weight: 800; color: var(--text-2); }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+
+/* Arama kutusunun içinde barkod düğmesi */
+.search.with-scan input { padding-inline-end: 120px; }
+.search button.scan-in {
+  position: absolute; inset-inline-end: 6px; height: 38px; padding: 0 12px;
+  border: 0; border-radius: 10px; font-size: 14.5px;
+  color: var(--primary); background: color-mix(in srgb, var(--primary) 11%, var(--card));
+}
+.search button.scan-in svg { width: 20px; height: 20px; }
+
+/* Ürün kartı: ad + stok rozeti, etiketler, alış / satış */
+button.card.product-card {
+  width: 100%; height: auto; padding: 14px;
+  flex-direction: column; align-items: stretch; gap: 10px;
+  text-align: start; font-weight: 400; white-space: normal;
+}
+.pc-head { display: flex; align-items: center; gap: 12px; }
+.pc-head .title { flex: 1; min-width: 0; font-size: 17px; font-weight: 800; overflow-wrap: anywhere; }
+.stock-badge {
+  flex: none; padding: 6px 12px; border-radius: 10px;
+  font-size: 15px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.stock-badge.green { color: var(--in); background: color-mix(in srgb, var(--in) 13%, var(--card)); }
+.stock-badge.amber { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--card)); }
+.stock-badge.red { color: var(--danger); background: color-mix(in srgb, var(--danger) 13%, var(--card)); }
+.variant .stock-badge { padding: 3px 10px; font-size: 13.5px; }
+.chip-tags, .price-pills { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid var(--card-border); }
+.chip-tags { flex-wrap: wrap; gap: 6px; }
+.chip-tag { padding: 3px 10px; border: 1px solid currentColor; border-radius: 999px; font-size: 13px; font-weight: 700; }
+.chip-tag.blue { color: var(--blue); }
+.chip-tag.green { color: var(--in); }
+.chip-tag.red { color: var(--danger); }
+.price-pills { justify-content: space-between; }
+.price-pill {
+  display: inline-flex; align-items: baseline; gap: 6px; min-width: 0;
+  padding: 7px 12px; border: 1px solid var(--card-border); border-radius: 12px; background: var(--bg);
+}
+.price-pill small { font-size: 13px; font-weight: 700; color: var(--text-2); }
+.price-pill strong { font-size: 16px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Ürün seçme penceresi */
+.pick-mark {
+  width: 40px; height: 40px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; font-size: 15px; font-weight: 800;
+  color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--card));
+}
+.pick.picked { border-color: var(--primary); }
+.pick.picked .pick-mark { color: var(--on-primary); background: var(--primary); }
+.pick .meta .bad { color: var(--danger); }
+.sheet-body > .search, .page-head > .search { flex: none; }
+
+/* Formda ürün ekleme ve ürün kartları */
+.pick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pick-actions.one { grid-template-columns: 1fr; }
+.pick-actions button, button.scan-btn { height: 54px; font-size: 16px; border-radius: 14px; }
+button.scan-btn { color: #fff; background: var(--collect); border-color: transparent; }
+.pick-actions svg, button.scan-btn svg { width: 22px; height: 22px; }
+.lines-empty {
+  margin: 0; padding: 20px 16px; text-align: center; font-weight: 600; color: var(--text-3);
+  border: 1.5px dashed var(--border); border-radius: 16px;
+}
+.line { gap: 10px; }
+.line-top { gap: 10px; }
+.thumb.sm { width: 40px; height: 40px; border-radius: 10px; font-size: 15px; }
+.line-name { flex: 1; min-width: 0; font-size: 16px; font-weight: 800; overflow-wrap: anywhere; }
+button.icon.remove { width: 40px; height: 40px; color: var(--danger); }
+.line-nums { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 10px; align-items: end; }
+.mini { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mini > span { margin-inline-start: 2px; font-size: 12.5px; font-weight: 700; color: var(--text-2); }
+.stepper { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 4px; }
+.stepper input { padding: 0 4px; text-align: center; font-size: 18px; font-weight: 800; }
+button.step {
+  width: 44px; height: 44px; padding: 0; border-radius: 50%;
+  color: var(--text); background: var(--bg); border-color: var(--card-border);
+}
+button.step svg { width: 20px; height: 20px; stroke-width: 2.6; }
+.line-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid var(--card-border); }
+.line-foot .field-hint { margin: 0; }
+.line-total { font-size: 17px; }
+.note-field { display: flex; flex-direction: column; }
+button.pill-btn {
+  align-self: flex-end; height: 40px; padding: 0 16px; border-radius: 999px;
+  font-size: 14.5px; color: var(--text-2); background: var(--card); border-color: var(--card-border);
+}
+
+/* Sayım / iade kartı: soldaki şerit ve etiket durumu söyler */
+.shelf-card { border-inline-start: 6px solid var(--border); }
+.shelf-card[data-state="full"] { border-inline-start-color: var(--in); background: color-mix(in srgb, var(--in) 8%, var(--card)); }
+.shelf-card[data-state="done"] { border-inline-start-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, var(--card)); }
+.shelf-card[data-state="bad"] { border-inline-start-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--card)); }
+.chip-state { flex: none; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 800; color: var(--text-2); background: var(--bg); }
+.shelf-card[data-state="full"] .chip-state { color: #fff; background: var(--in); }
+.shelf-card[data-state="done"] .chip-state { color: #fff; background: var(--blue); }
+.shelf-card[data-state="bad"] .chip-state { color: #fff; background: var(--danger); }
+.shelf-card .shelf-nums { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.shelf-card label.mini { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; }
+.shelf-card label.mini input { width: 140px; flex: none; }
+.shelf-card button.all { justify-self: start; }
+.count-row { display: flex; align-items: center; gap: 8px; }
+.count-row .stepper { flex: 1; min-width: 0; }
+.of { font-size: 14px; font-weight: 700; color: var(--text-3); white-space: nowrap; }

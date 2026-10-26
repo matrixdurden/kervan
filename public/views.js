@@ -74,14 +74,23 @@ export function emptyState(emoji, text, ...actions) {
   return h("div", { class: "empty" }, h("span", { class: "big-emoji", "aria-hidden": "true" }, emoji), h("span", {}, text), ...actions);
 }
 
-export function searchBox(placeholder, value, oninput) {
-  return h("label", { class: "search" }, icon("search"),
-    h("input", { type: "search", placeholder, "aria-label": placeholder, value, dir: "auto", autocomplete: "off", oninput: (e) => oninput(e.target.value) }));
+// Arama kutusu; onscan verilirse kutunun içinde, sonda bir "Barkod" düğmesi olur.
+export function searchBox(placeholder, value, oninput, onscan) {
+  return h("div", { class: `search${onscan ? " with-scan" : ""}` }, icon("search"),
+    h("input", { type: "search", placeholder, "aria-label": placeholder, value, dir: "auto", autocomplete: "off", oninput: (e) => oninput(e.target.value) }),
+    onscan && h("button", { type: "button", class: "scan-in", onclick: onscan }, icon("barcode"), h("span", {}, t("barcode"))));
 }
 
-// Seçenek düğmeleri: [[değer, etiket], …]
-export function segmented(options, value, onchange) {
-  const el = h("div", { class: "seg", role: "group" });
+// Ürünün küçük fotoğrafı; yoksa adının baş harfi.
+export function productThumb(p, size = "") {
+  return p.thumb
+    ? h("img", { class: `thumb ${size}`, src: p.thumb, alt: "", loading: "lazy" })
+    : h("span", { class: `thumb blank ${size}`, "aria-hidden": "true" }, p.name.charAt(0).toLocaleUpperCase("tr"));
+}
+
+// Seçenek düğmeleri: [[değer, etiket], …]. style "tabs": sayfanın üstünde tam genişlik sekmeler.
+export function segmented(options, value, onchange, style = "") {
+  const el = h("div", { class: style === "tabs" ? "tabs" : "seg", role: "group" });
   const render = (current) => el.replaceChildren(...options.map(([v, label]) => h("button", {
     type: "button", "aria-pressed": String(v === current),
     onclick: () => { render(v); onchange(v); },

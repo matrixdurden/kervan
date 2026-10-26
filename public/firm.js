@@ -12,7 +12,7 @@ import { session, currentFirm, partners, person, sharePlan, resetFirm, myName } 
 import { formatMoney, formatNumber } from "./money.js";
 import { avgCost, sumMonths, splitBuckets, lineTotal, roundQty } from "./ledger.js";
 import {
-  moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, newestFirst,
+  moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, newestFirst, productThumb,
 } from "./views.js";
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
@@ -145,8 +145,9 @@ function render() {
     rendered = key;
     body = h("div", { class: "view-body" });
     $("#firm-top").replaceChildren(...view.top().filter(Boolean));
-    $("#view").replaceChildren(...[view.head?.(), body].filter(Boolean));
+    $("#view").replaceChildren(...[view.head?.(), body, view.fab && fabBar(...view.fab())].filter(Boolean));
     $("#firm").classList.toggle("home", !page);
+    $("#firm").classList.toggle("has-fab", Boolean(view.fab));
   } else if (!page) {
     $("#firm-top").replaceChildren(...view.top().filter(Boolean)); // zil sayısı değişebilir
   }
@@ -196,10 +197,15 @@ function pageTop(title, extra) {
   ].filter(Boolean);
 }
 
-// Sayfanın en üstündeki büyük işlem düğmeleri.
+// Sayfanın üstündeki yan işlem düğmeleri (ana işlem alttaki sabit düğmededir).
 function bigActions(...actions) {
   return h("div", { class: "page-actions" }, actions.filter(Boolean).map(([label, ic, onclick, cls = ""]) =>
     h("button", { type: "button", class: `big-action ${cls}`, onclick }, icon(ic), h("span", {}, label))));
+}
+
+// Sayfanın ana işlemi: ekranın altında, başparmağın yetiştiği yerde hep duran büyük düğme.
+function fabBar(label, onclick) {
+  return h("div", { class: "fab-bar" }, h("button", { type: "button", class: "primary block fab", onclick }, icon("plus"), h("span", {}, label)));
 }
 
 // --- Ana ekran ------------------------------------------------------------------
@@ -308,10 +314,12 @@ function monthTotal(types) {
   return h("p", { class: "total-line" }, h("span", {}, t("thisMonthTotal")), h("strong", {}, formatMoney(total)));
 }
 
-const movesPage = ({ types, actions, empty, summary }) => ({
+// fab: alttaki ana düğme [etiket, işlem]; actions: üstteki yan işlemler.
+const movesPage = ({ types, fab, actions, empty, summary }) => ({
   types,
+  fab,
   top: () => pageTop(t(`page_${page}`)),
-  head: () => bigActions(...actions()),
+  head: actions && (() => bigActions(...actions())),
   body: () => [summary?.() ?? monthTotal(types), ...movesList({ emptyText: t(empty) })],
 });
 
@@ -325,21 +333,12 @@ async function scanProduct() {
   else openProductSheet(null, { barcode: code });
 }
 
-// Ürünün küçük fotoğrafı; yoksa adının baş harfi.
-export function productThumb(p, size = "") {
-  return p.thumb
-    ? h("img", { class: `thumb ${size}`, src: p.thumb, alt: "", loading: "lazy" })
-    : h("span", { class: `thumb blank ${size}`, "aria-hidden": "true" }, p.name.charAt(0).toLocaleUpperCase("tr"));
-}
-
 const productsPage = {
+  fab: () => [t("newProduct"), () => openProductSheet()],
   top: () => pageTop(t("page_products")),
   head: () => h("div", { class: "page-head" },
-    bigActions([t("newProduct"), "plus", () => openProductSheet(), "primary"]),
-    h("div", { class: "toolbar" },
-      searchBox(t("searchProducts"), search.products, (v) => { search.products = v; rerenderBody(); }),
-      canScan() && h("button", { type: "button", class: "icon-btn", "aria-label": t("scanBarcode"), title: t("scanBarcode"), onclick: scanProduct }, icon("barcode"))),
-    segmented([["all", t("filterAll")], ["low", t("filterLow")]], productFilter, (v) => { productFilter = v; rerenderBody(); })),
+    segmented([["all", t("filterAll")], ["low", t("filterLow")]], productFilter, (v) => { productFilter = v; rerenderBody(); }, "tabs"),
+    searchBox(t("searchProducts"), search.products, (v) => { search.products = v; rerenderBody(); }, canScan() ? scanProduct : null)),
   body() {
     const all = [...session.firm.products.values()];
     if (!all.length) return [emptyState("📦", t("noProducts"))];
@@ -358,32 +357,38 @@ const productsPage = {
   },
 };
 
-function productMeta(p) {
-  const unit = unitLabel(p.unit);
-  const meta = [t("inWarehouse", { n: formatNumber(p.stock), unit })];
-  if (p.consigned > 0) meta.push(t("atSellers", { n: formatNumber(p.consigned) }));
+// Ürünün etiketleri: satıcılardaki miktar ve kâr marjı.
+function productChips(p) {
+  const chips = [];
+  if (p.consigned > 0) chips.push(h("span", { class: "chip-tag blue" }, t("atSellers", { n: formatNumber(p.consigned) })));
   const margin = marginOf(p);
-  if (margin != null) meta.push(t("marginShort", { pct: formatNumber(margin) }));
-  return meta.join(" · ");
+  if (margin != null) chips.push(h("span", { class: `chip-tag ${margin < 0 ? "red" : "green"}` }, t("marginShort", { pct: formatNumber(margin) })));
+  return chips.length ? h("span", { class: "chip-tags" }, chips) : null;
 }
 
+// Stok rozeti: yeterliyse yeşil, azaldıysa turuncu, bittiyse kırmızı.
 function stockBadge(p) {
-  if (p.stock < 0) return h("span", { class: "badge warn" }, t("negativeStock"));
-  if (p.stock === 0) return h("span", { class: "badge warn" }, t("outOfStock"));
-  if (isLow(p)) return h("span", { class: "badge warn" }, t("lowStock"));
-  return null;
+  const tone = p.stock <= 0 ? "red" : isLow(p) ? "amber" : "green";
+  return h("span", { class: `stock-badge ${tone}` }, `${formatNumber(p.stock)} ${unitLabel(p.unit)}`);
+}
+
+// Alış (ortalama maliyet) ve satış fiyatı.
+function pricePills(p) {
+  const cost = p.stock > 0 ? avgCost(p) : p.lastCost;
+  return h("span", { class: "price-pills" },
+    h("span", { class: "price-pill" }, h("small", {}, t("priceBuy")), h("strong", {}, cost ? formatMoney(Math.round(cost)) : "–")),
+    h("span", { class: "price-pill" }, h("small", {}, t("priceSell")), h("strong", {}, p.price ? formatMoney(p.price) : "–")));
 }
 
 function productRow(p) {
   return h("li", {},
-    h("button", { type: "button", class: "card row", onclick: () => openProductSheet(p) },
-      productThumb(p),
-      h("span", { class: "main" },
+    h("button", { type: "button", class: "card product-card", onclick: () => openProductSheet(p) },
+      h("span", { class: "pc-head" },
+        productThumb(p),
         h("span", { class: "title" }, h("bdi", {}, productLabel(p))),
-        h("span", { class: "meta" }, productMeta(p))),
-      h("span", { class: "end" },
-        p.price ? h("span", { class: "amount" }, formatMoney(p.price)) : null,
-        stockBadge(p) ?? h("span", { class: "after" }, t("perUnit", { unit: unitLabel(p.unit) })))));
+        stockBadge(p)),
+      productChips(p),
+      pricePills(p)));
 }
 
 // Çeşitli ürün: üstte ortak ad ve toplam stok, altında her çeşit kendi satırında.
@@ -398,7 +403,6 @@ function groupCard(items) {
         h("span", { class: "meta" }, t("variantCount", { n: items.length, stock: formatNumber(total), unit: unitLabel(items[0].unit) })))),
     h("div", { class: "variants" }, items.map((p) => h("button", { type: "button", class: "variant", onclick: () => openProductSheet(p) },
       h("bdi", { class: "v-name" }, p.variant || t("variantDefault")),
-      h("span", { class: "v-stock" }, `${formatNumber(p.stock)} ${unitLabel(p.unit)}`),
       p.price ? h("span", { class: "v-price" }, formatMoney(p.price)) : null,
       stockBadge(p)))));
 }
@@ -412,11 +416,10 @@ export function partyAvatar(p) {
 }
 
 const partiesPage = (kind) => ({
+  fab: () => [t(kind === "seller" ? "newSeller" : "newSupplier"), () => openPartySheet(kind)],
   top: () => pageTop(t(kind === "seller" ? "page_sellers" : "page_suppliers")),
   head: () => h("div", { class: "page-head" },
-    bigActions([t(kind === "seller" ? "newSeller" : "newSupplier"), "plus", () => openPartySheet(kind), "primary"]),
-    h("div", { class: "toolbar" },
-      searchBox(t(kind === "seller" ? "searchSellers" : "searchSuppliers"), search[kind], (v) => { search[kind] = v; rerenderBody(); }))),
+    searchBox(t(kind === "seller" ? "searchSellers" : "searchSuppliers"), search[kind], (v) => { search[kind] = v; rerenderBody(); })),
   body() {
     const all = parties(kind).sort(byName);
     if (!all.length) return [emptyState(kind === "seller" ? "🏪" : "🚚", t(kind === "seller" ? "noSellers" : "noSuppliers"))];
@@ -450,9 +453,9 @@ function partyRow(p) {
 
 const consignPage = {
   types: ["consign", "consignSale", "return"],
+  fab: () => [t("quick_consign"), () => openMoveSheet("consign")],
   top: () => pageTop(t("page_consign")),
   head: () => bigActions(
-    [t("quick_consign"), "send", () => openMoveSheet("consign"), "primary"],
     [t("quick_count"), "clipboard", () => openShelfSheet("count")],
     [t("quick_return"), "undo", () => openShelfSheet("return")]),
   body() {
@@ -479,9 +482,9 @@ const consignPage = {
 
 const expensesPage = {
   types: ["expense"],
-  top: () => pageTop(t("page_expenses")),
-  head: () => bigActions([t("new_expense"), "plus", () => openCashSheet("expense"), "primary"],
-    [t("expenseCategories"), "tag", () => openCategoriesSheet()]),
+  fab: () => [t("new_expense"), () => openCashSheet("expense")],
+  top: () => pageTop(t("page_expenses"),
+    h("button", { type: "button", class: "icon-btn", "aria-label": t("expenseCategories"), title: t("expenseCategories"), onclick: () => openCategoriesSheet() }, icon("tag"))),
   body() {
     // Bu ayın giderleri kategoriye göre.
     const month = today().slice(0, 7);
@@ -740,19 +743,21 @@ const settingsPage = {
 const PAGES = {
   sales: movesPage({
     types: ["sale", "consignSale"], empty: "noSales",
-    actions: () => [[t("new_sale"), "plus", () => openMoveSheet("sale"), "primary"], [t("page_consign"), "send", () => openPage("consign")]],
+    fab: () => [t("new_sale"), () => openMoveSheet("sale")],
+    actions: () => [[t("page_consign"), "send", () => openPage("consign")]],
   }),
   purchases: movesPage({
     types: ["purchase"], empty: "noPurchases",
-    actions: () => [[t("new_purchase"), "plus", () => openMoveSheet("purchase"), "primary"], [t("page_invoice"), "fileScan", () => openInvoiceImport()]],
+    fab: () => [t("new_purchase"), () => openMoveSheet("purchase")],
+    actions: () => [[t("page_invoice"), "fileScan", () => openInvoiceImport()]],
   }),
   collections: movesPage({
     types: ["collection"], empty: "noCollections",
-    actions: () => [[t("new_collection"), "plus", () => openMoveSheet("collection"), "primary"]],
+    fab: () => [t("new_collection"), () => openMoveSheet("collection")],
   }),
   payments: movesPage({
     types: ["payment"], empty: "noPayments",
-    actions: () => [[t("new_payment"), "plus", () => openMoveSheet("payment"), "primary"]],
+    fab: () => [t("new_payment"), () => openMoveSheet("payment")],
   }),
   expenses: expensesPage,
   consign: consignPage,

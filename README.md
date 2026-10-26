@@ -54,6 +54,7 @@ public/              Yayınlanan site (build adımı yok)
   receipt.js         Satış fişi ve fatura bilgisi (resim, yazdırma), WhatsApp paylaşımı
   party.js           Bir satıcının/tedarikçinin hesabı, emanetteki malı ve ekstresi
   forms.js           Bütün formlar (ürün, cari, alış/satış/emanet, sayım/iade, kasa, paylar, iptal)
+  picker.js          Formun üstünde açılan, aranabilir ürün seçme listesi
   views.js           Ortak liste parçaları
   data.js            Firestore'a yazan işlemler
   ledger.js          Stok, emanet, maliyet, bakiye, kasa ve kâr hesabı (saf fonksiyonlar)

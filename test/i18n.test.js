@@ -37,7 +37,7 @@ test("koddaki her metin anahtarı tanımlı", () => {
   for (const type of ["expense", "capitalIn", "withdraw", "transfer"]) {
     assert.ok(tr.has(`holder_${type}`) && tr.has(`hint_${type}`), type);
   }
-  for (const type of ["collection", "payment", "expense", "capitalIn", "withdraw"]) assert.ok(tr.has(`holderOf_${type}`), type);
+  for (const type of ["sale", "purchase", "collection", "payment", "expense", "capitalIn", "withdraw"]) assert.ok(tr.has(`holderOf_${type}`), type);
 });
 
 test("yer tutucular doldurulur, dil değişir", () => {
