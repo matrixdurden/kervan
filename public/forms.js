@@ -1068,11 +1068,25 @@ export function openOrderSheet(list) {
   });
   const chosen = () => items.filter((it) => it.qty() > 0);
 
-  const send = async () => {
+  // Sipariş listesi fotoğraf olarak (paylaşım ekranında WhatsApp ve kişi seçilir); dosya paylaşamayan
+  // cihazda ya da "Yazı olarak" denince doğrudan tedarikçinin sohbetine yazı.
+  const send = async (asText = false) => {
     const lines = chosen();
     if (!lines.length) return toast(t("noOrderLines"));
+    const party = session.firm.parties.get(supplier.value);
     const text = [t("orderGreeting"), ...lines.map((it) => `• ${productLabel(it.p)}: ${formatNumber(it.qty())} ${unitLabel(it.p.unit)}`), `— ${firm.name}`].join("\n");
-    return shareOnWhatsApp({ text, phone: session.firm.parties.get(supplier.value)?.phone ?? null });
+    if (asText || !canShareFiles()) return shareOnWhatsApp({ text, phone: party?.phone ?? null });
+    const doc = {
+      kind: "summary", title: t("orderTitle"), subtitle: party?.name ?? "", date: today(), time: new Date().toTimeString().slice(0, 5),
+      firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+      rows: lines.map((it) => [productLabel(it.p), `${formatNumber(it.qty())} ${unitLabel(it.p.unit)}`]),
+      total: [t("orderItemsTotal"), t("orderItemsCount", { n: lines.length })],
+      note: "",
+    };
+    const blob = await receiptBlob(doc, receiptLabels());
+    const result = await shareOnWhatsApp({ blob, filename: `siparis-${today()}.png`, text: `${t("orderGreeting")} — ${firm.name}`, phone: party?.phone ?? null });
+    if (result === "link") toast(t("receiptDownloaded"));
+    return result;
   };
   const received = () => {
     const lines = chosen();
@@ -1084,7 +1098,8 @@ export function openOrderSheet(list) {
     h("small", { class: "field-hint" }, t("orderHint")),
     suppliers.length > 0 && field(t("supplier"), supplier),
     items.length ? h("div", { class: "lines" }, items.map((it) => it.el)) : h("p", { class: "lines-empty" }, t("noLowStock")),
-    items.length > 0 && h("button", { type: "button", class: "block whatsapp", onclick: send }, icon("whatsapp"), t("orderSend")),
+    items.length > 0 && h("button", { type: "button", class: "block whatsapp", onclick: () => send() }, icon("whatsapp"), t("orderSend")),
+    items.length > 0 && canShareFiles() && h("button", { type: "button", class: "block", onclick: () => send(true) }, icon("send"), t("sendAsText")),
   ], [items.length > 0 && h("button", { type: "button", class: "primary block", onclick: received }, icon("in"), t("orderReceived"))]);
 }
 
@@ -1411,13 +1426,42 @@ const EMOJI_WORDS = [
   [/okul|eğitim|kurs|مدرسة/i, "🎓"], [/giyim|kıyafet|ملابس/i, "👕"], [/hediye|هدية/i, "🎁"], [/otopark|park/i, "🅿️"],
   [/taksi|yol|ulaşım|otobüs|مواصلات/i, "🚕"], [/otel|konaklama|فندق/i, "🏨"], [/bilgisayar|yazılım|حاسوب/i, "🖥️"],
 ];
-// Seçilebilen resimler (kategori düzenlemede).
-const CATEGORY_PICKS = [
-  "🏠", "⛽", "🚚", "🧾", "👷", "💡", "🍽️", "📦", "💳", "🛒", "🧺", "📱",
-  "🧹", "🔧", "📣", "🏦", "✏️", "🚗", "🛡️", "🛍️", "☕", "🍞", "🥩", "🍎",
-  "💧", "🔥", "💊", "🎓", "👕", "🧰", "🪑", "🖥️", "🖨️", "📄", "🎁", "🅿️",
-  "🚕", "✈️", "🏨", "🎉", "💼", "📮", "🔒", "💰", "📊", "🌐", "📞", "🏪",
+// Seçilebilen resimler (kategori ve kasa düzenlemede), bölüm bölüm. Bunlarda olmayan her emoji
+// ızgaranın altındaki kutuya telefonun emoji klavyesinden yazılabilir.
+const EMOJI_SETS = [
+  ["emo_common", "🏠⛽🚚🧾👷💡🍽️📦💳🛒🧺📱🧹🔧📣🏦✏️🚗🛡️🛍️☕🍞🥩🍎💧🔥💊🎓👕🧰🪑🖥️🖨️📄🎁🅿️🚕✈️🏨🎉💼📮🔒💰📊🌐📞🏪"],
+  ["emo_food", "🍞🥖🥐🧀🥚🥛🍳🥩🍗🍖🐟🍤🍚🍝🍕🍔🌭🥙🌯🥗🍲🍜🍣🍰🎂🍪🍫🍬🍭🍯☕🍵🧃🥤🧋🍺🍷🧊🍎🍏🍐🍊🍋🍌🍉🍇🍓🫐🍒🍑🥭🍍🥥🥝🍅🍆🥑🥦🥬🥒🌶️🫑🌽🥕🧄🧅🥔🍠🫘🥜🌰"],
+  ["emo_home", "🛒🧺🛍️🎁🏠🏡🏢🏬🏪🏭🏗️🛋️🛏️🪑🚪🪟🧹🧽🧴🧼🧻🪣🧯🔥💡🔌🔋🧰🔧🔨🪛⚙️🪚🧱🪜🚿🛁🚽🧸👕👖👗👔👟👞👜🎒⌚💍💄🪒"],
+  ["emo_travel", "🚗🚕🚙🚌🚎🚐🚚🚛🚜🏍️🛵🚲🛴⛽🚏🛣️🅿️🚦🚧🚢⛴️✈️🚆🚇🚉📦📮✉️📬"],
+  ["emo_money", "💰💵💴💶💷💳🏦🧾📊📈📉💼📁📂📋📌📎🖊️✏️📝📄📃📑🗂️🗃️🖥️💻⌨️🖨️📱☎️📞📠📡🌐🔒🔑🏷️⚖️🧮"],
+  ["emo_people", "💊💉🩺🏥🦷👓👷🎓📚✂️💈👶🐶🐱🐄🐑🐔🌱🌾🌳💐🤝👨‍👩‍👧"],
+  ["emo_other", "🎉🎈🎊🎮🎬🎵📺📷⚽🎨🧩🕌⛪🎪🏖️⛺🌙⭐☀️🌧️❄️✅❌❗❓💯🔴🟢🔵🟡🟣⚫⚪"],
 ];
+// Metni harflere (emoji bütün olarak) ayırır.
+const graphemes = (s) => (globalThis.Intl?.Segmenter
+  ? [...new Intl.Segmenter("tr", { granularity: "grapheme" }).segment(s)].map((x) => x.segment)
+  : [...s]);
+
+// Resim seçici: bölüm baloncukları, ızgara ve klavyeden emoji kutusu. onpick(emoji) seçilince çağrılır.
+function emojiPicker(onpick) {
+  let set = 0;
+  const grid = h("div", { class: "emoji-cells" });
+  const tabs = h("div", { class: "bubbles emoji-tabs" });
+  const paint = () => {
+    tabs.replaceChildren(...EMOJI_SETS.map(([label], i) => h("button", {
+      type: "button", class: "bubble", "aria-pressed": String(i === set), onclick: () => { set = i; paint(); },
+    }, t(label))));
+    grid.replaceChildren(...graphemes(EMOJI_SETS[set][1]).map((e) => h("button", { type: "button", "aria-label": e, onclick: () => onpick(e) }, e)));
+  };
+  paint();
+  const typed = textInput({ maxlength: 16, placeholder: t("emo_typePlaceholder"), "aria-label": t("emo_type") });
+  typed.addEventListener("input", () => {
+    const first = graphemes(typed.value.trim()).find((g) => /\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(g));
+    if (first) { typed.value = ""; onpick(first); }
+  });
+  return h("div", { class: "emoji-grid", hidden: true }, tabs, grid,
+    h("label", { class: "emoji-type" }, h("span", {}, t("emo_type")), typed));
+}
 function categoryEmoji(c) {
   return c.emoji || CATEGORY_EMOJI[c.id] || EMOJI_WORDS.find(([re]) => re.test(c.name))?.[1] || "🏷️";
 }
@@ -2039,10 +2083,7 @@ function openNameListSheet({ title, hint, items, placeholder, addLabel, needOne,
     let picker = null;
     if (emoji) {
       const paint = () => { pickBtn.textContent = emoji({ id: row.id, name: input.value, emoji: row.emoji }); };
-      picker = h("div", { class: "emoji-grid", hidden: true }, CATEGORY_PICKS.map((e) => h("button", {
-        type: "button", "aria-label": e,
-        onclick: () => { row.emoji = e; paint(); picker.hidden = true; openPicker = null; },
-      }, e)));
+      picker = emojiPicker((e) => { row.emoji = e; paint(); picker.hidden = true; openPicker = null; });
       pickBtn = h("button", {
         type: "button", class: "emoji-pick", "aria-label": t("pickPicture"), title: t("pickPicture"),
         onclick: () => {

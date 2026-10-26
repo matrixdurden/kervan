@@ -127,6 +127,7 @@ export function openPage(id, options = {}) {
   if (options.kind) search[options.kind] = "";
   if (options.filter) productFilter = options.filter;
   if (options.report) reportId = options.report;
+  if (options.detail) { valueMode = options.detail; search.value = ""; }
   if (options.ledgerFilter !== undefined) ledgerFilter = options.ledgerFilter;
   history.pushState({ page: id }, "");
   listenPageMoves();
@@ -323,6 +324,7 @@ const HOME = {
           h("strong", {}, t("lowStockCount", { n: low.length })),
           h("small", {}, low.slice(0, 3).map(productLabel).join(", ") + (low.length > 3 ? "…" : ""))),
         icon("chevron")),
+      products.size > 0 && homeValueCard(),
       h("div", { class: "tiles-grid" }, SECTIONS.map(([id, ic]) =>
         h("button", { type: "button", class: `tile-small tone-${id}`, onclick: () => (TILE_ACTION[id] ? TILE_ACTION[id]() : openPage(id)) },
           h("span", { class: "tile-ic" }, icon(ic)), h("span", {}, t(`page_${id}`)),
@@ -580,6 +582,107 @@ function partyRow(p) {
         h("span", { class: "amount" }, b.amount),
         h("span", { class: "after" }, b.label))));
 }
+
+// --- Stok değeri ve borçlar ----------------------------------------------------------------
+// İkiye bölünür: solda satış tarafı (stoğun satış değeri, müşterilerin borcu), sağda maliyet tarafı
+// (stoğun maliyet değeri, tedarikçilere borç). Her kutu kalem kalem ayrıntıyı açar (arama ve barkod).
+
+const inStock = () => [...session.firm.products.values()].filter((p) => p.stock > 0);
+const saleValueOf = (p) => Math.round(Math.max(p.stock, 0) * (p.price || 0));
+const costValueOf = (p) => Math.max(p.value ?? 0, 0);
+const owingCustomers = () => parties("seller").filter((p) => p.balance > 0);
+const owedSuppliers = () => parties("supplier").filter((p) => p.balance > 0);
+
+function valueTile(mode, label, value, sub, tone, ic) {
+  return h("button", { type: "button", class: `card value-tile ${tone}`, onclick: () => openPage("valueDetail", { detail: mode }) },
+    h("span", { class: "vt-ic" }, icon(ic)),
+    h("span", { class: "vt-label" }, label),
+    h("strong", { class: "vt-value" }, value),
+    h("small", { class: "vt-sub" }, sub),
+    h("span", { class: "vt-more" }, t("sv_details"), icon("chevron")));
+}
+
+// Ana ekrandaki ve sayfadaki dört kutu: satış değeri | maliyet değeri, müşteri borcu | tedarikçi borcu.
+function valueGrid() {
+  const items = inStock();
+  const saleV = sum(items, saleValueOf);
+  const costV = sum(items, costValueOf);
+  return [
+    h("div", { class: "value-grid" },
+      valueTile("sale", t("sv_saleValue"), formatMoney(saleV), t("sv_items", { n: items.length }), "in", "tag"),
+      valueTile("cost", t("sv_costValue"), formatMoney(costV), t("sv_items", { n: items.length }), "blue", "box"),
+      valueTile("customers", t("sv_customersDebt"), formatMoney(sum(owingCustomers(), (p) => p.balance)), t("sv_people", { n: owingCustomers().length }), "in", "store"),
+      valueTile("suppliers", t("sv_suppliersDebt"), payableText(), t("sv_people", { n: owedSuppliers().length }), "out", "truck")),
+    h("p", { class: "total-line" }, h("span", {}, t("sv_potential")), h("strong", { class: saleV - costV < 0 ? "out" : "in" }, formatMoney(saleV - costV))),
+    h("small", { class: "field-hint" }, t("sv_hint")),
+  ];
+}
+
+function homeValueCard() {
+  const items = inStock();
+  const cell = (label, value, tone) => h("span", { class: `hv-cell ${tone}` }, h("small", {}, label), h("strong", {}, value));
+  return h("button", { type: "button", class: "card home-value", onclick: () => openPage("stockValue") },
+    h("span", { class: "hv-title" }, icon("chart"), h("span", {}, t("page_stockValue")), icon("chevron")),
+    h("span", { class: "hv-grid" },
+      cell(t("sv_saleValue"), formatMoney(sum(items, saleValueOf)), "in"),
+      cell(t("sv_costValue"), formatMoney(sum(items, costValueOf)), "blue"),
+      cell(t("sv_customersDebt"), formatMoney(sum(owingCustomers(), (p) => p.balance)), "in"),
+      cell(t("sv_suppliersDebt"), payableText(), "out")));
+}
+
+const stockValuePage = {
+  top: () => pageTop(t("page_stockValue")),
+  body: () => valueGrid(),
+};
+
+// Ayrıntı: ürünler (satış ya da maliyet değeriyle, en büyük üstte) ya da borçlu müşteriler / tedarikçiler.
+let valueMode = "sale";
+async function scanValue() {
+  const code = await scanBarcode();
+  if (!code) return;
+  search.value = code;
+  rendered = null; // arama kutusu okunan barkodla yeniden kurulsun
+  render();
+}
+
+function valueProductRow(p, mode) {
+  const unitPrice = mode === "sale" ? p.price || 0 : Math.round(avgCost(p));
+  const total = mode === "sale" ? saleValueOf(p) : costValueOf(p);
+  return h("li", {}, h("button", { type: "button", class: "card row", onclick: () => openProductSheet(p) },
+    productThumb(p, "sm"),
+    h("span", { class: "main" },
+      h("span", { class: "title" }, h("bdi", {}, productLabel(p))),
+      h("span", { class: "meta" }, `${formatNumber(p.stock)} ${unitLabel(p.unit)} × ${formatMoney(unitPrice)}${p.barcode ? ` · ${p.barcode}` : ""}`)),
+    h("span", { class: "end" }, h("span", { class: "amount" }, formatMoney(total)))));
+}
+
+const valueDetailPage = {
+  top: () => pageTop(t(`sv_${valueMode}Title`)),
+  head: () => h("div", { class: "page-head" },
+    searchBox(t(["sale", "cost"].includes(valueMode) ? "searchProducts" : "searchSellers"), search.value ?? "",
+      (v) => { search.value = v; rerenderBody(); },
+      ["sale", "cost"].includes(valueMode) && canScan() ? scanValue : null)),
+  body() {
+    const q = (search.value ?? "").trim();
+    if (valueMode === "sale" || valueMode === "cost") {
+      const valueOf = valueMode === "sale" ? saleValueOf : costValueOf;
+      const all = inStock();
+      const list = all.filter((p) => matches(productLabel(p), q) || matches(p.category, q) || (q && p.barcode === q))
+        .sort((a, b) => valueOf(b) - valueOf(a));
+      return [
+        h("p", { class: "total-line" }, h("span", {}, t("sv_total", { n: list.length })), h("strong", {}, formatMoney(sum(list, valueOf)))),
+        list.length ? h("ul", { class: "cards" }, list.map((p) => valueProductRow(p, valueMode))) : emptyState("🔍", t(all.length ? "noMatch" : "sv_noStock")),
+      ];
+    }
+    const all = (valueMode === "customers" ? owingCustomers() : owedSuppliers()).sort((a, b) => b.balance - a.balance);
+    const list = all.filter((p) => matches(p.name, q) || matches(p.phone, q));
+    return [
+      h("p", { class: "total-line" }, h("span", {}, t("sv_total", { n: list.length })),
+        h("strong", {}, valueMode === "customers" ? formatMoney(sum(list, (p) => p.balance)) : payableText())),
+      list.length ? h("ul", { class: "cards" }, list.map(partyRow)) : emptyState("✅", t(all.length ? "noMatch" : "sv_noDebt")),
+    ];
+  },
+};
 
 // --- Emanet: satıcılardaki mal ------------------------------------------------------------
 
@@ -1253,6 +1356,8 @@ const PAGES = {
   suppliers: partiesPage("supplier"),
   debts: partiesPage("person"),
   orders: ordersPage,
+  stockValue: stockValuePage,
+  valueDetail: valueDetailPage,
   cash: cashPage,
   reports: reportsPage,
   report: reportPage,

@@ -9,8 +9,8 @@ import { t, unitLabel } from "./i18n.js";
 import { session } from "./session.js";
 import { balanceOf } from "./ledger.js";
 import { formatMoney, formatNumber, base, currencySymbol } from "./money.js";
-import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary } from "./views.js";
-import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, sendToChat } from "./forms.js";
+import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary, TYPE_ICON } from "./views.js";
+import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, sendToChat, openSheet, closeButton } from "./forms.js";
 import { show } from "./nav.js";
 import { receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
 import { currentFirm } from "./session.js";
@@ -147,6 +147,36 @@ function pricesCard(party) {
     h("small", { class: "field-hint" }, t("specialPricesHint")));
 }
 
+// Hesap hareketlerinin üstünde türlere ayrılmış kutular (üstteki işlem düğmeleri gibi düzenli):
+// her kutuda o türün kaç kaydı ve toplamı; dokununca sadece o türün hareketleri açılır.
+// Tam liste altta "Hesap hareketleri"nde olduğu gibi kalır.
+const TYPE_BOXES = {
+  seller: [["sale", ["sale"], "type_sale"], ["collection", ["collection"], "type_collection"],
+    ["saleReturn", ["saleReturn", "refund"], "type_saleReturn"], ["consign", ["consign", "consignSale", "return"], "page_consign"]],
+  supplier: [["purchase", ["purchase"], "type_purchase"], ["payment", ["payment"], "type_payment"]],
+  person: [["debtOut", ["debtOut"], "type_debtOut"], ["debtIn", ["debtIn"], "type_debtIn"]],
+};
+
+function typeBoxes(party, moves, row) {
+  const boxes = TYPE_BOXES[party.kind] ?? [];
+  const live = moves.filter((m) => !m.voided);
+  return h("div", { class: `type-boxes n${boxes.length}` }, boxes.map(([icon_, types, label]) => {
+    const list = live.filter((m) => types.includes(m.type));
+    const total = list.reduce((s, m) => s + m.total, 0);
+    return h("button", {
+      type: "button", class: `card type-box ${icon_}`, disabled: !list.length,
+      onclick: () => openSheet(t(label), [
+        h("p", { class: "total-line" }, h("span", {}, t("moveCount", { n: list.length })), h("strong", {}, formatMoney(total, party.currency || undefined))),
+        h("ul", { class: "cards" }, moves.filter((m) => types.includes(m.type)).map(row)),
+      ], [closeButton()]),
+    },
+    h("span", { class: "tb-ic" }, icon(TYPE_ICON[icon_] ?? "book")),
+    h("span", { class: "tb-label" }, t(label)),
+    h("strong", { class: "tb-total" }, formatMoney(total, party.currency || undefined)),
+    h("small", { class: "tb-count" }, t("moveCount", { n: list.length })));
+  }));
+}
+
 // Satıcının rafındaki emanet mal.
 function shelfCard(party) {
   const items = Object.entries(party.shelf ?? {}).filter(([, s]) => s.stock > 0);
@@ -227,13 +257,13 @@ function render() {
   if (moves?.length) {
     // Ekstre: en yeniden geriye doğru, her hareketten sonraki bakiye.
     let running = party.balance;
-    const rows = moves.map((m) => {
-      const after = running;
-      const row = moveRow(m, { onclick: () => openMoveDetail(m, { balanceAfter: after }), after, kind: party.kind, currency: party.currency });
+    const afters = new Map();
+    for (const m of moves) {
+      afters.set(m.id, running);
       if (!m.voided) running -= balanceOf(m);
-      return row;
-    });
-    out.push(h("h2", { class: "sec" }, t("statement")), h("ul", { class: "cards" }, rows));
+    }
+    const row = (m) => moveRow(m, { onclick: () => openMoveDetail(m, { balanceAfter: afters.get(m.id) }), after: afters.get(m.id), kind: party.kind, currency: party.currency });
+    out.push(typeBoxes(party, moves, row), h("h2", { class: "sec" }, t("statement")), h("ul", { class: "cards" }, moves.map(row)));
   } else if (moves) {
     out.push(emptyState("📒", t("noPartyMoves")));
   }
