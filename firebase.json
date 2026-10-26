@@ -7,7 +7,8 @@
       "headers": [
         { "source": "**/*.@(html|js|css|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
         { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
-      ]
+      ],
+      "rewrites": [{ "source": "/r/**", "destination": "/fis.html" }]
     },
     {
       "site": "kervan-7c9f64",
@@ -16,7 +17,8 @@
       "headers": [
         { "source": "**/*.@(html|js|css|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
         { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
-      ]
+      ],
+      "rewrites": [{ "source": "/r/**", "destination": "/fis.html" }]
     }
   ],
   "firestore": {

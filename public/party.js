@@ -10,7 +10,7 @@ import { session } from "./session.js";
 import { balanceOf } from "./ledger.js";
 import { formatMoney, formatNumber } from "./money.js";
 import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary } from "./views.js";
-import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, receiptMessage, sendToChat } from "./forms.js";
+import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, sendToChat } from "./forms.js";
 import { show } from "./nav.js";
 import { receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
 import { currentFirm } from "./session.js";
@@ -186,7 +186,7 @@ function render() {
       // Ekstre: bütün hareketler ve bakiye; yeşil düğme doğrudan kişinin WhatsApp sohbetine yazı olarak,
       // "Resim" paylaşım ekranıyla fiş resmi olarak, "Yazdır" kâğıda.
       h("div", { class: "statement-actions" },
-        h("button", { type: "button", class: "whatsapp", onclick: () => { prepareStatement(party); sendToChat(receiptMessage(statement.doc), party.phone); } },
+        h("button", { type: "button", class: "whatsapp", onclick: () => { prepareStatement(party); sendToChat(statement.doc, party.phone); } },
           icon("whatsapp"), t("sendStatement")),
         h("button", { type: "button", class: "small", "aria-label": t("shareImage"), title: t("shareImage"), onclick: () => sendStatement(party) }, icon("camera")),
         h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => { prepareStatement(party); printReceipt(statement.doc, receiptLabels()); } },

@@ -81,8 +81,20 @@ export function waPhone(phone) {
   return d.length >= 10 && d.length <= 15 ? d : null;
 }
 
-export function whatsappUrl(phone, text) {
+// Telefonda iki WhatsApp (normal ve Business) varsa hangisinin açılacağı: ayarlardan, bu cihaza özel.
+// Android'de uygulama paket adıyla açılır; başka cihazlarda wa.me (hangisi açılacağını cihaz seçer).
+export const WA_APPS = { w: "com.whatsapp", b: "com.whatsapp.w4b" };
+const savedWaApp = () => {
+  try { return localStorage.getItem("kervan.waApp") || ""; } catch { return ""; }
+};
+const onAndroid = () => /Android/i.test(globalThis.navigator?.userAgent ?? "");
+
+export function whatsappUrl(phone, text, app = onAndroid() ? savedWaApp() : "") {
   const digits = phone == null ? null : waPhone(phone);
+  if (WA_APPS[app]) {
+    const query = [digits && `phone=${digits}`, text && `text=${encodeURIComponent(text)}`].filter(Boolean).join("&");
+    return `intent://send/?${query}#Intent;scheme=whatsapp;package=${WA_APPS[app]};end`;
+  }
   return `https://wa.me/${digits ?? ""}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
 }
 
@@ -112,6 +124,11 @@ export async function shareOnWhatsApp({ blob, filename = "fis.png", text = "", p
     downloadBlob(blob, filename);
   }
   const url = whatsappUrl(phone, text);
+  // Android uygulama bağlantısı yeni sekmede değil, olduğu yerde açılır (sayfa yerinde kalır).
+  if (url.startsWith("intent:")) {
+    location.href = url;
+    return "link";
+  }
   const w = window.open(url, "_blank");
   if (w) w.opener = null;
   else location.href = url;
@@ -406,6 +423,57 @@ export async function receiptBlob(doc, labels) {
   const canvas = await receiptCanvas(doc, labels);
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("PNG oluşturulamadı"))), "image/png"));
+}
+
+// ---------- PDF ----------
+
+// JPEG resmini tek sayfalık PDF'e koyar; resim sayfayı tam kaplar. pw/ph resmin pikseli, w/h sayfanın
+// boyu (pt). Kütüphane gerekmez: PDF, resmi olduğu gibi (DCTDecode) taşıyan birkaç nesneden ibarettir.
+export function jpegPdf(jpeg, pw, ph, w, h) {
+  const enc = new TextEncoder();
+  const parts = [];
+  const offsets = [];
+  let size = 0;
+  const push = (x) => {
+    const b = typeof x === "string" ? enc.encode(x) : x;
+    parts.push(b);
+    size += b.length;
+  };
+  const obj = (n, ...body) => {
+    offsets[n] = size;
+    push(`${n} 0 obj\n`);
+    body.forEach(push);
+    push("\nendobj\n");
+  };
+  const content = `q ${w} 0 0 ${h} 0 0 cm /Im0 Do Q`;
+  push("%PDF-1.4\n");
+  push(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a])); // ikili dosya işareti
+  obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  obj(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${h}] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>`);
+  obj(4, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  obj(5, `<< /Type /XObject /Subtype /Image /Width ${pw} /Height ${ph} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`,
+    jpeg, "\nendstream");
+  const xref = size;
+  push(`xref\n0 6\n0000000000 65535 f \n${[1, 2, 3, 4, 5].map((n) => `${String(offsets[n]).padStart(10, "0")} 00000 n \n`).join("")}`
+    + `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+
+// Fişin PDF'i: kanvas resmi (fişle birebir aynı) ekran pikseli başına 0,75 pt boyunda bir sayfaya konur.
+export async function receiptPdf(doc, labels) {
+  const canvas = await receiptCanvas(doc, labels);
+  const blob = await new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("JPEG oluşturulamadı"))), "image/jpeg", 0.92));
+  const jpeg = new Uint8Array(await blob.arrayBuffer());
+  const pt = (px) => Math.round((px / SCALE) * 0.75 * 100) / 100;
+  return new Blob([jpegPdf(jpeg, canvas.width, canvas.height, pt(canvas.width), pt(canvas.height))], { type: "application/pdf" });
 }
 
 // ---------- Yazdırma (HTML) ----------

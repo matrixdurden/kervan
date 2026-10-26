@@ -4,7 +4,7 @@
 // birbirinin rakamını ezmez. Bir şey kayarsa recompute() hepsini hareketlerden baştan kurar.
 
 import {
-  doc, collection, writeBatch, serverTimestamp, increment, getDocs, updateDoc, deleteField,
+  doc, collection, writeBatch, serverTimestamp, increment, getDocs, updateDoc, deleteField, setDoc,
   arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
@@ -464,4 +464,17 @@ function cleanShelf(shelf = {}) {
     if (s.stock || s.value) out[id] = { stock: s.stock, value: s.value, price: s.price };
   }
   return out;
+}
+
+// Fiş bağlantısı: belge (fiş, makbuz, ekstre, özet) shared/{kod} altına yazılır; kodu bilen herkes
+// (müşteri) okuyabilir, kimse listeleyemez. Kod Firestore'un 20 harflik rastgele kimliğidir.
+// İnternet yokken de kod hemen döner; belge bağlantı gelince yazılır.
+export function shareReceipt(receipt, labels, lang) {
+  const sharedRef = doc(collection(db, "shared"));
+  // undefined alanlar Firestore'a yazılamaz; JSON gidiş-dönüşü onları atar.
+  const clean = (x) => JSON.parse(JSON.stringify(x));
+  setDoc(sharedRef, {
+    firm: session.firm.id, by: session.uid, at: serverTimestamp(), lang, doc: clean(receipt), labels: clean(labels),
+  }).catch((err) => console.error(err));
+  return sharedRef.id;
 }

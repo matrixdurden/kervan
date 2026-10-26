@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { invoiceTotals, waPhone, whatsappUrl, receiptHtml, RECEIPT_LABEL_KEYS } from "../public/receipt.js";
+import { invoiceTotals, waPhone, whatsappUrl, receiptHtml, jpegPdf, RECEIPT_LABEL_KEYS } from "../public/receipt.js";
 
 const labels = {
   dir: "ltr", receiptTitle: "Satış Fişi", invoiceTitle: "Fatura Bilgisi", number: "No", date: "Tarih",
@@ -149,4 +149,26 @@ test("receiptHtml: iade fişi kendi başlığıyla, geri verilen para; para iade
   const refund = receiptHtml({ kind: "refund", number: "R-1", date: "2026-10-26", currency: "TRY", firm: { name: "K" }, party: { name: "Ali" }, amount: 15000 }, labels);
   assert.match(refund, /Para İadesi Makbuzu/);
   assert.match(refund, /Ödeme yapılan: Ali/);
+});
+
+test("jpegPdf: geçerli tek sayfalık PDF, xref adresleri nesnelerin başını gösterir", () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]);
+  const pdf = jpegPdf(jpeg, 1152, 800, 432, 300);
+  const text = Buffer.from(pdf).toString("latin1");
+  assert.ok(text.startsWith("%PDF-1.4\n"));
+  assert.ok(text.endsWith("%%EOF\n"));
+  assert.match(text, /\/MediaBox \[0 0 432 300\]/);
+  assert.match(text, /\/Width 1152 \/Height 800 .*\/Length 7 >>/);
+  const offsets = [...text.matchAll(/^(\d{10}) 00000 n $/gm)].map((m) => Number(m[1]));
+  assert.equal(offsets.length, 5);
+  offsets.forEach((o, i) => assert.ok(text.startsWith(`${i + 1} 0 obj`, o)));
+  const start = Number(text.match(/startxref\n(\d+)/)[1]);
+  assert.ok(text.startsWith("xref", start));
+  assert.ok(text.includes(Buffer.from(jpeg).toString("latin1")));
+});
+
+test("whatsappUrl: seçilen WhatsApp (normal / Business) Android paket adıyla açılır", () => {
+  assert.equal(whatsappUrl("0532 111 22 33", "a b", "b"), "intent://send/?phone=905321112233&text=a%20b#Intent;scheme=whatsapp;package=com.whatsapp.w4b;end");
+  assert.equal(whatsappUrl(null, "x", "w"), "intent://send/?text=x#Intent;scheme=whatsapp;package=com.whatsapp;end");
+  assert.equal(whatsappUrl("0532 111 22 33", "x", ""), "https://wa.me/905321112233?text=x");
 });

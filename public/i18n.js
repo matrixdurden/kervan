@@ -482,6 +482,9 @@ const STRINGS = {
     theme_light: "Açık",
     theme_dark: "Koyu",
     themeHint: "Otomatik, telefonun ayarına göre açık ya da koyu olur. Seçim bu telefonda saklanır.",
+    waApp: "Fişler hangi WhatsApp'tan gitsin?",
+    waApp_auto: "Otomatik",
+    waAppHint: "Telefonunda iki WhatsApp varsa (normal ve Business) müşterilerinle konuştuğunu seç. Android'de geçerlidir; seçim bu telefonda saklanır.",
 
     // Ürün: çeşit, KDV, stok uyarısı, marj
     category: "Kategori",
@@ -646,6 +649,7 @@ const STRINGS = {
     refundSaved: "Para iadesi kaydedildi",
     returnFromSale: "Bu satıştan iade al",
     rc_returnTitle: "İade Fişi",
+    rc_viewLink: "Fişi görmek ve PDF indirmek için",
     rc_refunded: "Geri verilen",
     rc_refundTitle: "Para İadesi Makbuzu",
     rp_netOfReturns: "İadeler düşüldü: {amount}",
@@ -1236,6 +1240,9 @@ const STRINGS = {
     theme_light: "فاتح",
     theme_dark: "داكن",
     themeHint: "التلقائي يتبع إعداد الهاتف. يُحفظ الاختيار على هذا الهاتف.",
+    waApp: "من أي واتساب تُرسل الإيصالات؟",
+    waApp_auto: "تلقائي",
+    waAppHint: "إذا كان في هاتفك واتساب عادي وواتساب أعمال فاختر الذي تتواصل به مع عملائك. يعمل على أندرويد؛ يُحفظ الاختيار على هذا الهاتف.",
 
     category: "الفئة",
     newCategory: "فئة جديدة",
@@ -1393,6 +1400,7 @@ const STRINGS = {
     refundSaved: "تم تسجيل رد المبلغ",
     returnFromSale: "إرجاع من هذا البيع",
     rc_returnTitle: "إيصال إرجاع",
+    rc_viewLink: "لعرض الإيصال وتنزيله PDF",
     rc_refunded: "المردود",
     rc_refundTitle: "سند رد مبلغ",
     rp_netOfReturns: "بعد خصم المرتجعات: {amount}",

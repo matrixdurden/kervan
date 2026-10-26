@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#1F6F68">
+  <title>Fiş · kervan</title>
+  <meta property="og:title" content="Fiş">
+  <meta property="og:description" content="Fişi görüntüle ve PDF olarak indir.">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&family=Tajawal:wght@400;500;800&display=swap">
+  <style>
+    :root { --bg: #F3F1EC; --text: #1E2B2A; --muted: #566664; --primary: #1F6F68; --card: #FFFFFF; --border: #D9D1C1; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0F1716; --text: #E6EEEC; --muted: #9AABA8; --primary: #3FA89E; --card: #17211F; --border: #2A3735; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 Nunito, Tajawal, system-ui, sans-serif; }
+    main { max-width: 620px; margin: 0 auto; padding: 16px 16px 120px; }
+    #status { text-align: center; color: var(--muted); padding: 48px 8px; }
+    #paper { display: flex; justify-content: center; }
+    #paper canvas { width: 100%; max-width: 576px; height: auto; border-radius: 12px; box-shadow: 0 2px 16px rgba(0, 0, 0, .12); background: #fff; }
+    .actions { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; justify-content: center;
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--border); }
+    .actions button { flex: 1; max-width: 200px; height: 48px; border-radius: 12px; border: 1px solid var(--border);
+      background: var(--card); color: var(--text); font: 800 15px Nunito, Tajawal, system-ui, sans-serif; cursor: pointer; }
+    .actions button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .actions[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <p id="status">…</p>
+    <div id="paper"></div>
+  </main>
+  <div class="actions" hidden>
+    <button type="button" class="primary" id="pdf"></button>
+    <button type="button" id="image"></button>
+    <button type="button" id="print"></button>
+  </div>
+  <script type="module" src="/fis.js"></script>
+</body>
+</html>

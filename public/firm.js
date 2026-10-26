@@ -18,7 +18,7 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods, receiptMessage, sendToChat,
+  openMethodsSheet, paymentMethods, sendToChat,
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
@@ -693,7 +693,7 @@ const cashPage = {
           fact(t("netCapital"), formatMoney(acc.capital ?? 0)),
           fact(t("equity"), formatMoney(equity)))),
         h("div", { class: "statement-actions" },
-          h("button", { type: "button", class: "whatsapp", onclick: () => sendToChat(receiptMessage(summary()), firm.guests?.[x.uid]?.phone) },
+          h("button", { type: "button", class: "whatsapp", onclick: () => sendToChat(summary(), firm.guests?.[x.uid]?.phone) },
             icon("whatsapp"), t("sendPartnerSummary")),
           h("button", { type: "button", class: "small", "aria-label": t("shareImage"), title: t("shareImage"),
             onclick: () => sendSummary(summary(), `ortak-${x.name}.png`, firm.guests?.[x.uid]?.phone || null) }, icon("camera")),
@@ -876,6 +876,9 @@ const settingsPage = {
       h("div", { class: "field" }, h("span", {}, t("theme")),
         segmented([["auto", t("theme_auto")], ["light", t("theme_light")], ["dark", t("theme_dark")]], currentTheme(), applyTheme),
         h("small", { class: "field-hint" }, t("themeHint"))),
+      h("div", { class: "field" }, h("span", {}, t("waApp")),
+        segmented([["", t("waApp_auto")], ["w", "WhatsApp"], ["b", "WhatsApp Business"]], store.get("waApp") ?? "", (v) => store.set("waApp", v || null)),
+        h("small", { class: "field-hint" }, t("waAppHint"))),
       h("div", { class: "field" }, h("span", {}, t("language")),
         segmented([["tr", "Türkçe"], ["ar", "العربية"]], lang, (v) => {
           setLang(v);

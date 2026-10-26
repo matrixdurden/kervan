@@ -13,7 +13,7 @@ import {
 import { PARTY_KIND, hasLines, lineTotal, avgCost, roundQty } from "./ledger.js";
 import {
   recordMoves, voidMoves, replaceMove, restoreMove, saveProduct, saveParty, deleteProduct, deleteParty, restoreProduct, restoreParty, saveShares,
-  saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode, productLabel, saveFirmSettings,
+  saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode, productLabel, saveFirmSettings, shareReceipt,
 } from "./data.js";
 import {
   byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory, NO_CATEGORY,
@@ -1624,56 +1624,53 @@ function receiptText(doc) {
 const plainMoney = (v, c) => formatMoney(v, c).replace(/[⁦⁩]/g, "");
 const dayText = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d.split("-").reverse().join(".") : d || "");
 
-// Doğrudan kişinin WhatsApp sohbetine giden ayrıntılı fiş yazısı (*kalın* WhatsApp biçimi).
-// Tarayıcı belli bir sohbete resim ekleyemez; resim ayrıca paylaşım ekranıyla gönderilir.
-// Satış fişi, ödeme/tahsilat makbuzu, hesap ekstresi ve özet fişi (ortak) için.
-export function receiptMessage(doc) {
+// Doğrudan kişinin WhatsApp sohbetine giden kısa yazı (*kalın* WhatsApp biçimi): başlık, kişi, tutar,
+// kalan borç ve fişin bağlantısı. Tarayıcı belli bir sohbete dosya ekleyemez; bu yüzden fiş internette
+// tahmin edilemez kodlu bir sayfaya konur, müşteri bağlantıya dokununca resim olarak görür ve PDF indirir.
+// Satış/iade fişi, ödeme/tahsilat/para iadesi makbuzu, hesap ekstresi ve özet fişi (ortak) için.
+export function receiptMessage(doc, link) {
   const cur = doc.currency || "TRY";
   const m = (v, c = cur) => plainMoney(v, c);
-  const balance = (v, label) => (v == null ? null : `${label ?? (v >= 0 ? t("rc_balanceOwed") : t("rc_balanceCredit"))}: *${m(Math.abs(v))}*`);
+  const balance = (v) => (v == null ? null : `${v >= 0 ? t("rc_balanceOwed") : t("rc_balanceCredit")}: *${m(Math.abs(v))}*`);
   const when = [dayText(doc.date), doc.time].filter(Boolean).join(" ");
   const out = [`*${doc.firm.name}*`];
   if (doc.kind === "statement") {
-    out.push(`${t("rc_statementTitle")} · ${doc.party?.name ?? ""}`, when, "");
-    const rows = doc.rows.slice(-25);
-    if (doc.previous != null || rows.length < doc.rows.length) out.push(`${t("rc_previousBalance")}: ${m(Math.abs(rows.length < doc.rows.length ? rows[0].balance : doc.previous ?? 0))}`);
-    for (const r of rows) out.push(`${dayText(r.date)} ${r.label} ${r.sign}${m(r.amount)} → ${m(Math.abs(r.balance))}`);
-    out.push("", `${doc.balanceLabel}: *${m(Math.abs(doc.balance))}*`);
-    if (doc.shelf?.length) out.push("", `${t("rc_onShelf")}:`, ...doc.shelf.map((s) => `• ${s.name}: ${s.qty}`));
+    out.push(`${t("rc_statementTitle")} · ${doc.party?.name ?? ""}`, when, "", `${doc.balanceLabel}: *${m(Math.abs(doc.balance))}*`);
   } else if (doc.kind === "summary") {
-    out.push(`${doc.title} · ${doc.subtitle ?? ""}`, when, "", ...doc.rows.map(([a, b]) => `${a}: ${b}`));
+    out.push(`${doc.title} · ${doc.subtitle ?? ""}`, when);
     if (doc.total) out.push("", `${doc.total[0]}: *${doc.total[1]}*`);
   } else if (MONEY_KINDS.includes(doc.kind)) {
     out.push(`${t(`rc_${doc.kind}Title`)} · ${t("rc_number")} ${doc.number}`, when);
     if (doc.party?.name) out.push(`${t(doc.kind === "collection" ? "rc_receivedFrom" : "rc_paidTo")}: ${doc.party.name}`);
-    out.push("", `${t("rc_amount")}: *${m(doc.amount)}*`);
-    if (doc.rate && cur !== "TRY") out.push(`${t("rc_rate")}: 1 ${cur} = ₺${formatRate(doc.rate)}`);
-    out.push(balance(doc.balanceAfter));
+    out.push("", `${t("rc_amount")}: *${m(doc.amount)}*`, balance(doc.balanceAfter));
   } else {
-    out.push(`${doc.title || t(doc.kind === "invoice" ? "rc_invoiceTitle" : "rc_receiptTitle")} · ${t("rc_number")} ${doc.number}`, when);
+    out.push(`${doc.title || t("rc_receiptTitle")} · ${t("rc_number")} ${doc.number}`, when);
     if (doc.party?.name) out.push(`${t("rc_customer")}: ${doc.party.name}`);
-    out.push("");
-    for (const l of doc.lines) {
-      out.push(`• ${l.name}`, `   ${formatNumber(l.qty)} ${l.unit || ""} × ${m(l.price)} = ${m(lineTotal(l))}`);
-    }
     out.push("", `${t("rc_total")}: *${m(doc.lines.reduce((s, l) => s + lineTotal(l), 0))}*`);
     if (doc.paid) out.push(`${doc.paidLabel || t("rc_paid")}: ${m(doc.paid)}`);
     out.push(balance(doc.balanceAfter));
   }
-  if (doc.note) out.push("", `${t("rc_note")}: ${doc.note}`);
+  if (link) out.push("", `${t("rc_viewLink")}:`, link);
   out.push("", t("rc_thanks"));
   return out.filter((x) => x != null).join("\n");
 }
 
-// Yazıyı doğrudan kişinin WhatsApp sohbetinde açar (telefon yoksa WhatsApp'ta kişi seçilir).
-export function sendToChat(text, phone) {
-  return shareOnWhatsApp({ text, phone: phone || null });
+// Fişi bağlantılı sayfaya koyar ve yazıyı doğrudan kişinin WhatsApp sohbetinde açar
+// (telefon yoksa WhatsApp'ta kişi seçilir). Aynı belge ikinci kez gönderilirse aynı bağlantı kullanılır.
+const sharedLinks = new WeakMap();
+export function sendToChat(doc, phone) {
+  let link = sharedLinks.get(doc);
+  if (!link) {
+    link = `${location.origin}/r/${shareReceipt(doc, receiptLabels(), lang)}`;
+    sharedLinks.set(doc, link);
+  }
+  return shareOnWhatsApp({ text: receiptMessage(doc, link), phone: phone || null });
 }
 
-// Ana düğme: doğrudan sohbete yazı; altında resim, (varsa) fatura bilgisi ve yazdır.
-function chatButtons({ text, phone, label, image, invoice, print }) {
+// Ana düğme: doğrudan sohbete fiş bağlantısı; altında resim, (varsa) fatura bilgisi ve yazdır.
+function chatButtons({ doc, phone, label, image, invoice, print }) {
   return [
-    h("button", { type: "button", class: "block whatsapp", onclick: () => sendToChat(text(), phone) }, icon("whatsapp"), label),
+    h("button", { type: "button", class: "block whatsapp", onclick: () => sendToChat(doc(), phone) }, icon("whatsapp"), label),
     !phone && h("small", { class: "field-hint center" }, t("noPhoneChat")),
     h("div", { class: invoice ? "row3" : "row2" },
       h("button", { type: "button", class: "block", onclick: image }, icon("camera"), t("shareImage")),
@@ -1696,7 +1693,7 @@ function receiptButtons(move, extra) {
       if (result === "link") toast(t("receiptDownloaded"));
     };
     return chatButtons({
-      text: () => receiptMessage(doc), phone: party?.phone, label: t("sendMoneyReceipt"),
+      doc: () => doc, phone: party?.phone, label: t("sendMoneyReceipt"),
       image: share, print: () => printReceipt(doc, labels),
     });
   }
@@ -1715,7 +1712,7 @@ function receiptButtons(move, extra) {
   };
   return [
     ...chatButtons({
-      text: () => receiptMessage(docs.receipt), phone: party?.phone, label: t("sendReceipt"),
+      doc: () => docs.receipt, phone: party?.phone, label: t("sendReceipt"),
       image: share("receipt"), invoice: isReturn ? null : share("invoice"), print: () => printReceipt(docs.receipt, labels),
     }),
     !isReturn && h("small", { class: "field-hint center" }, t("invoiceNote")),

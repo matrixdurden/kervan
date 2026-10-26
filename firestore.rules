@@ -208,6 +208,21 @@ service cloud.firestore {
       }
     }
 
+    // Fiş bağlantısı: müşteriye WhatsApp'tan giden fiş. Kodu (20 harflik rastgele kimlik) bilen herkes
+    // tek tek okuyabilir; listelenemez, değiştirilemez. Sadece işletmenin ortağı yazar ve siler.
+    match /shared/{id} {
+      allow get: if true;
+      allow create: if id.size() >= 20
+        && isMember(request.resource.data.firm)
+        && request.resource.data.keys().hasOnly(['firm', 'by', 'at', 'lang', 'doc', 'labels'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.at == request.time
+        && request.resource.data.lang in ['tr', 'ar']
+        && request.resource.data.doc is map
+        && request.resource.data.labels is map;
+      allow delete: if isMember(resource.data.firm);
+    }
+
     match /invites/{code} {
       allow get: if signedIn();
       // İşletme ile aynı batch içinde oluşturulduğu için getAfter kullanılır.
