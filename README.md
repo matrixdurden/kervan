@@ -34,7 +34,7 @@ ortak kasası uygulaması. Ortaklar aynı işletmeye davet koduyla katılır ve 
   girdiği ve kimin iptal ettiği her zaman görünür. Kaydın hemen ardından çıkan **Geri al** da kaydı iptal eder.
 - **Türkçe ve Arapça** arayüz (sağdan sola düzen dahil).
 
-Canlı: https://kervan-7c9f64.web.app
+Canlı: https://kervanim.web.app (eski adres https://kervan-7c9f64.web.app de aynı uygulamayı sunar)
 
 Telefonda ve bilgisayarda çalışan bir web uygulaması (PWA). Barındırma ve veritabanı Firebase'in ücretsiz
 planında. Açık kaynak, MIT lisanslı.

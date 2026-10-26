@@ -1,12 +1,24 @@
 {
-  "hosting": {
-    "public": "public",
-    "ignore": ["**/.*"],
-    "headers": [
-      { "source": "**/*.@(html|js|css|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-      { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
-    ]
-  },
+  "hosting": [
+    {
+      "site": "kervanim",
+      "public": "public",
+      "ignore": ["**/.*"],
+      "headers": [
+        { "source": "**/*.@(html|js|css|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+        { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+      ]
+    },
+    {
+      "site": "kervan-7c9f64",
+      "public": "public",
+      "ignore": ["**/.*"],
+      "headers": [
+        { "source": "**/*.@(html|js|css|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+        { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+      ]
+    }
+  ],
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
