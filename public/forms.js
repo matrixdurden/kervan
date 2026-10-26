@@ -16,7 +16,7 @@ import {
   saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode, productLabel, saveFirmSettings,
 } from "./data.js";
 import {
-  byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory,
+  byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory, NO_CATEGORY,
 } from "./views.js";
 import { RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
 import { pickGeminiModel } from "./invoice.js";
@@ -32,7 +32,8 @@ const sheet = $("#sheet");
 // altta hep görünen ana düğme. Ana düğme (primary) ve "foot" sınıflı parçalar alta gider,
 // diğer düğmeler alanların sonuna. Kapat düğmesinin yerini üstteki geri oku alır.
 // onsubmit hata metni döndürürse form açık kalır ve metin ana düğmenin hemen üstünde görünür.
-function open(title, fields, buttons, onsubmit) {
+// dialog: hangi pencerede açılacağı; formun üstünde başka bir form (satıştan yeni ürün) için #subsheet.
+function open(title, fields, buttons, onsubmit, dialog = sheet) {
   const error = h("p", { class: "error", role: "alert" });
   const list = buttons.filter((b) => b && !b.hasAttribute?.("data-close"));
   const foot = list.filter((b) => b.classList?.contains("primary") || b.classList?.contains("foot"));
@@ -53,14 +54,16 @@ function open(title, fields, buttons, onsubmit) {
     },
   },
   h("header", { class: "sheet-top" },
-    h("button", { type: "button", class: "icon back", "aria-label": t("close"), onclick: () => sheet.close() }, icon("back")),
+    h("button", { type: "button", class: "icon back", "aria-label": t("close"), onclick: () => dialog.close() }, icon("back")),
     h("h3", {}, title)),
   body,
   foot.length > 0 && h("div", { class: "sheet-foot" }, error, foot));
-  sheet.replaceChildren(form);
-  if (!sheet.open) sheet.showModal(); // bir formdan diğerine geçerken pencere zaten açık
+  dialog.replaceChildren(form);
+  if (!dialog.open) dialog.showModal(); // bir formdan diğerine geçerken pencere zaten açık
   body.scrollTop = 0;
 }
+
+const subsheet = $("#subsheet");
 
 // Formun altındaki özet + ana düğme (toplam, sayılan…): solda özet, sağda düğme.
 const footBar = (summary, button) => h("div", { class: "foot foot-bar" }, summary, button);
@@ -215,7 +218,8 @@ const marginPct = (price, cost) => (price > 0 && cost > 0 ? Math.round(((price -
 const isLow = (p) => p.minStock > 0 && p.stock <= p.minStock;
 
 // preset: yeni ürün formunu doldurmak için (barkod okutulduğunda ya da çeşit eklerken).
-export function openProductSheet(product, preset = {}) {
+// inside(id): satış/alış formunun üstünde açılır; kaydedilince yeni ürünün kimliğiyle çağrılır.
+export function openProductSheet(product, preset = {}, { inside } = {}) {
   const firm = currentFirm();
   const base = product ?? preset;
   const photo = photoField(product?.thumb, { loadFull: product ? () => loadFullPhoto(product.id) : null });
@@ -314,7 +318,7 @@ export function openProductSheet(product, preset = {}) {
   buttons.push(closeButton());
 
   const title = product ? t("editProduct") : preset.groupId ? t("addVariant") : t("newProduct");
-  open(title, fields, buttons, () => {
+  open(title, fields, inside ? [saveButton(t("saveAndAdd"))] : buttons, () => {
     const n = name.value.trim();
     if (!n) return t("enterName");
     const p = price.value.trim() ? parseMoney(price.value) : 0;
@@ -338,9 +342,16 @@ export function openProductSheet(product, preset = {}) {
       groupId: product?.groupId ?? preset.groupId ?? "",
     };
     const nextDeal = deal && deal.value !== currentDeal ? deal.value : undefined;
-    saved(saveProduct(product?.id, data, { opening, photo: photo.value(), deal: nextDeal }), t("saved"));
+    const done = saveProduct(product?.id, data, { opening, photo: photo.value(), deal: nextDeal });
+    if (inside) {
+      done.catch(failed);
+      subsheet.close();
+      inside(done.id);
+      return undefined;
+    }
+    saved(done, t("saved"));
     return undefined;
-  });
+  }, inside ? subsheet : sheet);
   if (!product && !preset.name) name.focus();
 }
 
@@ -481,30 +492,48 @@ function rateField(onchange) {
 // --- Alış / satış / emanet (ürün satırlı) ve ödeme / tahsilat ----------------------------
 
 // Formun içindeki ürün seçici: arama (barkod düğmeli), kategori baloncukları ve resimli kutucuklar.
-// Dokunulan ürün forma eklenir (yine dokununca adedi artar); formdaki adet kutucukta görünür.
-function productBrowser({ products, count, price, currency, onpick, onscan }) {
+// Kutucuğa dokununca ürün sepete girer; sepetteki ürünün kutucuğunda − adet + çıkar (azaltmak da
+// buradan). İlk kutucuk "+ Yeni ürün": formdan çıkmadan ürün açılır ve sepete eklenir.
+// products: güncel ürün listesini veren fonksiyon (yeni açılan ürün de görünsün).
+function productBrowser({ products, count, price, currency, onstep, onnew, onscan }) {
   let query = "";
   let cat = "";
   const grid = h("div", { class: "pick-grid" });
+  const bubbles = h("div", {});
   const render = () => {
     const q = query.trim();
-    const shown = products.filter((p) => inCategory(p, cat) && (matches(productLabel(p), q) || (q && p.barcode === q)));
-    grid.replaceChildren(...(shown.length ? shown.map((p) => {
+    const all = products();
+    bubbles.replaceChildren(...[categoryBubbles(all, cat, (v) => { cat = v; render(); })].filter(Boolean));
+    const shown = all.filter((p) => inCategory(p, cat) && (matches(productLabel(p), q) || (q && p.barcode === q)));
+    const add = h("button", { type: "button", class: "pick-tile new", onclick: () => onnew({ name: q, category: cat && cat !== NO_CATEGORY ? cat : "" }) },
+      h("span", { class: "pt-plus", "aria-hidden": "true" }, icon("plus")), h("span", { class: "pt-name" }, t("newProduct")));
+    grid.replaceChildren(add, ...shown.map((p) => {
       const n = count(p);
-      return h("button", { type: "button", class: `pick-tile${n ? " picked" : ""}`, onclick: () => { onpick(p); navigator.vibrate?.(15); } },
-        productThumb(p, "tile"),
-        h("span", { class: "pt-name" }, h("bdi", {}, productLabel(p))),
-        h("span", { class: "pt-price" }, price(p) ? formatMoney(price(p), currency()) : "–"),
-        h("span", { class: `pt-stock${p.stock <= 0 ? " bad" : ""}` }, `${formatNumber(p.stock)} ${unitLabel(p.unit)}`),
-        n ? h("span", { class: "pt-count" }, `×${formatNumber(n)}`) : null);
-    }) : [h("p", { class: "lines-empty" }, t("noMatch"))]));
+      return h("div", { class: `pick-tile${n ? " picked" : ""}` },
+        h("button", { type: "button", class: "pt-main", onclick: () => { onstep(p, 1); navigator.vibrate?.(15); } },
+          productThumb(p, "tile"),
+          h("span", { class: "pt-name" }, h("bdi", {}, productLabel(p))),
+          h("span", { class: "pt-price" }, price(p) ? formatMoney(price(p), currency()) : "–"),
+          h("span", { class: `pt-stock${p.stock <= 0 ? " bad" : ""}` }, `${formatNumber(p.stock)} ${unitLabel(p.unit)}`)),
+        n ? h("div", { class: "pt-step" },
+          h("button", { type: "button", "aria-label": t("stepLess"), onclick: () => onstep(p, -1) }, icon("minus")),
+          h("strong", {}, formatNumber(n)),
+          h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => onstep(p, 1) }, icon("plus"))) : null);
+    }));
+    if (!shown.length && q) grid.append(h("p", { class: "lines-empty wide" }, t("noMatchNew")));
   };
   const el = h("div", { class: "browser" },
     searchBox(t("searchProducts"), "", (v) => { query = v; render(); }, onscan),
-    categoryBubbles(products, cat, (v) => { cat = v; render(); }),
+    bubbles,
     grid);
   render();
   return { el, refresh: render };
+}
+
+// Yeni açılan ürün yerel önbelleğe hemen yazılır; canlı liste onu kısa süre içinde getirir.
+async function productWhenReady(id) {
+  for (let i = 0; i < 60 && !session.firm.products.has(id); i++) await new Promise((r) => setTimeout(r, 50));
+  return session.firm.products.get(id);
 }
 
 // Adet kutusu ve iki yanında − / + düğmeleri. onstep(d) adedi d kadar değiştirir.
@@ -601,13 +630,9 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   const kind = PARTY_KIND[type];
   const title = edit ? t("editMoveTitle", { type: t(`type_${type}`) }) : t(`new_${type}`);
   const parties = [...session.firm.parties.values()].filter((p) => p.kind === kind).sort(byName);
-  const products = [...session.firm.products.values()].sort(byName);
   if (!parties.length) {
     return missing(title, t(kind === "seller" ? "needSeller" : "needSupplier"),
       `+ ${t(kind === "seller" ? "newSeller" : "newSupplier")}`, () => openPartySheet(kind));
-  }
-  if (hasLines(type) && !products.length) {
-    return missing(title, t("needProduct"), `+ ${t("newProduct")}`, () => openProductSheet());
   }
 
   const partySelect = select([["", t("choose")], ...parties.map((p) => [p.id, p.name])], edit?.party ?? fixedParty ?? "");
@@ -660,23 +685,38 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     };
     const showEmpty = () => { empty.hidden = rows.length > 0; };
     // Ürün forma eklenir; zaten varsa adedi 1 artar. init: düzenlemede kayıtlı adet ve fiyat.
+    const removeRow = (r) => {
+      rows = rows.filter((x) => x !== r);
+      r.el.remove();
+      showEmpty();
+      refresh();
+    };
     const addProduct = (p, init) => {
       const existing = !init && rows.find((r) => r.product.id === p.id);
       if (existing) {
         existing.add(1);
         return;
       }
-      const row = lineRow(ctx, p, refresh, (r) => {
-        rows = rows.filter((x) => x !== r);
-        r.el.remove();
-        showEmpty();
-        refresh();
-      }, init);
+      const row = lineRow(ctx, p, refresh, removeRow, init);
       rows.push(row);
       list.append(row.el);
       showEmpty();
       refresh();
     };
+    // Kutucuktaki − / +: adet sıfıra inerse ürün sepetten çıkar.
+    const stepProduct = (p, d) => {
+      const row = rows.find((r) => r.product.id === p.id);
+      if (!row) return d > 0 && addProduct(p);
+      if (row.qty() + d <= 0) return removeRow(row);
+      return row.add(d);
+    };
+    // Formdan çıkmadan yeni ürün: ürün formu üstte açılır, kaydedilince ürün sepete girer.
+    const newProduct = (preset) => openProductSheet(null, preset, {
+      inside: async (id) => {
+        const p = await productWhenReady(id);
+        if (p) addProduct(p);
+      },
+    });
     // Düzenlemede kayıtlı satırlar (ürün sonradan silindiyse kayıttaki adıyla).
     for (const l of edit?.lines ?? []) {
       const p = session.firm.products.get(l.product)
@@ -697,11 +737,12 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     };
     // Ürünler formun içinde hemen görünür: dokunulan ürün sepete eklenir.
     browser = productBrowser({
-      products,
+      products: () => [...session.firm.products.values()].sort(byName),
       count: (p) => rows.find((r) => r.product.id === p.id)?.qty() ?? 0,
       price: (p) => ctx.suggestPrice(p),
       currency,
-      onpick: addProduct,
+      onstep: stepProduct,
+      onnew: newProduct,
       onscan: canScan() ? scanLine : null,
     });
     fields.push(browser.el, h("p", { class: "label cart-label" }, icon("listCheck"), t("cart")), empty, list);

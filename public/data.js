@@ -285,7 +285,8 @@ export function saveProduct(id, fields, { opening, photo, deal } = {}) {
   if (photo?.full) batch.set(ref("images", productRef.id), { data: photo.full });
   if (photo === null && id) batch.delete(ref("images", id));
   if (deal !== undefined) addDealMove(batch, productRef.id, deal);
-  return batch.commit();
+  // Kaydın sonucuyla birlikte ürünün kimliği de döner: satış formundan açılan yeni ürün hemen sepete girsin.
+  return Object.assign(batch.commit(), { id: productRef.id });
 }
 
 // Ürünü bir ortaklığa taşır ("" → genel paylar); diğer ortaklıklardan çıkarır.

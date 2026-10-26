@@ -403,6 +403,24 @@ $("#sign-out").addEventListener("click", async () => {
 
 // --- Çevrimdışı kullanım için service worker --------------------------------
 
+// Telefonda açık kalan uygulama da yeni sürümü alsın: öne gelince güncelleme aranır; yeni sürüm
+// devreye girince açık form yoksa hemen, varsa form kapanınca sayfa yenilenir (yazılan kaybolmaz).
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.register("/sw.js").then((reg) => {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") reg.update().catch(() => {});
+    });
+  }).catch(() => {});
+  let reloading = false;
+  const reloadWhenIdle = () => {
+    if (reloading || document.querySelector("dialog[open]")) return;
+    reloading = true;
+    location.reload();
+  };
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController) return; // ilk kurulum: zaten en yeni sürüm açık
+    document.addEventListener("close", reloadWhenIdle, true); // pencere kapanınca (close kabarcıklanmaz)
+    reloadWhenIdle();
+  });
 }
