@@ -89,10 +89,11 @@ function trashed(promise, undo) {
 
 // Hareket kaydı: bildirimdeki "Geri al" kaydı iptal eder (defterde iz kalır).
 // Satışta, ödemede ve tahsilatta bildirim yerine fiş / makbuz gönderme penceresi açılır.
-function record(inputs, message = t("savedMove")) {
+// options: recordMoves'a (aynı kayıtta açılacak yeni cari gibi).
+function record(inputs, message = t("savedMove"), options = {}) {
   // Kişinin kayıttan önceki bakiyesi: canlı liste yeni bakiyeyi biraz sonra getirir.
   const before = session.firm.parties.get(inputs[0]?.party)?.balance ?? 0;
-  const { moves, done } = recordMoves(inputs);
+  const { moves, done } = recordMoves(inputs, options);
   done.catch(failed);
   if (moves.some((m) => RECEIPT_TYPES.includes(m.type))) return saleDone(moves, before);
   if (moves.length === 1 && MONEY_KINDS.includes(moves[0].type) && moves[0].party) return moneyDone(moves[0], before);
@@ -650,16 +651,19 @@ const PAID_NOW = { sale: "collection", purchase: "payment" };
 
 // edit: düzenlenen kayıt; form onun bilgileriyle dolu açılır, kaydedince eskisi çöp kutusuna gider.
 // lines: hazır satırlar [{ product, qty }] (siparişten ya da "Stok ekle"den alış); fiyat önerilen gelir.
-export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLines } = {}) {
+// direct: direkt (peşin, tezgâh) satış: müşteri seçilmez, "Peşin müşteri" carisine yazılır
+// (yoksa aynı anda açılır) ve tutarın tamamı tahsil edilir; kimseye borç kalmaz.
+export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLines, direct = false } = {}) {
   const kind = PARTY_KIND[type];
-  const title = edit ? t("editMoveTitle", { type: t(`type_${type}`) }) : t(`new_${type}`);
+  const title = edit ? t("editMoveTitle", { type: t(`type_${type}`) }) : direct ? t("page_direct") : t(`new_${type}`);
   const parties = [...session.firm.parties.values()].filter((p) => p.kind === kind).sort(byName);
-  if (!parties.length) {
+  const walkIn = direct ? parties.find((p) => p.walkIn) : null;
+  if (!parties.length && !direct) {
     return missing(title, t(kind === "seller" ? "needSeller" : "needSupplier"),
       `+ ${t(kind === "seller" ? "newSeller" : "newSupplier")}`, () => openPartySheet(kind));
   }
 
-  const partySelect = select([["", t("choose")], ...parties.map((p) => [p.id, p.name])], edit?.party ?? fixedParty ?? "");
+  const partySelect = select([["", t("choose")], ...parties.map((p) => [p.id, p.name])], edit?.party ?? fixedParty ?? walkIn?.id ?? "");
   const date = dateInput(edit?.date);
   const note = textInput({ maxlength: 200, placeholder: t("notePlaceholder"), value: edit?.note ?? "" });
   const total = h("strong", {});
@@ -667,7 +671,9 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   const party = () => session.firm.parties.get(partySelect.value);
   const currency = () => (kind === "supplier" ? party()?.currency || "TRY" : "TRY");
   const rate = rateField(() => refresh());
-  const fields = [h("div", { class: "row2" }, field(t(kind), partySelect), field(t("date"), date)), rate.el];
+  const fields = direct
+    ? [field(t("date"), date), h("small", { class: "field-hint" }, t("directHint"))]
+    : [h("div", { class: "row2" }, field(t(kind), partySelect), field(t("date"), date)), rate.el];
 
   let rows = [];
   let amount;
@@ -771,7 +777,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     });
     fields.push(browser.el, h("p", { class: "label cart-label" }, icon("listCheck"), t("cart")), empty, list);
     if (type === "consign") fields.push(h("small", { class: "field-hint" }, t("consignHint")));
-    if (PAID_NOW[type] && !edit) {
+    if (PAID_NOW[type] && !edit && !direct) {
       paidNow = numberInput({ placeholder: "0,00" });
       fields.push(h("label", { class: "field" },
         h("span", {}, t(type === "sale" ? "paidNowSale" : "paidNowPurchase"), symbol()), paidNow,
@@ -798,8 +804,31 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   rate.set(currency());
   if (edit?.rate) rate.prefill(edit.rate);
 
+  // Direkt satış: satış + tamamının tahsilatı; "Peşin müşteri" yoksa aynı kayıtta açılır.
+  const saveDirect = () => {
+    if (!date.value) return t("chooseDate");
+    const lines = [];
+    for (const r of rows) {
+      const line = r.read();
+      if (typeof line === "string") return line;
+      lines.push(line);
+    }
+    if (!lines.length) return t("addAtLeastOne");
+    const short = shortages(lines);
+    if (short.length && !confirm(t("confirmShort", { list: short.join("\n") }))) return undefined;
+    const partyId = walkIn?.id ?? "__walkin";
+    const base = { party: partyId, date: date.value, holder: holder?.el.value };
+    const amount = sum(lines, (l) => lineTotal(l));
+    record([
+      { ...base, type: "sale", note: note.value.trim(), lines },
+      { ...base, type: "collection", note: t("directNote"), amount },
+    ], undefined, walkIn ? {} : { newParty: { tempId: partyId, data: { kind: "seller", name: t("walkInCustomer"), walkIn: true } } });
+    return undefined;
+  };
+
   const summary = h("div", { class: "foot-sum" }, h("span", {}, t("total")), total, totalTry);
   open(title, fields, [footBar(summary, saveButton())], () => {
+    if (direct) return saveDirect();
     const p = party();
     if (!p) return t(kind === "seller" ? "chooseSeller" : "chooseSupplier");
     if (!date.value) return t("chooseDate");
@@ -1478,15 +1507,17 @@ function receiptButtons(move, extra) {
 function saleDone(moves, before) {
   const sale = moves.find((m) => RECEIPT_TYPES.includes(m.type));
   const paid = moves.filter((m) => m.type === "collection").reduce((s, m) => s + m.amount, 0);
+  // Peşin müşteride (direkt satış) bakiye yazılmaz; para zaten alındı.
   const party = session.firm.parties.get(sale.party);
+  const account = party && !party.walkIn && sale.partyName !== t("walkInCustomer");
   const after = before + sale.total - paid;
-  const extra = { paid, balanceAfter: party ? after : null };
+  const extra = { paid, balanceAfter: account ? after : null };
   open(t("saleSaved"), [
     h("div", { class: "done-summary" },
       h("span", { class: "done-check" }, icon("check")),
       h("strong", {}, formatMoney(sale.total)),
-      party && h("span", { class: "muted" }, h("bdi", {}, party.name)),
-      party && h("small", { class: "muted" }, `${balanceText("seller", after).label}: ${balanceText("seller", after).amount}`)),
+      sale.partyName && h("span", { class: "muted" }, h("bdi", {}, sale.partyName)),
+      account && h("small", { class: "muted" }, `${balanceText("seller", after).label}: ${balanceText("seller", after).amount}`)),
     ...receiptButtons(sale, extra),
   ], [
     h("button", {
