@@ -10,7 +10,7 @@ const labels = {
   balanceOwed: "Kalan borç", balanceCredit: "Alacak", note: "Not", thanks: "Teşekkürler",
   disclaimer: "Bu belge e-Fatura / e-Arşiv fatura yerine geçmez.",
   paymentTitle: "Ödeme Makbuzu", collectionTitle: "Tahsilat Makbuzu", paidTo: "Ödeme yapılan", receivedFrom: "Ödeyen",
-  amount: "Tutar", rate: "Kur",
+  amount: "Tutar", rate: "Kur", statementTitle: "Hesap Ekstresi", previousBalance: "Önceki bakiye", onShelf: "Emanetteki mal",
 };
 
 const doc = (kind, lines) => ({
@@ -71,7 +71,27 @@ test("whatsappUrl: Türkçe metin ve satır sonu kodlanır", () => {
 
 test("RECEIPT_LABEL_KEYS tam liste", () => {
   assert.deepEqual([...RECEIPT_LABEL_KEYS].sort(), Object.keys(labels).sort());
-  assert.equal(new Set(RECEIPT_LABEL_KEYS).size, 31);
+  assert.equal(new Set(RECEIPT_LABEL_KEYS).size, 34);
+});
+
+test("receiptHtml: hesap ekstresi satırlar, önceki ve güncel bakiye, emanet", () => {
+  const st = {
+    kind: "statement", date: "2026-10-26", time: "14:10", currency: "USD",
+    firm: { name: "Kervan Toptan", logo: "" }, party: { name: "Doğu <Elektronik>", phone: "" },
+    previous: 0,
+    rows: [
+      { date: "2026-10-20", label: "Alış", detail: "Kulaklık 10 adet", amount: 97848, sign: "+", balance: 97848 },
+      { date: "2026-10-26", label: "Ödeme", detail: "1 USD = ₺49.738", amount: 20000, sign: "−", balance: 77848 },
+    ],
+    balance: 77848, balanceLabel: "Biz borçluyuz", shelf: [{ name: "Çay", qty: "5 paket" }],
+  };
+  const html = receiptHtml(st, labels);
+  assert.ok(html.includes("Hesap Ekstresi") && html.includes("Doğu &lt;Elektronik&gt;"));
+  assert.ok(html.includes("20.10.2026  Alış") && html.includes("26.10.2026  Ödeme"));
+  assert.ok(html.includes("Önceki bakiye") && html.includes("Biz borçluyuz") && html.includes("Emanetteki mal"));
+  const sum = receiptHtml({ kind: "summary", title: "Ortak Hesap Özeti", subtitle: "Ali", date: "2026-10-26", firm: { name: "K" },
+    rows: [["Dönem", "Bu ay"], ["Kâr payı", "₺100"]], total: ["Toplam hakkı", "₺500"] }, labels);
+  assert.ok(sum.includes("Ortak Hesap Özeti") && sum.includes("Kâr payı") && sum.includes("Toplam hakkı"));
 });
 
 test("receiptHtml: ödeme makbuzu tutar, kur ve kalan borcu yazar", () => {

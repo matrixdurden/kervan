@@ -17,7 +17,7 @@ import {
 } from "./views.js";
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
-  openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet,
+  openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
@@ -25,6 +25,7 @@ import { productByBarcode, productLabel, recompute } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
 import { sharedAiReady } from "./ai.js";
 import { REPORT_TYPES, buildReport, salesSeries, topBy } from "./report.js";
+import { receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
 
 const PAGE = 100;
 
@@ -596,6 +597,15 @@ function profitCard(p) {
     p.revenue > 0 && row(t("plMargin"), `%${formatNumber(Math.round(((p.revenue - p.cogs) / p.revenue) * 1000) / 10)}`, "muted"));
 }
 
+const plain = (s) => s.replace(/[⁦⁩]/g, "");
+
+// Özet fişini resim olarak WhatsApp'tan gönderir (kişi uygulamada seçilir).
+async function sendSummary(doc, filename) {
+  const blob = await receiptBlob(doc, receiptLabels());
+  const result = await shareOnWhatsApp({ blob, filename, text: `${doc.firm.name} · ${doc.title}: ${doc.subtitle}\n${doc.total[0]}: ${doc.total[1]}` });
+  if (result === "link") toast(t("receiptDownloaded"));
+}
+
 const cashPage = {
   top: () => pageTop(t("page_cash")),
   head: () => h("div", { class: "page-head" },
@@ -646,7 +656,23 @@ const cashPage = {
       h("ul", { class: "cards" }, partners(firm).map((x) => {
         const acc = accounts.get(x.uid) ?? {};
         const equity = (acc.capital ?? 0) + (allShare.get(x.uid) ?? 0);
-        return h("li", {}, h(x.guest ? "button" : "div", {
+        // Ortağa özet fişi: dönemin kâr payı, payı, elindeki para, sermayesi ve toplam hakkı.
+        const general = plan("general");
+        const pctOf = general.shares[x.uid] ?? (general.ids.includes(x.uid) ? Math.round((100 / general.ids.length) * 10) / 10 : 0);
+        const summary = () => ({
+          kind: "summary", title: t("partnerSummaryTitle"), subtitle: x.name, date: today(), time: new Date().toTimeString().slice(0, 5),
+          firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+          rows: [
+            [t("periodLabel"), t(`period_${period}`)],
+            [t("generalShareOf"), `%${formatNumber(pctOf)}`],
+            [t("profitShare"), plain(formatMoney(periodShare.get(x.uid) ?? 0))],
+            ...(x.guest ? [] : [[t("cashInHand"), plain(formatMoney(acc.cash ?? 0))]]),
+            [t("netCapital"), plain(formatMoney(acc.capital ?? 0))],
+          ],
+          total: [t("equity"), plain(formatMoney(equity))],
+          note: t("equityHint"),
+        });
+        return h("li", { class: "partner-item" }, h(x.guest ? "button" : "div", {
           type: x.guest ? "button" : null, class: "card partner", onclick: x.guest ? () => openGuestSheet(x.uid) : null,
         },
         h("div", { class: "partner-head" },
@@ -657,7 +683,10 @@ const cashPage = {
           fact(t("profitShare"), formatMoney(periodShare.get(x.uid) ?? 0)),
           x.guest ? null : fact(t("cashInHand"), formatMoney(acc.cash ?? 0)),
           fact(t("netCapital"), formatMoney(acc.capital ?? 0)),
-          fact(t("equity"), formatMoney(equity)))));
+          fact(t("equity"), formatMoney(equity)))),
+        h("div", { class: "statement-actions" },
+          h("button", { type: "button", class: "whatsapp", onclick: () => sendSummary(summary(), `ortak-${x.name}.png`) }, icon("whatsapp"), t("sendPartnerSummary")),
+          h("button", { type: "button", class: "small", onclick: () => printReceipt(summary(), receiptLabels()) }, icon("printer"), t("print"))));
       })),
       h("p", { class: "total-line" }, h("span", {}, t("cashTotal")),
         h("strong", {}, formatMoney(sum(firm.members, (uid) => accounts.get(uid)?.cash ?? 0)))),

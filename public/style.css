@@ -1124,6 +1124,13 @@ button.bar.on .bar-fill { background: var(--sale); }
 .order-cta button { height: 52px; font-size: 16px; }
 .line-sub { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-3); }
 
+/* Ekstre / ortak özeti: WhatsApp'tan fiş olarak gönder ve yazdır */
+.statement-actions { display: flex; gap: 8px; width: 100%; margin-top: 10px; }
+.statement-actions button.whatsapp { flex: 1; min-width: 0; height: 48px; font-size: 15.5px; white-space: normal; }
+.statement-actions button.small { height: 48px; flex: none; }
+.partner-item { display: flex; flex-direction: column; }
+.partner-item .statement-actions { margin-top: 6px; }
+
 /* Hareket ayrıntısı: düzenle / sil */
 .move-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .move-actions.one { grid-template-columns: 1fr; }

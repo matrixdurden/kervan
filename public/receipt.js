@@ -7,6 +7,7 @@ export const RECEIPT_LABEL_KEYS = [
   "address", "product", "qty", "unitPrice", "unitPriceNet", "vat", "lineTotal", "net", "vatTotal",
   "total", "paid", "balanceOwed", "balanceCredit", "note", "thanks", "disclaimer",
   "paymentTitle", "collectionTitle", "paidTo", "receivedFrom", "amount", "rate",
+  "statementTitle", "previousBalance", "onShelf",
 ];
 
 // Makbuz belgeleri (kind): tedarikçiye ödeme ve satıcıdan tahsilat. Satır yok; tek tutar var.
@@ -234,6 +235,58 @@ function drawMoney(c, doc, L, logo) {
   line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
 }
 
+// Hesap ekstresi: carinin hareketleri eskiden yeniye, her satırda tutar ve sonraki bakiye; altta
+// güncel bakiye ve (müşteride) emanetteki mal. doc.rows: [{ date, label, detail, amount, sign, balance }].
+// doc.balanceLabel / previousLabel: bakiyenin anlamı ("Bize borçlu" …), uygulama dilinde hazır gelir.
+function drawStatement(c, doc, L, logo) {
+  const cur = doc.currency || "TRY", f = doc.firm || {};
+  if (logo) logoAt(c, logo, { align: "center", maxW: 220, maxH: 110 });
+  line(c, f.name || f.title, { size: 30, weight: 800, align: "center", color: C.primary, lh: 1.25 });
+  line(c, f.phone, { size: 19, align: "center", color: C.text2, ltr: true });
+  rule(c, { dash: [6, 5] });
+  line(c, L.statementTitle, { size: 25, weight: 800, align: "center", gap: 6 });
+  pair(c, doc.party?.name ?? "", when(doc), { size: 21, weight: 700 });
+  rule(c, { dash: [6, 5] });
+  if (doc.previous != null) {
+    pair(c, L.previousBalance, money(Math.abs(doc.previous), cur), { size: 19, color: C.text2, gap: 8 });
+  }
+  for (const r of doc.rows) {
+    pair(c, `${day(r.date)}  ${r.label}`, `${r.sign}${money(r.amount, cur)}`, { size: 21, weight: 700, gap: 0 });
+    pair(c, r.detail || "", money(Math.abs(r.balance), cur), { size: 17, color: C.text3, gap: 10 });
+  }
+  rule(c, { before: 2 });
+  pair(c, doc.balanceLabel, money(Math.abs(doc.balance), cur), { size: 28, weight: 800, color: doc.balance ? C.text : C.primary });
+  if (doc.shelf?.length) {
+    c.y += 10;
+    line(c, `${L.onShelf}:`, { size: 20, weight: 700, gap: 4 });
+    for (const s of doc.shelf) pair(c, s.name, s.qty, { size: 19, color: C.text2 });
+  }
+  rule(c, { dash: [6, 5] });
+  line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
+}
+
+// Özet fişi (ortak hesabı gibi): başlık, kişi, satır satır etiket – değer, altta büyük toplam.
+// doc: { kind: "summary", title, subtitle, rows: [[etiket, değer]], total: [etiket, değer], note }.
+function drawSummary(c, doc, L, logo) {
+  const f = doc.firm || {};
+  if (logo) logoAt(c, logo, { align: "center", maxW: 220, maxH: 110 });
+  line(c, f.name || f.title, { size: 30, weight: 800, align: "center", color: C.primary, lh: 1.25 });
+  rule(c, { dash: [6, 5] });
+  line(c, doc.title, { size: 25, weight: 800, align: "center", gap: 6 });
+  pair(c, doc.subtitle ?? "", when(doc), { size: 21, weight: 700 });
+  rule(c, { dash: [6, 5] });
+  for (const [label, value] of doc.rows) pair(c, label, value, { size: 21, gap: 8 });
+  if (doc.total) {
+    rule(c, { before: 2 });
+    pair(c, doc.total[0], doc.total[1], { size: 28, weight: 800 });
+  }
+  if (doc.note) { c.y += 8; line(c, doc.note, { size: 18, color: C.text2 }); }
+  rule(c, { dash: [6, 5] });
+  line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
+}
+
+const DRAW = { invoice: drawInvoice, statement: drawStatement, summary: drawSummary, payment: drawMoney, collection: drawMoney };
+
 function drawInvoice(c, doc, L, logo) {
   const cur = doc.currency || "TRY", f = doc.firm || {}, p = doc.party || {}, tot = invoiceTotals(doc.lines);
   const inner = c.W - 2 * c.P, wEnd = Math.round(inner * 0.36), endLeft = c.P + inner - wEnd;
@@ -316,7 +369,7 @@ export async function receiptCanvas(doc, labels) {
   const W = invoice ? 1240 : 576;
   const c = { ctx: canvas.getContext("2d"), W, P: invoice ? 72 : 28, rtl: L.dir === "rtl", y: 0, ops: [] };
   c.y = c.P;
-  (invoice ? drawInvoice : MONEY_KINDS.includes(doc.kind) ? drawMoney : drawReceipt)(c, doc, L, logo);
+  (DRAW[doc.kind] ?? drawReceipt)(c, doc, L, logo);
   const H = Math.ceil(c.y + c.P);
   canvas.width = W * SCALE;
   canvas.height = H * SCALE;
@@ -405,6 +458,28 @@ ${bal ? tr(esc(bal[0]), esc(bal[1])) : ""}</table>
 ${doc.note ? `<hr>${p(`${L.note}: ${doc.note}`, "mute")}` : ""}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
 }
 
+const head = (f, logo) => `<div class="c">${logo ? `<img class="logo" src="${esc(logo)}" alt="">` : ""}<h1>${esc(f.name || f.title)}</h1>${p(f.phone, "mute")}</div>`;
+
+function statementBody(doc, L) {
+  const cur = doc.currency || "TRY", f = doc.firm || {};
+  const rows = doc.rows.map((r) => tr(`<b>${esc(`${day(r.date)}  ${r.label}`)}</b>`, `${esc(r.sign)}${m(r.amount, cur)}`)
+    + tr(`<span class="mute">${esc(r.detail || "")}</span>`, `<span class="mute">${m(Math.abs(r.balance), cur)}</span>`)).join("");
+  const shelf = doc.shelf?.length ? `<hr><p><b>${esc(L.onShelf)}:</b></p><table>${doc.shelf.map((s) => tr(esc(s.name), esc(s.qty))).join("")}</table>` : "";
+  return `${head(f, safeLogo(f.logo))}<hr><h2 class="c">${esc(L.statementTitle)}</h2>
+<table>${tr(`<b>${esc(doc.party?.name ?? "")}</b>`, esc(when(doc)))}</table><hr>
+<table>${doc.previous != null ? tr(`<span class="mute">${esc(L.previousBalance)}</span>`, `<span class="mute">${m(Math.abs(doc.previous), cur)}</span>`) : ""}${rows}</table><hr>
+<table>${tr(esc(doc.balanceLabel), m(Math.abs(doc.balance), cur), "tot")}</table>${shelf}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
+}
+
+function summaryBody(doc, L) {
+  const f = doc.firm || {};
+  return `${head(f, safeLogo(f.logo))}<hr><h2 class="c">${esc(doc.title)}</h2>
+<table>${tr(`<b>${esc(doc.subtitle ?? "")}</b>`, esc(when(doc)))}</table><hr>
+<table>${doc.rows.map(([a, b]) => tr(esc(a), esc(b))).join("")}</table>
+${doc.total ? `<hr><table>${tr(esc(doc.total[0]), esc(doc.total[1]), "tot")}</table>` : ""}
+${doc.note ? p(doc.note, "mute") : ""}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
+}
+
 function invoiceBody(doc, L) {
   const cur = doc.currency || "TRY", f = doc.firm || {}, pt = doc.party, tot = invoiceTotals(doc.lines), logo = safeLogo(f.logo);
   const rtl = L.dir === "rtl", bal = balanceRow(doc, L);
@@ -424,12 +499,15 @@ ${doc.note ? `<p style="margin-top:12px" class="mute">${esc(`${L.note}: ${doc.no
 export function receiptHtml(doc, labels) {
   const L = labels || {}, invoice = doc.kind === "invoice", dir = L.dir === "rtl" ? "rtl" : "ltr";
   const moneyDoc = MONEY_KINDS.includes(doc.kind);
-  const heading = invoice ? L.invoiceTitle : moneyDoc ? L[`${doc.kind}Title`] : L.receiptTitle;
+  const heading = invoice ? L.invoiceTitle : moneyDoc ? L[`${doc.kind}Title`]
+    : doc.kind === "statement" ? L.statementTitle : doc.kind === "summary" ? doc.title : L.receiptTitle;
   const title = `${heading} ${doc.number ?? ""}`.trim();
+  const body = invoice ? invoiceBody(doc, L) : moneyDoc ? moneyBody(doc, L)
+    : doc.kind === "statement" ? statementBody(doc, L) : doc.kind === "summary" ? summaryBody(doc, L) : receiptBody(doc, L);
   return `<!doctype html><html dir="${dir}" lang="${dir === "rtl" ? "ar" : "tr"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&family=Tajawal:wght@400;500;800&display=swap">
-<style>${BASE_CSS}${invoice ? INVOICE_CSS : RECEIPT_CSS}</style></head><body>${invoice ? invoiceBody(doc, L) : moneyDoc ? moneyBody(doc, L) : receiptBody(doc, L)}</body></html>`;
+<style>${BASE_CSS}${invoice ? INVOICE_CSS : RECEIPT_CSS}</style></head><body>${body}</body></html>`;
 }
 
 // Gizli iframe'e koyup yazdırır; bitince (afterprint ya da 60 sn) iframe kaldırılır.

@@ -9,12 +9,65 @@ import { t, unitLabel } from "./i18n.js";
 import { session } from "./session.js";
 import { balanceOf } from "./ledger.js";
 import { formatMoney, formatNumber } from "./money.js";
-import { moveRow, balanceText, emptyState, actionButton, newestFirst } from "./views.js";
-import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet } from "./forms.js";
+import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary } from "./views.js";
+import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels } from "./forms.js";
 import { show } from "./nav.js";
-import { whatsappUrl } from "./receipt.js";
+import { receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
 import { currentFirm } from "./session.js";
 import { productLabel } from "./data.js";
+import { today } from "./ui.js";
+
+const STATEMENT_ROWS = 60; // ekstre resmine en son bu kadar hareket; öncesi "önceki bakiye" olur
+
+// Hesap ekstresi belgesi: hareketler eskiden yeniye, her birinin tutarı ve sonraki bakiye.
+function statementDoc(party) {
+  const firm = currentFirm();
+  const list = (moves ?? []).filter((m) => !m.voided);
+  const recent = list.slice(0, STATEMENT_ROWS); // en yeniden geriye
+  let running = party.balance;
+  const rows = recent.map((m) => {
+    const after = running;
+    const fx = balanceOf(m);
+    running -= fx;
+    const detail = m.lines ? linesSummary(m.lines, 2) : m.currency ? `1 ${m.currency} = ₺${m.rate}` : m.note || "";
+    return { date: m.date, label: t(`type_${m.type}`), detail, amount: m.total, sign: fx > 0 ? "+" : fx < 0 ? "−" : "", balance: after };
+  }).reverse();
+  const shelf = Object.entries(party.shelf ?? {}).filter(([, s]) => s.stock > 0).map(([id, s]) => {
+    const p = session.firm.products.get(id);
+    return { name: productLabel(p) || "?", qty: `${formatNumber(s.stock)} ${unitLabel(p?.unit)}` };
+  });
+  const truncated = list.length > recent.length || (moves?.length ?? 0) >= 200;
+  return {
+    kind: "statement",
+    date: today(),
+    time: new Date().toTimeString().slice(0, 5),
+    currency: party.currency || "TRY",
+    firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+    party: { name: party.name, phone: party.phone ?? "" },
+    previous: truncated || running ? running : null,
+    rows,
+    balance: party.balance,
+    balanceLabel: balanceText(party.kind, party.balance, party.currency).label,
+    shelf,
+  };
+}
+
+// Ekstre resmi hareketler değiştikçe arka planda hazırlanır ki paylaş dokunuşu kaybolmasın (Safari).
+let statement = { key: "", blob: null, doc: null };
+function prepareStatement(party) {
+  const key = `${party.id}|${party.balance}|${moves?.length ?? -1}|${moves?.[0]?.id ?? ""}|${moves?.filter((m) => m.voided).length ?? 0}`;
+  if (statement.key === key) return;
+  const doc = statementDoc(party);
+  statement = { key, blob: null, doc };
+  receiptBlob(doc, receiptLabels()).then((b) => { if (statement.key === key) statement.blob = b; }).catch((err) => console.error(err));
+}
+
+async function sendStatement(party) {
+  prepareStatement(party);
+  const blob = statement.blob ?? await receiptBlob(statement.doc, receiptLabels());
+  const result = await shareOnWhatsApp({ blob, filename: `ekstre-${party.name}.png`, text: statementText(party), phone: party.phone });
+  if (result === "link") toast(t("receiptDownloaded"));
+}
 
 // WhatsApp'a gidecek hesap özeti: bakiye ve (satıcıda) emanetteki mal.
 function statementText(party) {
@@ -109,10 +162,14 @@ function render() {
       party.currency && party.currency !== "TRY" && h("span", { class: "badge" }, t("currencyAccount", { c: party.currency })),
       party.note && h("p", { class: "meta" }, h("bdi", {}, party.note)),
       h("div", { class: "contact-actions" },
-        party.phone && h("a", { class: "pill", href: `tel:${party.phone.replace(/[^\d+]/g, "")}`, dir: "ltr" }, icon("phone"), party.phone),
-        h("a", { class: "pill whatsapp", href: whatsappUrl(party.phone, statementText(party)), target: "_blank", rel: "noopener" },
-          icon("whatsapp"), t("sendStatement")))),
+        party.phone && h("a", { class: "pill", href: `tel:${party.phone.replace(/[^\d+]/g, "")}`, dir: "ltr" }, icon("phone"), party.phone)),
+      // Ekstre: bütün hareketler ve bakiye, fiş gibi resim olarak WhatsApp'tan ya da yazdırılarak.
+      h("div", { class: "statement-actions" },
+        h("button", { type: "button", class: "whatsapp", onclick: () => sendStatement(party) }, icon("whatsapp"), t("sendStatement")),
+        h("button", { type: "button", class: "small", onclick: () => { prepareStatement(party); printReceipt(statement.doc, receiptLabels()); } },
+          icon("printer"), t("print")))),
   ];
+  if (moves) prepareStatement(party);
 
   if (seller) {
     out.push(

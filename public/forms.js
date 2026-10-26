@@ -245,6 +245,25 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
   price.addEventListener("input", showMargin);
   showMargin();
 
+  // Stok, birim ve fiyatın hemen altında: yeni üründe "Elinde şu an var mı?", kayıtlı üründe depo durumu.
+  let qty;
+  let openingCost;
+  let stockBlock;
+  if (product) {
+    stockBlock = [h("div", { class: "facts" },
+      fact(t("inStock"), `${formatNumber(product.stock)} ${unitLabel(product.unit)}`),
+      fact(t("atSellersLabel"), `${formatNumber(product.consigned ?? 0)} ${unitLabel(product.unit)}`),
+      fact(t("avgCost"), formatMoney(avgCost(product))),
+      fact(t("stockValue"), formatMoney(product.value)))];
+  } else {
+    qty = numberInput({ placeholder: "0" });
+    openingCost = numberInput({ placeholder: "0,00" });
+    stockBlock = [
+      h("p", { class: "label" }, t("openingStock")),
+      h("div", { class: "row2" }, field(t("qtyOnHand"), qty), field(t("unitCost"), openingCost)),
+      h("small", { class: "field-hint" }, t("openingStockHint"))];
+  }
+
   const fields = [
     photo.el,
     field(t("productName"), name),
@@ -252,6 +271,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     field(t("variant"), variant, t("variantHint")),
     h("div", { class: "row2" }, field(t("unit"), unit), field(t("salePrice"), price)),
     margin,
+    ...stockBlock,
     h("div", { class: "row2" }, field(t("vatRate"), vat), field(t("minStock"), minStock)),
     h("small", { class: "field-hint" }, t("minStockHint")),
     barcode.el,
@@ -266,14 +286,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     fields.push(field(t("productDeal"), deal, t("productDealHint")));
   }
 
-  let qty;
-  let openingCost;
   if (product) {
-    fields.push(h("div", { class: "facts" },
-      fact(t("inStock"), `${formatNumber(product.stock)} ${unitLabel(product.unit)}`),
-      fact(t("atSellersLabel"), `${formatNumber(product.consigned ?? 0)} ${unitLabel(product.unit)}`),
-      fact(t("avgCost"), formatMoney(avgCost(product))),
-      fact(t("stockValue"), formatMoney(product.value))));
     // Çeşitler: aynı gruptaki diğer ürünler ve yeni çeşit ekleme.
     const groupId = product.groupId || product.id;
     const siblings = [...session.firm.products.values()].filter((p) => p.id !== product.id && (p.groupId || p.id) === groupId).sort(byName);
@@ -289,13 +302,6 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
           }),
         }, "+ ", t("addVariant"))),
       h("small", { class: "field-hint" }, t("variantsHint")));
-  } else {
-    qty = numberInput({ placeholder: "0" });
-    openingCost = numberInput({ placeholder: "0,00" });
-    fields.push(
-      h("p", { class: "label" }, t("openingStock")),
-      h("div", { class: "row2" }, field(t("qtyOnHand"), qty), field(t("unitCost"), openingCost)),
-      h("small", { class: "field-hint" }, t("openingStockHint")));
   }
 
   const buttons = [saveButton()];
