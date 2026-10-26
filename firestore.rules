@@ -3,7 +3,8 @@ rules_version = '2';
 // Kimlik: Google ile giriş. Her işletme (firms) sadece ortaklarına görünür.
 // İşletmeye katılmak için geçerli bir davet kodu (invites/{kod}) gerekir.
 //
-// Hareketler (moves) silinemez ve değiştirilemez; sadece bir kez iptal edilebilir.
+// Hareketler (moves) silinemez ve değiştirilemez; sadece bir kez iptal edilebilir (çöp kutusu)
+// ve iptal edilmiş kayıt bir kez "geri yüklendi" diye işaretlenebilir.
 // Ürünlerin stok ve kişilerin bakiye alanları hareketle aynı batch'te güncellenir.
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -181,12 +182,18 @@ service cloud.firestore {
       match /moves/{id} {
         allow read: if isMember(firmId);
         allow create: if isMember(firmId) && validMove(firmId, request.resource.data);
-        // İptal: sadece "voided" alanı bir kez yazılabilir.
-        allow update: if isMember(firmId)
-          && !('voided' in resource.data)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['voided'])
-          && request.resource.data.voided.by == request.auth.uid
-          && text(request.resource.data.voided.reason, 200);
+        // İptal (çöp kutusuna taşıma): sadece "voided" alanı bir kez yazılabilir.
+        // Çöp kutusundan geri yükleme: iptal edilmiş kayda sadece "restored" alanı bir kez yazılabilir
+        // (kaydın kopyası aynı batch'te yeni hareket olarak yazılır; eskisi iptal kalır).
+        allow update: if isMember(firmId) && (
+          (!('voided' in resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['voided'])
+            && request.resource.data.voided.by == request.auth.uid
+            && text(request.resource.data.voided.reason, 200))
+          || ('voided' in resource.data && !('restored' in resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['restored'])
+            && request.resource.data.restored.by == request.auth.uid
+            && request.resource.data.restored.move is string));
       }
     }
 

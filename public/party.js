@@ -134,7 +134,8 @@ function render() {
     // Ekstre: en yeniden geriye doğru, her hareketten sonraki bakiye.
     let running = party.balance;
     const rows = moves.map((m) => {
-      const row = moveRow(m, { onclick: () => openMoveDetail(m), after: running, kind: party.kind, currency: party.currency });
+      const after = running;
+      const row = moveRow(m, { onclick: () => openMoveDetail(m, { balanceAfter: after }), after, kind: party.kind, currency: party.currency });
       if (!m.voided) running -= balanceOf(m);
       return row;
     });

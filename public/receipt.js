@@ -1,12 +1,16 @@
-// Satış fişi ve KDV dökümlü fatura bilgisi: kanvasa (PNG, WhatsApp için) ve yazdırılabilir HTML'e.
-// Para kuruş cinsinden tam sayıdır. Uygulamadaki fiyatlar KDV dahildir; net ve KDV satır satır ayrılır.
-// Bu belge e-Fatura/e-Arşiv değildir; resmi işaret, karekod, mühür benzeri hiçbir şey çizilmez.
+// Satış fişi, KDV dökümlü fatura bilgisi ve ödeme/tahsilat makbuzu: kanvasa (PNG, WhatsApp için) ve
+// yazdırılabilir HTML'e. Para kuruş cinsinden tam sayıdır. Uygulamadaki fiyatlar KDV dahildir; net ve KDV
+// satır satır ayrılır. Bu belge e-Fatura/e-Arşiv değildir; resmi işaret, karekod, mühür benzeri hiçbir şey çizilmez.
 
 export const RECEIPT_LABEL_KEYS = [
   "dir", "receiptTitle", "invoiceTitle", "number", "date", "customer", "taxOffice", "taxNo", "phone",
   "address", "product", "qty", "unitPrice", "unitPriceNet", "vat", "lineTotal", "net", "vatTotal",
   "total", "paid", "balanceOwed", "balanceCredit", "note", "thanks", "disclaimer",
+  "paymentTitle", "collectionTitle", "paidTo", "receivedFrom", "amount", "rate",
 ];
+
+// Makbuz belgeleri (kind): tedarikçiye ödeme ve satıcıdan tahsilat. Satır yok; tek tutar var.
+export const MONEY_KINDS = ["payment", "collection"];
 
 const FONT = "Nunito, Tajawal, system-ui, sans-serif";
 const SCALE = 2;
@@ -25,6 +29,11 @@ function money(kurus, currency = "TRY") {
 }
 const qtyFormat = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 3 });
 const qty = (n) => qtyFormat.format(n || 0);
+const rateFormat = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 4 });
+// Dövizli makbuzda kur satırı: "1 USD = ₺49,738"
+const rateText = (doc) => (doc.rate && doc.currency && doc.currency !== "TRY" ? `1 ${doc.currency} = ₺${rateFormat.format(doc.rate)}` : "");
+// Makbuzda kişi satırı: ödemede "Ödeme yapılan", tahsilatta "Ödeyen".
+const moneyParty = (doc, L) => (doc.party?.name ? `${doc.kind === "payment" ? L.paidTo : L.receivedFrom}: ${doc.party.name}` : "");
 const pct = (rate, rtl) => (rtl ? `${qtyFormat.format(rate)}%` : `%${qtyFormat.format(rate)}`);
 // "2026-10-25" → "25.10.2026"
 const day = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d.split("-").reverse().join(".") : d || "");
@@ -204,6 +213,27 @@ function drawReceipt(c, doc, L, logo) {
   line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
 }
 
+// Ödeme / tahsilat makbuzu: fişle aynı dar biçim; ürün satırları yerine tek büyük tutar ve kalan borç.
+function drawMoney(c, doc, L, logo) {
+  const cur = doc.currency || "TRY", f = doc.firm || {};
+  if (logo) logoAt(c, logo, { align: "center", maxW: 220, maxH: 110 });
+  line(c, f.name || f.title, { size: 30, weight: 800, align: "center", color: C.primary, lh: 1.25 });
+  line(c, f.phone, { size: 19, align: "center", color: C.text2, ltr: true });
+  line(c, f.address, { size: 19, align: "center", color: C.text2 });
+  rule(c, { dash: [6, 5] });
+  line(c, doc.kind === "payment" ? L.paymentTitle : L.collectionTitle, { size: 25, weight: 800, align: "center", gap: 8 });
+  pair(c, doc.number ? `${L.number}: ${doc.number}` : "", when(doc), { size: 19, color: C.text2 });
+  line(c, moneyParty(doc, L), { size: 21, weight: 600 });
+  rule(c, { dash: [6, 5] });
+  pair(c, L.amount, money(doc.amount, cur), { size: 30, weight: 800 });
+  if (rateText(doc)) pair(c, L.rate, rateText(doc), { size: 19, color: C.text2 });
+  const bal = balanceRow(doc, L);
+  if (bal) pair(c, bal[0], bal[1], { size: 22, weight: 700, color: doc.balanceAfter > 0 ? C.text : C.primary });
+  if (doc.note) { c.y += 8; line(c, `${L.note}: ${doc.note}`, { size: 19, color: C.text2 }); }
+  rule(c, { dash: [6, 5] });
+  line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
+}
+
 function drawInvoice(c, doc, L, logo) {
   const cur = doc.currency || "TRY", f = doc.firm || {}, p = doc.party || {}, tot = invoiceTotals(doc.lines);
   const inner = c.W - 2 * c.P, wEnd = Math.round(inner * 0.36), endLeft = c.P + inner - wEnd;
@@ -286,7 +316,7 @@ export async function receiptCanvas(doc, labels) {
   const W = invoice ? 1240 : 576;
   const c = { ctx: canvas.getContext("2d"), W, P: invoice ? 72 : 28, rtl: L.dir === "rtl", y: 0, ops: [] };
   c.y = c.P;
-  (invoice ? drawInvoice : drawReceipt)(c, doc, L, logo);
+  (invoice ? drawInvoice : MONEY_KINDS.includes(doc.kind) ? drawMoney : drawReceipt)(c, doc, L, logo);
   const H = Math.ceil(c.y + c.P);
   canvas.width = W * SCALE;
   canvas.height = H * SCALE;
@@ -365,6 +395,16 @@ ${doc.party?.name ? p(`${L.customer}: ${doc.party.name}`) : ""}<hr><table>${rows
 ${doc.note ? `<hr>${p(`${L.note}: ${doc.note}`, "mute")}` : ""}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
 }
 
+function moneyBody(doc, L) {
+  const cur = doc.currency || "TRY", f = doc.firm || {}, logo = safeLogo(f.logo), bal = balanceRow(doc, L);
+  return `<div class="c">${logo ? `<img class="logo" src="${esc(logo)}" alt="">` : ""}<h1>${esc(f.name || f.title)}</h1>
+${p(f.phone, "mute")}${p(f.address, "mute")}</div><hr><h2 class="c">${esc(doc.kind === "payment" ? L.paymentTitle : L.collectionTitle)}</h2>
+<table>${tr(doc.number ? esc(`${L.number}: ${doc.number}`) : "", esc(when(doc)), "mute")}</table>
+${p(moneyParty(doc, L))}<hr><table>${tr(esc(L.amount), m(doc.amount, cur), "tot")}${rateText(doc) ? tr(esc(L.rate), esc(rateText(doc)), "mute") : ""}
+${bal ? tr(esc(bal[0]), esc(bal[1])) : ""}</table>
+${doc.note ? `<hr>${p(`${L.note}: ${doc.note}`, "mute")}` : ""}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
+}
+
 function invoiceBody(doc, L) {
   const cur = doc.currency || "TRY", f = doc.firm || {}, pt = doc.party, tot = invoiceTotals(doc.lines), logo = safeLogo(f.logo);
   const rtl = L.dir === "rtl", bal = balanceRow(doc, L);
@@ -383,11 +423,13 @@ ${doc.note ? `<p style="margin-top:12px" class="mute">${esc(`${L.note}: ${doc.no
 
 export function receiptHtml(doc, labels) {
   const L = labels || {}, invoice = doc.kind === "invoice", dir = L.dir === "rtl" ? "rtl" : "ltr";
-  const title = `${invoice ? L.invoiceTitle : L.receiptTitle} ${doc.number ?? ""}`.trim();
+  const moneyDoc = MONEY_KINDS.includes(doc.kind);
+  const heading = invoice ? L.invoiceTitle : moneyDoc ? L[`${doc.kind}Title`] : L.receiptTitle;
+  const title = `${heading} ${doc.number ?? ""}`.trim();
   return `<!doctype html><html dir="${dir}" lang="${dir === "rtl" ? "ar" : "tr"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&family=Tajawal:wght@400;500;800&display=swap">
-<style>${BASE_CSS}${invoice ? INVOICE_CSS : RECEIPT_CSS}</style></head><body>${invoice ? invoiceBody(doc, L) : receiptBody(doc, L)}</body></html>`;
+<style>${BASE_CSS}${invoice ? INVOICE_CSS : RECEIPT_CSS}</style></head><body>${invoice ? invoiceBody(doc, L) : moneyDoc ? moneyBody(doc, L) : receiptBody(doc, L)}</body></html>`;
 }
 
 // Gizli iframe'e koyup yazdırır; bitince (afterprint ya da 60 sn) iframe kaldırılır.

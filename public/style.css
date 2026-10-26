@@ -775,6 +775,9 @@ label.check input { width: 22px; height: 22px; accent-color: var(--primary); }
 .tone-ledger { --c: #4A5A62; }
 .tone-invoice { --c: #B7791F; }
 .tone-settings { --c: #5F6B69; }
+.tone-trash { --c: #A04A3A; }
+.tone-collections { --c: #2F6FB5; }
+.tile-dark { background: var(--spend); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .tile-ic { color: color-mix(in srgb, var(--c) 60%, white); background: color-mix(in srgb, var(--c) 28%, var(--card)); }
 }
@@ -992,3 +995,33 @@ button.pill-btn {
 .count-row { display: flex; align-items: center; gap: 8px; }
 .count-row .stepper { flex: 1; min-width: 0; }
 .of { font-size: 14px; font-weight: 700; color: var(--text-3); white-space: nowrap; }
+
+/* Gider: resimli kategori kutucukları ve ne kaydedileceğini söyleyen baloncuk */
+.cat-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+button.cat-tile {
+  height: auto; min-height: 88px; padding: 10px 6px;
+  flex-direction: column; gap: 6px; white-space: normal; text-align: center;
+  font-size: 13.5px; font-weight: 800; line-height: 1.2;
+  background: var(--card); border: 1.5px solid var(--card-border); border-radius: 16px;
+}
+.cat-emoji { font-size: 30px; line-height: 1; display: grid; place-items: center; height: 34px; }
+.cat-emoji svg { width: 26px; height: 26px; color: var(--primary); }
+button.cat-tile[aria-pressed="true"] {
+  border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary) inset;
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+button.cat-tile.add { border-style: dashed; color: var(--primary); }
+.say-bubble {
+  position: relative; margin: 6px 0 0; padding: 12px 16px;
+  border-radius: 18px 18px 18px 6px; font-weight: 700; color: var(--text-2);
+  background: var(--card); border: 1.5px solid var(--card-border);
+}
+[dir="rtl"] .say-bubble { border-radius: 18px 18px 6px 18px; }
+.say-bubble.ready { color: var(--text); border-color: color-mix(in srgb, var(--in) 45%, var(--card)); background: color-mix(in srgb, var(--in) 9%, var(--card)); }
+
+/* Hareket ayrıntısı: düzenle / sil */
+.move-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.move-actions.one { grid-template-columns: 1fr; }
+.move-actions button { height: 50px; }
+.move-actions button.danger { border-color: color-mix(in srgb, var(--danger) 40%, var(--card)); }
+.trash-hint { margin: 0 4px 10px; }

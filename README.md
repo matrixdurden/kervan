@@ -12,17 +12,20 @@ ortak kasası uygulaması. Ortaklar aynı işletmeye davet koduyla katılır ve 
   miktarı artar.
 - **Fiş ve fatura bilgisi:** satış kaydedilince satış fişi ya da KDV dökümlü fatura bilgisi (proforma) tek dokunuşla
   WhatsApp'tan gönderilir ya da yazdırılır. Fatura bilgisi e-Fatura / e-Arşiv yerine geçmez; resmi e-belge için GİB'e
-  bağlı bir özel entegratör gerekir.
+  bağlı bir özel entegratör gerekir. Tedarikçiye ödeme ve müşteriden tahsilat kaydedilince de aynı şekilde
+  **makbuz** (tutar, kur, kalan borç) WhatsApp'tan gönderilir ya da yazdırılır; hesap ekstresinden açılan eski
+  bir ödemenin makbuzu o hareketten sonraki kalan borçla gider.
 - **Faturadan alış:** tedarikçinin faturası seçilir, ürünler, miktarlar ve fiyatlar okunup alış olarak hazırlanır;
   onay ekranında ürün eşleşmeleri düzeltilir, yeni ürünler ve yeni tedarikçi aynı anda oluşturulur. e-Fatura XML
   yapay zekâsız ve kesin okunur. PDF ve fotoğraf anahtarsız ve ücretsiz okunur: Cloudflare Workers AI'ın ücretsiz
   kotasıyla (tüm işletmeler için günlük ortak sınır). İsteyen işletme kendi Gemini anahtarını da ekleyebilir.
-- **Giderler:** Ayarlar'dan düzenlenen kategorilerle (kira, yakıt, vergi…); raporlarda kategoriye göre toplam.
+- **Giderler:** önce resimli kutucuklardan "ne için" seçilir (kira, yakıt, vergi…; liste Ayarlar'dan düzenlenir),
+  sonra tutar; bir baloncuk kaydedileceği düz cümleyle söyler. Raporlarda kategoriye göre toplam.
 - **Raporlar:** dönem kârı ve marjı, en çok kâr getiren ürünler, kategoriye göre giderler, en çok borcu olanlar,
   azalan ürünler.
 - **Tedarikçiler:** TL, dolar ya da euro ile alış ve ödeme. Dövizli alışta maliyet o günün kuruyla TL'ye çevrilir;
   kur günün Avrupa Merkez Bankası kurundan önerilir.
-- **Satıcılar:** veresiye satış ve tahsilat; **emanet** mal verme, rafta **sayım** (kalanı yaz, satılanı uygulama
+- **Müşteriler:** (kodda `seller`) veresiye satış ve tahsilat; **emanet** mal verme, rafta **sayım** (kalanı yaz, satılanı uygulama
   hesaplar) ve **iade**. Hesap ekstresinde her hareketten sonraki bakiye görünür.
 - **Kasa:** dönem kârı (satış − satılan malın maliyeti − giderler), ortakların yüzdeleriyle kâr payı, her ortağın
   elindeki işletme parası, koyduğu/çektiği para ve toplam hakkı. Gider, para koyma/çekme ve ortaklar arası devir.
@@ -30,9 +33,12 @@ ortak kasası uygulaması. Ortaklar aynı işletmeye davet koduyla katılır ve 
   o ürünlerin satış kârı kendi yüzdeleriyle, geri kalan her şey genel paylarla bölünür. Gider bir ortaklığa
   bağlanabilir. Ortak, uygulamayı kullanmayan biri de olabilir (**dışarıdan ortak**): kâr payı, koyduğu ve aldığı
   para tutulur, parasını uygulamadaki bir ortak teslim alır ya da verir.
-- **Cariler:** satıcı/tedarikçi eklerken telefon rehberinden seçilebilir (şimdilik sadece Android Chrome destekliyor).
-- **Defter:** her işlem silinemeyen bir kayıttır. Yanlış kayıt silinmez, sebebi yazılarak iptal edilir; kimin
-  girdiği ve kimin iptal ettiği her zaman görünür. Kaydın hemen ardından çıkan **Geri al** da kaydı iptal eder.
+- **Cariler:** müşteri/tedarikçi eklerken telefon rehberinden seçilebilir (şimdilik sadece Android Chrome destekliyor).
+- **Düzenle, sil, çöp kutusu:** her kayıt açılıp **düzenlenebilir** (satış, alış, emanet, ödeme, tahsilat, gider, para
+  koyma/çekme, devir) ya da **silinebilir**. Silinen kayıt ve düzenlenen kaydın eski hali **çöp kutusuna** gider;
+  oradan tek dokunuşla **geri yüklenir** (stok, bakiye ve kasa yeniden işlenir). Defterden hiçbir şey gerçekten
+  silinmez: düzenleme eskisini "düzenlendi" diye iptal edip yenisini yazar, kimin girdiği, sildiği, düzenlediği ve
+  geri yüklediği her zaman görünür. Kaydın hemen ardından çıkan **Geri al** da kaydı çöp kutusuna taşır.
 - **Türkçe ve Arapça** arayüz (sağdan sola düzen dahil).
 
 Canlı: https://kervanim.web.app (eski adres https://kervan-7c9f64.web.app de aynı uygulamayı sunar)

@@ -141,7 +141,21 @@ function moveDoc(input, lines, find, seq) {
   }
   if (input.invoiceNo) move.invoiceNo = input.invoiceNo;
   if (input.type === "transfer") move.to = input.to;
+  // Düzenlemede yerine geçtiği, çöp kutusundan geri yüklemede kopyası olduğu kayıt.
+  if (input.replaces) move.replaces = input.replaces;
+  if (input.restoredFrom) move.restoredFrom = input.restoredFrom;
   return move;
+}
+
+// Kaydedilmiş bir hareketten yeniden kaydedilebilir girdi (düzenleme ve geri yükleme için).
+export function inputOf(move) {
+  const input = { type: move.type, party: move.party || "", date: move.date, note: move.note || "" };
+  for (const key of ["holder", "partner", "deal", "category", "categoryName", "invoiceNo", "to", "currency", "rate"]) {
+    if (move[key] != null && move[key] !== "") input[key] = move[key];
+  }
+  if (move.lines) input.lines = move.lines.map((l) => ({ product: l.product, qty: l.qty, price: l.price }));
+  else input.amount = move.amount;
+  return input;
 }
 
 // Ürünün görünen adı: "Kulaklık · Siyah"
@@ -153,7 +167,9 @@ export function productLabel(p) {
 const PROFIT_TYPES = ["sale", "consignSale"];
 
 // Hareketleri ve etkilerini batch'e ekler; yazılan hareketleri (id'leriyle) döner.
-function addMoves(batch, rawInputs, find) {
+// reverted: aynı batch'te iptal edilen hareketler (düzenleme); etkileri önce geri alınır ki
+// yeni kayıt (örneğin satışın maliyeti) eski kayıt yokmuş gibi hesaplansın.
+function addMoves(batch, rawInputs, find, reverted = []) {
   // Giren ve (para hareketlerinde) parası değişen ortak, hesaplanmadan önce belirlenir
   // ki anlık hesap ile kaydedilen hareket aynı olsun.
   // Satış satırlarına ürünün o anki ortaklığı yazılır: ortaklık sonra değişse de geçmiş kâr bozulmaz.
@@ -163,10 +179,13 @@ function addMoves(batch, rawInputs, find) {
     ...(MONEY_TYPES.includes(input.type) && { holder: input.holder || session.uid }),
     ...(PROFIT_TYPES.includes(input.type) && { lines: input.lines.map((l) => ({ ...l, deal: dealOf(l.product) })) }),
   }));
-  const acc = accumulate(inputs.map((move) => ({ move })), find);
+  const acc = accumulate([
+    ...[...reverted].reverse().map((move) => ({ move, revert: true })),
+    ...inputs.map((move) => ({ move })),
+  ], find);
   const moves = inputs.map((input, i) => {
     const moveRef = newRef("moves");
-    const data = moveDoc(input, acc.lines[i], find, i);
+    const data = moveDoc(input, acc.lines[reverted.length + i], find, i);
     batch.set(moveRef, data);
     return { id: moveRef.id, ...data };
   });
@@ -210,6 +229,24 @@ export function recordMoves(inputs, { newProducts = {}, newParty = null } = {}) 
 
 // İşletme ayarları (logo, fatura bilgileri, gider kategorileri, yapay zekâ anahtarı, varsayılan KDV).
 export const saveFirmSettings = (fields) => updateDoc(firmRef(), fields);
+
+// Düzenleme: eski kayıt "düzenlendi" diye iptal edilir (çöp kutusuna gider), yerine yenisi yazılır;
+// ikisi tek batch'te. Defterde iz kalır, yeni kayıt replaces ile eskisini gösterir.
+export function replaceMove(old, input, reason) {
+  const batch = writeBatch(db);
+  batch.update(ref("moves", old.id), { voided: { by: session.uid, at: serverTimestamp(), reason } });
+  const moves = addMoves(batch, [{ ...input, replaces: old.id }], lookup(), [old]);
+  return { moves, done: batch.commit() };
+}
+
+// Çöp kutusundan geri yükleme: iptal edilmiş kaydın aynısı yeniden yazılır (etkileri yeniden işlenir)
+// ve eski kayda "restored" işareti konur ki çöp kutusunda bir daha görünmesin.
+export function restoreMove(move) {
+  const batch = writeBatch(db);
+  const [copy] = addMoves(batch, [{ ...inputOf(move), restoredFrom: move.id }], lookup());
+  batch.update(ref("moves", move.id), { restored: { by: session.uid, at: serverTimestamp(), move: copy.id } });
+  return { move: copy, done: batch.commit() };
+}
 
 // İptal: kayıt silinmez; "voided" yazılır ve etkisi kayıtlı maliyetlerle geri alınır.
 export function voidMoves(moves, reason) {

@@ -9,6 +9,8 @@ const labels = {
   lineTotal: "Tutar", net: "Net", vatTotal: "Toplam KDV", total: "Toplam", paid: "Ödenen",
   balanceOwed: "Kalan borç", balanceCredit: "Alacak", note: "Not", thanks: "Teşekkürler",
   disclaimer: "Bu belge e-Fatura / e-Arşiv fatura yerine geçmez.",
+  paymentTitle: "Ödeme Makbuzu", collectionTitle: "Tahsilat Makbuzu", paidTo: "Ödeme yapılan", receivedFrom: "Ödeyen",
+  amount: "Tutar", rate: "Kur",
 };
 
 const doc = (kind, lines) => ({
@@ -69,7 +71,25 @@ test("whatsappUrl: Türkçe metin ve satır sonu kodlanır", () => {
 
 test("RECEIPT_LABEL_KEYS tam liste", () => {
   assert.deepEqual([...RECEIPT_LABEL_KEYS].sort(), Object.keys(labels).sort());
-  assert.equal(new Set(RECEIPT_LABEL_KEYS).size, 25);
+  assert.equal(new Set(RECEIPT_LABEL_KEYS).size, 31);
+});
+
+test("receiptHtml: ödeme makbuzu tutar, kur ve kalan borcu yazar", () => {
+  const pay = {
+    kind: "payment", number: "20261026-AB12", date: "2026-10-26", time: "13:20", currency: "USD", rate: 49.738,
+    firm: { name: "Kervan Toptan", logo: "" }, party: { name: "Doğu <Elektronik>", phone: "" },
+    amount: 10000, balanceAfter: 47848, note: "",
+  };
+  const html = receiptHtml(pay, labels);
+  assert.ok(html.includes("Ödeme Makbuzu"));
+  assert.ok(html.includes("Ödeme yapılan: Doğu &lt;Elektronik&gt;"));
+  assert.ok(html.includes("$100.00") || html.includes("$100,00"));
+  assert.ok(html.includes("1 USD = ₺49,738"));
+  assert.ok(html.includes("Kalan borç"));
+  assert.ok(!html.includes(labels.disclaimer));
+  const col = receiptHtml({ ...pay, kind: "collection", currency: "TRY", rate: null, balanceAfter: -500 }, labels);
+  assert.ok(col.includes("Tahsilat Makbuzu") && col.includes("Ödeyen: Doğu") && col.includes("Alacak"));
+  assert.ok(!col.includes("Kur"));
 });
 
 test("receiptHtml: ürün adı kaçırılır, uyarı yalnız faturada", () => {

@@ -12,12 +12,12 @@ import {
 } from "./money.js";
 import { PARTY_KIND, hasLines, lineTotal, avgCost, roundQty } from "./ledger.js";
 import {
-  recordMoves, voidMoves, saveProduct, saveParty, deleteProduct, deleteParty, saveShares,
+  recordMoves, voidMoves, replaceMove, restoreMove, saveProduct, saveParty, deleteProduct, deleteParty, saveShares,
   saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode, productLabel, saveFirmSettings,
 } from "./data.js";
 import { byName, matches, searchBox, balanceText, productThumb } from "./views.js";
 import { pickProducts } from "./picker.js";
-import { RECEIPT_LABEL_KEYS, receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
+import { RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
 import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
 import { lastRate, rememberRate, fetchRate } from "./rates.js";
@@ -77,13 +77,14 @@ function saved(promise, message) {
 }
 
 // Hareket kaydı: bildirimdeki "Geri al" kaydı iptal eder (defterde iz kalır).
-// Satışta bildirim yerine fiş gönderme penceresi açılır.
+// Satışta, ödemede ve tahsilatta bildirim yerine fiş / makbuz gönderme penceresi açılır.
 function record(inputs, message = t("savedMove")) {
-  // Satıcının kayıttan önceki bakiyesi: canlı liste yeni bakiyeyi biraz sonra getirir.
+  // Kişinin kayıttan önceki bakiyesi: canlı liste yeni bakiyeyi biraz sonra getirir.
   const before = session.firm.parties.get(inputs[0]?.party)?.balance ?? 0;
   const { moves, done } = recordMoves(inputs);
   done.catch(failed);
   if (moves.some((m) => RECEIPT_TYPES.includes(m.type))) return saleDone(moves, before);
+  if (moves.length === 1 && MONEY_KINDS.includes(moves[0].type) && moves[0].party) return moneyDone(moves[0], before);
   sheet.close();
   toast(message, () => voidMoves(moves, t("undoReason")).then(() => toast(t("undone")), failed));
   return undefined;
@@ -108,7 +109,7 @@ function noteField(input) {
 }
 const saveButton = (label = t("save")) => h("button", { class: "primary block" }, label);
 const closeButton = () => h("button", { type: "button", class: "block ghost", "data-close": true, onclick: () => sheet.close() }, t("close"));
-const dateInput = () => h("input", { type: "date", value: today(), required: true });
+const dateInput = (value) => h("input", { type: "date", value: value || today(), required: true });
 const sum = (list, fn) => list.reduce((s, x) => s + fn(x), 0);
 
 // Ortak seçimi. Tek ortak varsa gösterilmez (hep kendisi).
@@ -430,6 +431,12 @@ function rateField(onchange) {
       onchange();
     },
     value: () => (currency === "TRY" ? 1 : parseRate(input.value)),
+    // Düzenlemede kayıttaki kur (günün kuru önerilmez).
+    prefill(rate) {
+      input.value = formatRate(rate);
+      input.dataset.touched = "1";
+      onchange();
+    },
   };
 }
 
@@ -444,9 +451,10 @@ function stepper(input, onstep) {
 }
 
 // Formda bir ürün kartı: ürün, adet (− / +), birim fiyat ve satır tutarı.
-function lineRow(ctx, p, onchange, onremove) {
-  const qty = numberInput({ value: "1", "aria-label": t("qty"), oninput: onchange });
-  const price = numberInput({ value: moneyInput(ctx.suggestPrice(p)), placeholder: "0,00", "aria-label": t("unitPrice"), oninput: onchange });
+// init: { qty, price } düzenlenen kayıttan; yoksa adet 1, fiyat önerilen.
+function lineRow(ctx, p, onchange, onremove, init) {
+  const qty = numberInput({ value: init ? qtyInput(init.qty) : "1", "aria-label": t("qty"), oninput: onchange });
+  const price = numberInput({ value: moneyInput(init ? init.price : ctx.suggestPrice(p)), placeholder: "0,00", "aria-label": t("unitPrice"), oninput: onchange });
   const total = h("strong", { class: "line-total" });
   const hint = h("small", { class: "field-hint" });
   const add = (d) => {
@@ -503,14 +511,18 @@ function lineRow(ctx, p, onchange, onremove) {
 }
 
 // Depodakinden fazla çıkan ürünler: "Çay: depoda 4 koli, istenen 6 koli"
-function shortages(lines) {
+// previous: düzenlenen kaydın satırları; o kayıt geri alınacağı için o miktarlar depoya döner.
+function shortages(lines, previous = []) {
   const wanted = new Map();
   for (const l of lines) wanted.set(l.product, roundQty((wanted.get(l.product) ?? 0) + l.qty));
+  const back = new Map();
+  for (const l of previous) back.set(l.product, roundQty((back.get(l.product) ?? 0) + l.qty));
   const out = [];
   for (const [id, qty] of wanted) {
     const p = session.firm.products.get(id);
-    if (p && qty > p.stock) {
-      out.push(t("shortLine", { name: productLabel(p), stock: formatNumber(p.stock), qty: formatNumber(qty), unit: unitLabel(p.unit) }));
+    const stock = p ? roundQty(p.stock + (back.get(id) ?? 0)) : 0;
+    if (p && qty > stock) {
+      out.push(t("shortLine", { name: productLabel(p), stock: formatNumber(stock), qty: formatNumber(qty), unit: unitLabel(p.unit) }));
     }
   }
   return out;
@@ -518,9 +530,10 @@ function shortages(lines) {
 
 const PAID_NOW = { sale: "collection", purchase: "payment" };
 
-export function openMoveSheet(type, { party: fixedParty } = {}) {
+// edit: düzenlenen kayıt; form onun bilgileriyle dolu açılır, kaydedince eskisi çöp kutusuna gider.
+export function openMoveSheet(type, { party: fixedParty, edit } = {}) {
   const kind = PARTY_KIND[type];
-  const title = t(`new_${type}`);
+  const title = edit ? t("editMoveTitle", { type: t(`type_${type}`) }) : t(`new_${type}`);
   const parties = [...session.firm.parties.values()].filter((p) => p.kind === kind).sort(byName);
   const products = [...session.firm.products.values()].sort(byName);
   if (!parties.length) {
@@ -531,9 +544,9 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
     return missing(title, t("needProduct"), `+ ${t("newProduct")}`, () => openProductSheet());
   }
 
-  const partySelect = select([["", t("choose")], ...parties.map((p) => [p.id, p.name])], fixedParty ?? "");
-  const date = dateInput();
-  const note = textInput({ maxlength: 200, placeholder: t("notePlaceholder") });
+  const partySelect = select([["", t("choose")], ...parties.map((p) => [p.id, p.name])], edit?.party ?? fixedParty ?? "");
+  const date = dateInput(edit?.date);
+  const note = textInput({ maxlength: 200, placeholder: t("notePlaceholder"), value: edit?.note ?? "" });
   const total = h("strong", {});
   const totalTry = h("small", { class: "field-hint" });
   const party = () => session.firm.parties.get(partySelect.value);
@@ -578,9 +591,9 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
       },
     };
     const showEmpty = () => { empty.hidden = rows.length > 0; };
-    // Ürün forma eklenir; zaten varsa adedi 1 artar.
-    const addProduct = (p) => {
-      const existing = rows.find((r) => r.product.id === p.id);
+    // Ürün forma eklenir; zaten varsa adedi 1 artar. init: düzenlemede kayıtlı adet ve fiyat.
+    const addProduct = (p, init) => {
+      const existing = !init && rows.find((r) => r.product.id === p.id);
       if (existing) {
         existing.add(1);
         return;
@@ -590,12 +603,18 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
         r.el.remove();
         showEmpty();
         refresh();
-      });
+      }, init);
       rows.push(row);
       list.append(row.el);
       showEmpty();
       refresh();
     };
+    // Düzenlemede kayıtlı satırlar (ürün sonradan silindiyse kayıttaki adıyla).
+    for (const l of edit?.lines ?? []) {
+      const p = session.firm.products.get(l.product)
+        ?? { id: l.product, name: l.name, variant: "", unit: l.unit, stock: 0, price: 0, lastCost: 0, value: 0 };
+      addProduct(p, { qty: l.qty, price: l.price });
+    }
     const pickLines = () => pickProducts({
       products,
       count: (p) => rows.find((r) => r.product.id === p.id)?.qty() ?? 0,
@@ -615,14 +634,14 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
         canScan() && h("button", { type: "button", class: "scan-btn", onclick: scanLine }, icon("barcode"), t("scanBarcode"))),
       empty, list);
     if (type === "consign") fields.push(h("small", { class: "field-hint" }, t("consignHint")));
-    if (PAID_NOW[type]) {
+    if (PAID_NOW[type] && !edit) {
       paidNow = numberInput({ placeholder: "0,00" });
       fields.push(h("label", { class: "field" },
         h("span", {}, t(type === "sale" ? "paidNowSale" : "paidNowPurchase"), symbol()), paidNow,
         h("small", { class: "field-hint" }, t("paidNowHint"))));
     }
   } else {
-    amount = numberInput({ placeholder: "0,00", oninput: refresh });
+    amount = numberInput({ placeholder: "0,00", oninput: refresh, value: edit ? moneyInput(edit.amount) : "" });
     const balanceHint = h("small", { class: "field-hint" });
     const showBalance = () => {
       const p = party();
@@ -633,13 +652,14 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
     fields.push(h("label", { class: "field" }, h("span", {}, t("amount"), symbol()), amount, balanceHint));
   }
   if (type !== "consign") {
-    holder = partnerField(t(type === "sale" || type === "collection" ? "holderIn" : "holderOut"));
+    holder = partnerField(t(type === "sale" || type === "collection" ? "holderIn" : "holderOut"), edit?.holder);
     fields.push(holder.field);
   }
   fields.push(noteField(note));
 
   partySelect.addEventListener("change", () => rate.set(currency()));
   rate.set(currency());
+  if (edit?.rate) rate.prefill(edit.rate);
 
   const summary = h("div", { class: "foot-sum" }, h("span", {}, t("total")), total, totalTry);
   open(title, fields, [footBar(summary, saveButton())], () => {
@@ -667,7 +687,7 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
       if (!lines.length) return t("addAtLeastOne");
       input.lines = lines;
       if (type === "sale" || type === "consign") {
-        const short = shortages(lines);
+        const short = shortages(lines, edit?.lines);
         if (short.length && !confirm(t("confirmShort", { list: short.join("\n") }))) return undefined;
       }
       if (paidNow?.value.trim()) {
@@ -680,9 +700,20 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
       if (!a) return t("enterAmount");
       input.amount = a;
     }
-    record([input, ...extra].map(({ lines, ...rest }) => (lines ? { ...rest, lines } : rest)));
+    const clean = ({ lines, ...rest }) => (lines ? { ...rest, lines } : rest);
+    if (edit) return saveEdit(edit, clean(input));
+    record([input, ...extra].map(clean));
     return undefined;
   });
+}
+
+// Düzenlenen kayıt: eskisi "düzenlendi" diye çöp kutusuna, yenisi deftere (tek seferde).
+function saveEdit(old, input) {
+  const { done } = replaceMove(old, input, t("editedReason"));
+  done.catch(failed);
+  sheet.close();
+  toast(t("moveEdited"));
+  return undefined;
 }
 
 // --- Sayım ve iade (satıcının rafındaki emanet mal) -----------------------------------
@@ -845,22 +876,23 @@ function shelfItem(id, shelf, count, onchange) {
 
 // --- Kasa işlemleri: gider, para koyma/çekme, devir ------------------------------------
 
-export function openCashSheet(type) {
+// edit: düzenlenen kayıt; form onun bilgileriyle dolu açılır.
+export function openCashSheet(type, { edit } = {}) {
   const firm = currentFirm();
   if (type === "transfer" && firm.members.length < 2) return;
-  const amount = numberInput({ placeholder: "0,00" });
-  const date = dateInput();
-  const note = textInput({ maxlength: 200, placeholder: t(type === "expense" ? "expensePlaceholder" : "notePlaceholder") });
+  const amount = numberInput({ placeholder: "0,00", value: edit ? moneyInput(edit.amount) : "" });
+  const date = dateInput(edit?.date);
+  const note = textInput({ maxlength: 200, placeholder: t(type === "expense" ? "expensePlaceholder" : "notePlaceholder"), value: edit?.note ?? "" });
   const fields = [h("div", { class: "row2" }, field(t("amount"), amount), field(t("date"), date))];
   const capitalMove = type === "capitalIn" || type === "withdraw";
 
   // Para koyma/çekmede önce kimin parası olduğu seçilir (uygulamasız ortak da olabilir);
   // uygulamasız ortağın parasını eline alan/veren uygulamadaki ortak ayrıca seçilir.
   let owner;
-  const holder = partnerField(t(capitalMove ? `handler_${type}` : `holder_${type}`));
+  const holder = partnerField(t(capitalMove ? `handler_${type}` : `holder_${type}`), edit?.holder);
   if (capitalMove) {
     const all = partners(firm);
-    owner = select(all.map((p) => [p.uid, p.uid === session.uid ? `${p.name} (${t("you")})` : p.name]), session.uid);
+    owner = select(all.map((p) => [p.uid, p.uid === session.uid ? `${p.name} (${t("you")})` : p.name]), edit?.partner ?? edit?.holder ?? session.uid);
     const handlerWrap = h("div", {}, holder.field ?? null);
     const sync = () => { handlerWrap.hidden = !firm.guests?.[owner.value]; };
     owner.addEventListener("change", sync);
@@ -874,7 +906,8 @@ export function openCashSheet(type) {
     to = h("select", {});
     const fillTo = () => {
       const others = firm.members.filter((u) => u !== holder.el.value);
-      const keep = others.includes(to.value) ? to.value : others[0];
+      const want = to.value || edit?.to;
+      const keep = others.includes(want) ? want : others[0];
       to.replaceChildren(...others.map((uid) => h("option", { value: uid, selected: uid === keep }, person(firm, uid).name)));
     };
     holder.el.addEventListener("change", fillTo);
@@ -884,34 +917,58 @@ export function openCashSheet(type) {
     fields.push(holder.field);
   }
 
-  // Gider kategorisi (kira, yakıt, vergi…): dokunarak seçilir; liste Ayarlar'dan değiştirilir.
+  // Gider kategorisi (kira, yakıt, vergi…): resimli kutucuklara dokunarak seçilir, en üstte;
+  // liste Ayarlar'dan değiştirilir. Altta bir baloncuk ne kaydedileceğini düz cümleyle söyler.
   let category = null;
+  let bubble = null;
+  const say = () => {
+    if (!bubble) return;
+    const a = parseMoney(amount.value);
+    bubble.textContent = !category ? t("expenseAskWhat")
+      : !a ? t("expenseAskAmount", { cat: category.name })
+        : t("expenseBubble", { who: person(firm, holder.el.value).name, cat: category.name, amount: formatMoney(a) });
+    bubble.classList.toggle("ready", Boolean(category && a));
+  };
   if (type === "expense") {
     const cats = expenseCategories(firm);
-    const chips = h("div", { class: "chips" }, cats.map((c) => {
-      const chip = h("button", {
-        type: "button", class: "chip", "aria-pressed": "false",
+    const grid = h("div", { class: "cat-tiles" }, cats.map((c) => {
+      const tile = h("button", {
+        type: "button", class: "cat-tile", "aria-pressed": "false",
         onclick: () => {
           category = c;
-          chips.querySelectorAll(".chip").forEach((x) => x.setAttribute("aria-pressed", String(x === chip)));
+          grid.querySelectorAll(".cat-tile").forEach((x) => x.setAttribute("aria-pressed", String(x === tile)));
           if (!note.value.trim()) note.placeholder = c.name;
+          say();
+          if (!amount.value.trim()) amount.focus();
         },
-      }, h("bdi", {}, c.name));
-      return chip;
-    }), h("button", { type: "button", class: "chip add", onclick: () => openCategoriesSheet() }, "+ ", t("edit")));
-    fields.splice(1, 0, h("p", { class: "label" }, t("expenseCategory")), chips);
+      }, h("span", { class: "cat-emoji", "aria-hidden": "true" }, categoryEmoji(c)), h("bdi", {}, c.name));
+      return tile;
+    }), h("button", { type: "button", class: "cat-tile add", onclick: () => openCategoriesSheet() },
+      h("span", { class: "cat-emoji", "aria-hidden": "true" }, icon("pencil")), t("edit")));
+    // Düzenlemede kayıttaki kategori seçili gelir (listeden silindiyse kayıttaki adıyla).
+    if (edit?.category) {
+      category = cats.find((c) => c.id === edit.category) ?? { id: edit.category, name: edit.categoryName ?? "" };
+      const i = cats.findIndex((c) => c.id === edit.category);
+      if (i >= 0) grid.children[i].setAttribute("aria-pressed", "true");
+    }
+    fields.unshift(h("p", { class: "label" }, t("expenseWhat")), grid);
+    bubble = h("p", { class: "say-bubble", "aria-live": "polite" });
+    amount.addEventListener("input", say);
+    holder.el.addEventListener("change", say);
   }
 
   // Gider bir ürün ortaklığına ait olabilir; o zaman o ortaklığın kârından düşer.
   let deal;
   const deals = Object.entries(firm.deals ?? {});
   if (type === "expense" && deals.length) {
-    deal = select([["", t("generalShares")], ...deals.map(([id, d]) => [id, d.name])], "");
+    deal = select([["", t("generalShares")], ...deals.map(([id, d]) => [id, d.name])], edit?.deal ?? "");
     fields.push(field(t("expenseDeal"), deal));
   }
-  fields.push(field(t(type === "expense" ? "expenseFor" : "note"), note), h("small", { class: "field-hint" }, t(`hint_${type}`)));
+  fields.push(field(t(type === "expense" ? "expenseNote" : "note"), note), h("small", { class: "field-hint" }, t(`hint_${type}`)), bubble);
+  say();
 
-  open(t(`new_${type}`), fields, [saveButton(), closeButton()], () => {
+  const title = edit ? t("editMoveTitle", { type: t(`type_${type}`) }) : t(`new_${type}`);
+  open(title, fields, [saveButton(), closeButton()], () => {
     const a = parseMoney(amount.value);
     if (!a) return t("enterAmount");
     if (type === "expense" && !category) return t("chooseCategory");
@@ -930,10 +987,26 @@ export function openCashSheet(type) {
       if (!to.value || to.value === holder.el.value) return t("chooseOtherPartner");
       input.to = to.value;
     }
+    if (edit) return saveEdit(edit, input);
     record([input]);
     return undefined;
   });
-  amount.focus();
+  if (!edit && type !== "expense") amount.focus(); // giderde önce kategori seçilir
+}
+
+// Gider kategorisinin resmi: hazır kategoriler kimliğinden, eklenenler adından tahmin edilir.
+const CATEGORY_EMOJI = {
+  rent: "🏠", fuel: "⛽", shipping: "🚚", tax: "🧾", salary: "👷", utilities: "💡", food: "🍽️", other: "📦",
+};
+const EMOJI_WORDS = [
+  [/kira|إيجار/i, "🏠"], [/yakıt|benzin|mazot|motorin|وقود/i, "⛽"], [/nakliye|kargo|taşıma|شحن|نقل/i, "🚚"],
+  [/vergi|ضريب/i, "🧾"], [/maaş|ücret|راتب/i, "👷"], [/elektrik|su\b|internet|doğalgaz|fatura|كهرباء|إنترنت/i, "💡"],
+  [/yemek|çay|kahve|طعام/i, "🍽️"], [/telefon|hat|هاتف/i, "📱"], [/temizlik|تنظيف/i, "🧹"],
+  [/tamir|bakım|صيانة/i, "🔧"], [/reklam|إعلان/i, "📣"], [/banka|komisyon|بنك/i, "🏦"], [/kırtasiye|قرطاس/i, "✏️"],
+  [/araç|araba|oto|سيارة/i, "🚗"], [/sigorta|تأمين/i, "🛡️"], [/ambalaj|poşet|koli|تغليف/i, "🛍️"],
+];
+function categoryEmoji(c) {
+  return CATEGORY_EMOJI[c.id] ?? EMOJI_WORDS.find(([re]) => re.test(c.name))?.[1] ?? "🏷️";
 }
 
 // --- Ortaklık payları ---------------------------------------------------------------
@@ -1125,10 +1198,26 @@ export function receiptLabels() {
 export const receiptNumber = (move) => `${move.date.replace(/-/g, "")}-${move.id.slice(0, 4).toUpperCase()}`;
 
 // Hareketten fiş/fatura belgesi. paid ve balanceAfter sadece satış anında bilinir.
+// Ödeme ve tahsilatta makbuz: tek tutar, kur ve kalan borç (bakiye kişinin para biriminde).
 export function receiptDoc(move, kind, { paid = 0, balanceAfter = null } = {}) {
   const firm = currentFirm();
   const party = session.firm.parties.get(move.party);
   const at = millis(move.at);
+  if (MONEY_KINDS.includes(kind)) {
+    return {
+      kind,
+      number: receiptNumber(move),
+      date: move.date,
+      time: at ? new Date(at).toTimeString().slice(0, 5) : "",
+      currency: move.currency ?? "TRY",
+      rate: move.rate ?? null,
+      firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+      party: party ? { name: party.name, phone: party.phone ?? "" } : null,
+      amount: move.total,
+      balanceAfter,
+      note: move.note ?? "",
+    };
+  }
   return {
     kind,
     number: receiptNumber(move),
@@ -1152,6 +1241,13 @@ export function receiptDoc(move, kind, { paid = 0, balanceAfter = null } = {}) {
 
 // WhatsApp mesajı: fiş resmiyle birlikte giden kısa metin.
 function receiptText(doc) {
+  if (MONEY_KINDS.includes(doc.kind)) {
+    return [
+      `${doc.firm.name} · ${t(`rc_${doc.kind}Title`)} ${doc.number}`,
+      `${t("rc_amount")}: ${plainMoney(doc.amount, doc.currency)}`,
+      doc.balanceAfter > 0 ? `${t("rc_balanceOwed")}: ${plainMoney(doc.balanceAfter, doc.currency)}` : null,
+    ].filter(Boolean).join("\n");
+  }
   const total = doc.lines.reduce((s, l) => s + lineTotal(l), 0);
   return [
     `${doc.firm.name} · ${t(doc.kind === "invoice" ? "rc_invoiceTitle" : "rc_receiptTitle")} ${doc.number}`,
@@ -1166,6 +1262,20 @@ const plainMoney = (v, c) => formatMoney(v, c).replace(/[⁦⁩]/g, "");
 function receiptButtons(move, extra) {
   const party = session.firm.parties.get(move.party);
   const labels = receiptLabels();
+  if (MONEY_KINDS.includes(move.type)) {
+    // Makbuz: WhatsApp ve yazdır (fatura bilgisi yok; ürün satırı olmayan bir para hareketi).
+    const doc = receiptDoc(move, move.type, extra);
+    let blob = null;
+    receiptBlob(doc, labels).then((b) => { blob = b; }).catch((err) => console.error(err));
+    const share = async () => {
+      const result = await shareOnWhatsApp({ blob: blob ?? await receiptBlob(doc, labels), filename: `makbuz-${doc.number}.png`, text: receiptText(doc), phone: party?.phone });
+      if (result === "link") toast(t("receiptDownloaded"));
+    };
+    return [
+      h("button", { type: "button", class: "block whatsapp", onclick: share }, icon("whatsapp"), t("sendMoneyReceipt")),
+      h("button", { type: "button", class: "block", onclick: () => printReceipt(doc, labels) }, icon("printer"), t("print")),
+    ];
+  }
   const docs = { receipt: receiptDoc(move, "receipt", extra), invoice: receiptDoc(move, "invoice", extra) };
   const blobs = {};
   for (const kind of Object.keys(docs)) {
@@ -1203,6 +1313,27 @@ function saleDone(moves, before) {
     h("button", {
       type: "button", class: "block ghost danger",
       onclick: () => { sheet.close(); voidMoves(moves, t("undoReason")).then(() => toast(t("undone")), failed); },
+    }, t("undo")),
+    h("button", { type: "button", class: "block primary", onclick: () => sheet.close() }, t("done")),
+  ]);
+}
+
+// Ödeme / tahsilat kaydedilince: özet (tutar, kişi, kalan borç) + makbuz gönderme + geri alma.
+function moneyDone(move, before) {
+  const party = session.firm.parties.get(move.party);
+  const after = before - move.total; // ödeme tedarikçiye borcu, tahsilat satıcının borcunu azaltır
+  const b = balanceText(party.kind, after, party.currency);
+  open(t(`${move.type}Saved`), [
+    h("div", { class: "done-summary" },
+      h("span", { class: "done-check" }, icon("check")),
+      h("strong", {}, formatMoney(move.total, move.currency)),
+      h("span", { class: "muted" }, h("bdi", {}, party.name)),
+      h("small", { class: "muted" }, `${b.label}: ${b.amount}`)),
+    ...receiptButtons(move, { balanceAfter: after }),
+  ], [
+    h("button", {
+      type: "button", class: "block ghost danger",
+      onclick: () => { sheet.close(); voidMoves([move], t("undoReason")).then(() => toast(t("undone")), failed); },
     }, t("undo")),
     h("button", { type: "button", class: "block primary", onclick: () => sheet.close() }, t("done")),
   ]);
@@ -1325,7 +1456,8 @@ export function openAiSheet() {
 
 // --- Hareket ayrıntısı ve iptal -------------------------------------------------
 
-export function openMoveDetail(move) {
+// balanceAfter: ekstreden açılınca o hareketten sonraki bakiye (makbuzda kalan borç olarak yazılır).
+export function openMoveDetail(move, { balanceAfter = null } = {}) {
   const firm = currentFirm();
   const at = millis(move.at);
   const time = at ? new Intl.DateTimeFormat(dateLocale(), { dateStyle: "medium", timeStyle: "short" }).format(at) : "";
@@ -1366,25 +1498,52 @@ export function openMoveDetail(move) {
   if (move.note) fields.push(h("p", { class: "note" }, h("bdi", {}, move.note)));
 
   const title = t(`type_${move.type}`);
+  // Çöp kutusundaki kayıt: kim, neden sildi; geri yüklenebilir (bir kez).
   if (move.voided) {
-    fields.push(h("p", { class: "voided-note" },
-      t("voidedBy", { name: person(firm, move.voided.by).name, reason: move.voided.reason })));
-    return open(title, fields, [closeButton()]);
+    const who = person(firm, move.voided.by).name;
+    const why = move.voided.reason;
+    fields.push(h("p", { class: "voided-note" }, why === t("trashedReason") ? t("trashedBy", { name: who })
+      : why === t("editedReason") ? t("editedBy", { name: who }) : t("voidedBy", { name: who, reason: why })));
+    if (move.restored) {
+      fields.push(h("p", { class: "field-hint center" }, t("restoredBy", { name: person(firm, move.restored.by).name })));
+      return open(title, fields, [closeButton()]);
+    }
+    return open(title, fields, [
+      h("button", { type: "button", class: "primary block", onclick: () => restore(move) }, icon("undo"), t("restore")),
+    ]);
   }
-  // Satışta fiş gönderme; iptal en altta, açılır bölümde (yanlışlıkla basılmasın).
   if (RECEIPT_TYPES.includes(move.type)) fields.push(...receiptButtons(move));
-  const reason = textInput({ maxlength: 200, placeholder: t("voidReasonPlaceholder") });
-  fields.push(h("details", { class: "more danger-zone" },
-    h("summary", {}, t("voidMove")),
-    field(t("voidReason"), reason, t("voidHint")),
-    h("button", { class: "block danger" }, t("voidMove"))));
-  open(title, fields, [closeButton()], () => {
-    const r = reason.value.trim();
-    if (!r) return t("enterVoidReason");
-    if (!confirm(t("confirmVoid"))) return undefined;
-    saved(voidMoves([move], r), t("moveVoided"));
-    return undefined;
-  });
+  else if (MONEY_KINDS.includes(move.type) && move.party) fields.push(...receiptButtons(move, { balanceAfter }));
+  // Düzenle ve sil: silinen kayıt çöp kutusuna gider, oradan geri yüklenebilir.
+  const editable = EDITABLE.includes(move.type);
+  fields.push(
+    h("div", { class: `move-actions${editable ? "" : " one"}` },
+      editable && h("button", { type: "button", class: "block", onclick: () => editMove(move) }, icon("pencil"), t("edit")),
+      h("button", { type: "button", class: "block danger", onclick: () => trashMove(move) }, icon("trash"), t("moveToTrash"))),
+    !editable && h("small", { class: "field-hint center" }, t(move.type === "opening" ? "cantEditOpening" : "cantEditShelf")));
+  open(title, fields, [closeButton()]);
+}
+
+// Düzenlenebilen kayıtlar: formu olanlar. Sayım/iade raftaki o anki duruma bağlı olduğu için
+// silinip yeniden girilir; açılış kaydı ürün/kişi formundan gelir.
+const EDITABLE = ["sale", "purchase", "consign", "payment", "collection", "expense", "capitalIn", "withdraw", "transfer"];
+
+function editMove(move) {
+  if (["expense", "capitalIn", "withdraw", "transfer"].includes(move.type)) openCashSheet(move.type, { edit: move });
+  else openMoveSheet(move.type, { edit: move });
+}
+
+function trashMove(move) {
+  if (!confirm(t("confirmTrash"))) return;
+  sheet.close();
+  voidMoves([move], t("trashedReason")).catch(failed);
+  toast(t("movedToTrash"), () => restoreMove(move).done.then(() => toast(t("restored")), failed));
+}
+
+function restore(move) {
+  restoreMove(move).done.catch(failed);
+  sheet.close();
+  toast(t("restored"));
 }
 
 // Başka form modülleri (faturadan alış) için ortak parçalar.

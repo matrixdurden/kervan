@@ -116,17 +116,20 @@ function stopPageMoves() {
   pageLimit = PAGE;
 }
 
-// Sayfanın hareket türleri için canlı liste.
+// Sayfanın hareket türleri için canlı liste. Çöp kutusu: silinen (iptal edilen) kayıtlar, en son silinen üstte.
 function listenPageMoves() {
   stopPageMoves();
-  const types = PAGES[page]?.types;
-  if (!types) return;
+  const { types, trash } = PAGES[page] ?? {};
+  if (!types && !trash) return;
   const col = collection(db, "firms", session.firm.id, "moves");
-  const q = types === "all"
-    ? query(col, orderBy("at", "desc"), limit(pageLimit))
-    : query(col, where("type", "in", types), orderBy("at", "desc"), limit(pageLimit));
+  const q = trash
+    ? query(col, orderBy("voided.at", "desc"), limit(pageLimit))
+    : types === "all"
+      ? query(col, orderBy("at", "desc"), limit(pageLimit))
+      : query(col, where("type", "in", types), orderBy("at", "desc"), limit(pageLimit));
   pageUnsub = onSnapshot(q, (snap) => {
-    pageMoves = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) })).sort(newestFirst);
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+    pageMoves = trash ? list : list.sort(newestFirst);
     refreshFirm();
   }, (err) => { console.error(err); toast(t("readFailed")); });
 }
@@ -210,14 +213,19 @@ function fabBar(label, onclick) {
 
 // --- Ana ekran ------------------------------------------------------------------
 
+// Sol sütun alış tarafı (alış, ödeme, tedarikçi), sağ sütun satış tarafı (satış, tahsilat, müşteri):
+// her satırda karşılıklı iki iş yan yana durur.
 const TILES = [
-  ["sales", "out", "tile-sale"], ["purchases", "in", "tile-purchase"],
-  ["collections", "coin", "tile-collection"], ["expenses", "receipt", "tile-expense"],
+  ["purchases", "in", "tile-purchase"], ["sales", "out", "tile-sale"],
+  ["consign", "send", "tile-dark"], ["expenses", "receipt", "tile-dark"],
 ];
 const SECTIONS = [
-  ["products", "box"], ["sellers", "store"], ["suppliers", "truck"], ["consign", "send"],
-  ["payments", "coin"], ["cash", "wallet"], ["reports", "chart"], ["ledger", "book"],
-  ["invoice", "fileScan"], ["settings", "gear"],
+  ["payments", "minusCircle"], ["collections", "plusCircle"],
+  ["suppliers", "truck"], ["sellers", "store"],
+  ["products", "box"], ["invoice", "fileScan"],
+  ["cash", "wallet"], ["ledger", "book"],
+  ["reports", "chart"], ["trash", "trash"],
+  ["settings", "gear"],
 ];
 
 const HOME = {
@@ -683,12 +691,33 @@ const FILTERS = ["sale", "collection", "purchase", "payment", "consign", "consig
 
 const ledgerPage = {
   types: "all",
-  top: () => pageTop(t("page_ledger")),
+  top: () => pageTop(t("page_ledger"),
+    h("button", { type: "button", class: "icon-btn", "aria-label": t("page_trash"), title: t("page_trash"), onclick: () => openPage("trash") }, icon("trash"))),
   head: () => h("div", { class: "toolbar" },
     h("select", { "aria-label": t("filter"), onchange: (e) => { ledgerFilter = e.target.value; rerenderBody(); } },
       h("option", { value: "" }, t("allTypes")),
       FILTERS.map((type) => h("option", { value: type, selected: type === ledgerFilter }, t(`type_${type}`))))),
   body: () => movesList({ filter: ledgerFilter ? (m) => m.type === ledgerFilter : null }),
+};
+
+// --- Çöp kutusu: silinen kayıtlar; dokununca ayrıntı ve "Geri yükle" -------------------------
+
+const trashPage = {
+  trash: true,
+  top: () => pageTop(t("page_trash")),
+  body() {
+    if (!pageMoves) return [];
+    const list = pageMoves.filter((m) => !m.restored);
+    if (!list.length) return [emptyState("🗑️", t("trashEmpty"))];
+    const out = [
+      h("p", { class: "field-hint trash-hint" }, t("trashHint")),
+      h("ul", { class: "cards" }, list.map((m) => moveRow(m, { onclick: () => openMoveDetail(m) }))),
+    ];
+    if (pageMoves.length >= pageLimit) {
+      out.push(h("button", { type: "button", class: "block more", onclick: () => { pageLimit += PAGE; listenPageMoves(); } }, t("olderMoves")));
+    }
+    return out;
+  },
 };
 
 // --- Ayarlar ----------------------------------------------------------------------------
@@ -767,5 +796,6 @@ const PAGES = {
   cash: cashPage,
   reports: reportsPage,
   ledger: ledgerPage,
+  trash: trashPage,
   settings: settingsPage,
 };
