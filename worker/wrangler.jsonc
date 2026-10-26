@@ -1,0 +1,10 @@
+// Anahtarsız fatura okuma Worker'ı (bkz. worker/index.js). Yayınlamak: npm run deploy:ai
+{
+  "name": "kervan-ai",
+  "main": "index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "ai": { "binding": "AI" },
+  "observability": { "enabled": true }
+}

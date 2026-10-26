@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "firebase emulators:start --project demo-kervan",
     "test": "node --test",
-    "deploy": "firebase deploy --only hosting,firestore:rules,firestore:indexes"
+    "deploy": "firebase deploy --only hosting,firestore:rules,firestore:indexes",
+    "deploy:ai": "npx wrangler@4.152.0 deploy -c worker/wrangler.jsonc"
   }
 }

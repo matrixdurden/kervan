@@ -307,7 +307,8 @@ export function matchSupplier(supplier, parties) {
 
 // ---- Gemini ----
 
-const PROMPT = `You are reading a supplier's purchase invoice (fatura) from Turkey: a PDF, a scan or a phone photo.
+// Ortak (anahtarsız) yolun Worker'ı da aynı talimatı ve şemayı kullanır (worker/index.js).
+export const PROMPT = `You are reading a supplier's purchase invoice (fatura) from Turkey: a PDF, a scan or a phone photo.
 Extract exactly what is printed and answer with JSON that matches the schema.
 - supplier: the SELLER who issued the invoice (not the buyer shown as "Sayın …"): name (ünvan), taxNo (VKN 10 digits or TCKN 11 digits, digits only), taxOffice (vergi dairesi), address, phone.
 - number: invoice number (Fatura No / Belge No). date: invoice date (Fatura Tarihi) as YYYY-MM-DD. currency: ISO 4217 code (TL or ₺ → TRY).
@@ -318,7 +319,7 @@ Extract exactly what is printed and answer with JSON that matches the schema.
 
 const S = { type: "STRING", nullable: true }, N = { type: "NUMBER", nullable: true };
 const OBJ = (properties, required) => ({ type: "OBJECT", properties, ...(required && { required }) });
-const SCHEMA = OBJ({
+export const SCHEMA = OBJ({
   supplier: OBJ({ name: S, taxNo: S, taxOffice: S, address: S, phone: S }),
   number: S, date: S, currency: S,
   lines: { type: "ARRAY", items: OBJ({ name: { type: "STRING" }, code: S, qty: N, unit: S, unitPrice: N, vatRate: N, total: N }, ["name", "qty"]) },
@@ -413,16 +414,12 @@ function toBase64(bytes) {
   return btoa(s);
 }
 
-// Firebase AI Logic (anahtarsız yol) için aynı istek, SDK'nın beklediği biçimde.
-export async function prepareAiInput(file) {
+// Ortak (anahtarsız) yol için dosyanın türü; boyut ve tür burada da denetlenir.
+export async function aiFileType(file) {
   if (file.size > MAX_AI_BYTES) throw codeError("ai-too-big");
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const mime = mimeOf(file, bytes);
+  const mime = mimeOf(file, new Uint8Array(await file.slice(0, 16).arrayBuffer()));
   if (!AI_TYPES.includes(mime)) throw codeError("ai-unsupported");
-  return {
-    parts: [{ inlineData: { mimeType: mime, data: toBase64(bytes) } }, { text: PROMPT }],
-    generationConfig: { responseMimeType: "application/json", responseSchema: SCHEMA, temperature: 0 },
-  };
+  return mime;
 }
 
 // Modelin JSON cevabından fatura (her iki yol için ortak).

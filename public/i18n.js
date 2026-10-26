@@ -534,7 +534,7 @@ const STRINGS = {
     err_ai_failed: "Fatura okunamadı. Tekrar dene.",
     err_ai_unsupported: "Bu dosya türü okunamıyor. PDF, fotoğraf (JPG, PNG) ya da e-Fatura XML seç.",
     err_xml_invalid: "Bu XML bir e-Fatura değil ya da bozuk.",
-    err_ai_setup: "Fatura okuma henüz tam açılmadı. İşletme sahibi Firebase ayarlarını tamamlamalı.",
+    err_ai_setup: "Fatura okuma şu an kullanılamıyor. Biraz sonra tekrar dene ya da Ayarlar'dan kendi yapay zekâ anahtarını ekle.",
     aiSharedReady: "Fatura okuma hazır: PDF ve fotoğraflar ücretsiz okunur, anahtar gerekmez.",
     aiOwnKeyOptional: "İstersen kendi ücretsiz Gemini anahtarını da ekleyebilirsin; o zaman faturalar kendi kotanla okunur. Gerekli değil.",
 
@@ -1066,7 +1066,7 @@ const STRINGS = {
     err_ai_failed: "تعذّرت قراءة الفاتورة. حاول مرة أخرى.",
     err_ai_unsupported: "لا يمكن قراءة هذا النوع من الملفات. اختر PDF أو صورة (JPG، PNG) أو XML.",
     err_xml_invalid: "ملف XML هذا ليس فاتورة إلكترونية أو أنه تالف.",
-    err_ai_setup: "قراءة الفواتير لم تُفعَّل بالكامل بعد. يجب على صاحب العمل إكمال إعدادات Firebase.",
+    err_ai_setup: "قراءة الفواتير غير متاحة الآن. حاول بعد قليل أو أضف مفتاح الذكاء الاصطناعي الخاص بك من الإعدادات.",
     aiSharedReady: "قراءة الفواتير جاهزة: تُقرأ ملفات PDF والصور مجانًا ولا حاجة لمفتاح.",
     aiOwnKeyOptional: "يمكنك أيضًا إضافة مفتاح Gemini مجاني خاص بك لتُقرأ الفواتير بحصتك. هذا ليس ضروريًا.",
 

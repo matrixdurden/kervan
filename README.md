@@ -15,7 +15,8 @@ ortak kasası uygulaması. Ortaklar aynı işletmeye davet koduyla katılır ve 
   bağlı bir özel entegratör gerekir.
 - **Faturadan alış:** tedarikçinin faturası seçilir, ürünler, miktarlar ve fiyatlar okunup alış olarak hazırlanır;
   onay ekranında ürün eşleşmeleri düzeltilir, yeni ürünler ve yeni tedarikçi aynı anda oluşturulur. e-Fatura XML
-  yapay zekâsız ve kesin okunur; PDF ve fotoğraf Google Gemini ile (işletmenin kendi ücretsiz anahtarıyla) okunur.
+  yapay zekâsız ve kesin okunur. PDF ve fotoğraf anahtarsız ve ücretsiz okunur: Cloudflare Workers AI'ın ücretsiz
+  kotasıyla (tüm işletmeler için günlük ortak sınır). İsteyen işletme kendi Gemini anahtarını da ekleyebilir.
 - **Giderler:** Ayarlar'dan düzenlenen kategorilerle (kira, yakıt, vergi…); raporlarda kategoriye göre toplam.
 - **Raporlar:** dönem kârı ve marjı, en çok kâr getiren ürünler, kategoriye göre giderler, en çok borcu olanlar,
   azalan ürünler.
@@ -49,6 +50,7 @@ public/              Yayınlanan site (build adımı yok)
   firm.js            Ana ekran ve bölüm sayfaları (satışlar, alışlar, ürünler, cariler, kasa, raporlar, ayarlar…)
   importer.js        Faturadan alış: dosya seçme, okuma, onay ekranı
   invoice.js         e-Fatura (UBL-TR) XML okuyucu, Gemini ile PDF/fotoğraf okuma, ürün/tedarikçi eşleştirme
+  ai.js              Anahtarsız fatura okuma: fotoğrafı küçültür, PDF'i metne/resme çevirir, Worker'a yollar
   receipt.js         Satış fişi ve fatura bilgisi (resim, yazdırma), WhatsApp paylaşımı
   party.js           Bir satıcının/tedarikçinin hesabı, emanetteki malı ve ekstresi
   forms.js           Bütün formlar (ürün, cari, alış/satış/emanet, sayım/iade, kasa, paylar, iptal)
@@ -64,7 +66,8 @@ public/              Yayınlanan site (build adımı yok)
   sw.js              Çevrimdışı açılış için service worker
   firebase-config.js Firebase proje ayarları
 firestore.rules      Veritabanı güvenlik kuralları
-test/                Hesap, para ve çeviri testleri
+worker/              Anahtarsız fatura okuma için Cloudflare Worker (Workers AI; Firebase girişini doğrular)
+test/                Hesap, para, çeviri ve Worker testleri
 ```
 
 ## Veri
@@ -120,6 +123,10 @@ Emülatör için Java gerekir.
    **Firestore** veritabanı oluştur.
 3. Proje ayarlarından web uygulaması ekle, `firebaseConfig` değerlerini `public/firebase-config.js` içine yapıştır.
 4. `firebase use --add` ile projeyi seç, sonra `npm run deploy` (site, güvenlik kuralları ve indeksler birlikte gider).
+5. İsteğe bağlı, anahtarsız fatura okuma: `worker/index.js` içindeki `PROJECT` ve `ORIGINS`'i kendi projene göre
+   değiştir, `npx wrangler login` ile ücretsiz Cloudflare hesabına gir, `npm run deploy:ai` çalıştır ve çıkan
+   `*.workers.dev` adresini `public/firebase-config.js` içindeki `aiReaderUrl`'e yaz. Boş bırakılırsa işletmeler
+   PDF/fotoğraf için kendi Gemini anahtarını kullanır.
 
 ## Lisans
 
