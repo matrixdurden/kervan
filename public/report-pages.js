@@ -104,7 +104,7 @@ const holderName = (m) => person(currentFirm(), m.holder).name;
 const ALL_GROUPS = [
   ["sales", ["sale", "consignSale"]], ["saleReturns", ["saleReturn", "refund"]], ["purchases", ["purchase"]],
   ["collections", ["collection"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
-  ["cash", ["capitalIn", "withdraw", "transfer"]],
+  ["stockCount", ["stockCount"]], ["cash", ["capitalIn", "withdraw", "transfer"]],
 ];
 let allGroup = "";
 let productSort = "qty";

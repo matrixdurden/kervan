@@ -780,6 +780,7 @@ label.check input { width: 22px; height: 22px; accent-color: var(--primary); }
 .tone-collections { --c: #2F6FB5; }
 .tone-expenses { --c: #B4562F; }
 .tone-saleReturns { --c: #8A5A9E; }
+.tone-stockCount { --c: #2E7D6B; }
 button.bubble.add svg { width: 15px; height: 15px; }
 .tile-dark { background: var(--spend); }
 @media (prefers-color-scheme: dark) {
@@ -1178,6 +1179,35 @@ p.total-line, .pl-row.total-line { display: flex; justify-content: space-between
 .move-actions button.danger { border-color: color-mix(in srgb, var(--danger) 40%, var(--card)); }
 .trash-hint { margin: 0 4px 10px; }
 .top-actions { display: flex; gap: 6px; }
+
+/* Stok sayımı: kart rengi durumu söyler (sayılmadı gri, tam yeşil, eksik kırmızı, fazla turuncu) */
+.count-list { gap: 10px; }
+.count-card { --st: var(--text-3); padding: 12px; display: flex; flex-direction: column; gap: 10px;
+  border-inline-start: 5px solid var(--st); }
+.count-card.ok { --st: var(--in); background: color-mix(in srgb, var(--in) 9%, var(--card)); }
+.count-card.short { --st: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--card)); }
+.count-card.over { --st: var(--accent, #C8873A); background: color-mix(in srgb, var(--accent, #C8873A) 10%, var(--card)); }
+.count-top { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; text-align: start; }
+.count-top .main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.count-top .title { font-weight: 800; font-size: 16px; }
+.count-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.count-chip { padding: 2px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 700;
+  background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text-2); font-variant-numeric: tabular-nums; }
+.count-chip.status { background: color-mix(in srgb, var(--st) 16%, transparent); color: var(--st); }
+.count-step { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 8px;
+  padding: 6px; border-radius: 14px; background: color-mix(in srgb, var(--st) 10%, var(--bg)); }
+.count-step button { width: 52px; height: 52px; padding: 0; border-radius: 50%; }
+.count-step button svg { width: 22px; height: 22px; stroke-width: 2.6; }
+.count-nums { display: flex; align-items: baseline; justify-content: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.count-input { width: 4.2ch; min-width: 56px; height: 46px; padding: 0 4px; text-align: center; font-size: 26px; font-weight: 800;
+  border: 0; background: transparent; color: var(--text); }
+.count-input:focus { background: var(--card); border-radius: 10px; }
+.count-nums small { font-size: 16px; color: var(--text-3); white-space: nowrap; }
+.count-bar { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; }
+.count-bar > button.primary { height: 54px; border-radius: 16px; }
+.count-progress { display: flex; flex-direction: column; padding: 4px 12px; border-radius: 14px; background: var(--card); line-height: 1.15; }
+.count-progress small { color: var(--text-2); font-size: 12.5px; }
+.count-progress strong { font-size: 19px; font-variant-numeric: tabular-nums; }
 /* Kategoriye ürün seçme listesi */
 .pick-list { max-height: min(48dvh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; }
 button.card.row.check-row { width: 100%; height: auto; text-align: start; font-weight: 400; white-space: normal; gap: 10px; }

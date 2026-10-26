@@ -6,7 +6,7 @@ import { lineTotal, roundQty } from "./ledger.js";
 import { invoiceTotals } from "./receipt.js";
 
 const SALES = ["sale", "consignSale"];
-export const REPORT_TYPES = [...SALES, "saleReturn", "refund", "purchase", "expense", "collection", "payment", "return", "consign", "capitalIn", "withdraw", "transfer"];
+export const REPORT_TYPES = [...SALES, "saleReturn", "refund", "purchase", "expense", "collection", "payment", "return", "consign", "capitalIn", "withdraw", "transfer", "stockCount"];
 
 // Dövizli hareketin TL karşılığı.
 export const inLira = (m) => (m.currency && m.rate ? Math.round(m.total * m.rate) : m.total);

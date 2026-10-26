@@ -7,7 +7,7 @@ import { formatMoney, formatNumber } from "./money.js";
 
 export const TYPE_ICON = {
   purchase: "in", sale: "out", payment: "coin", collection: "coin",
-  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin",
+  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin", stockCount: "clipboard",
   expense: "receipt", capitalIn: "plusCircle", withdraw: "minusCircle", transfer: "swap", opening: "flag",
 };
 

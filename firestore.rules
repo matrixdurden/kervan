@@ -101,9 +101,9 @@ service cloud.firestore {
 
     function validMove(firmId, d) {
       return d.type in ['purchase', 'payment', 'sale', 'collection', 'consign', 'consignSale', 'return',
-          'saleReturn', 'refund', 'expense', 'capitalIn', 'withdraw', 'transfer', 'opening']
+          'saleReturn', 'refund', 'expense', 'capitalIn', 'withdraw', 'transfer', 'opening', 'stockCount']
         && text(d.party, 40) && text(d.partyName, 80)
-        && (d.type in ['opening', 'expense', 'capitalIn', 'withdraw', 'transfer'] || d.party.size() > 0)
+        && (d.type in ['opening', 'expense', 'capitalIn', 'withdraw', 'transfer', 'stockCount'] || d.party.size() > 0)
         && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && d.total is int
         && text(d.note, 200)
@@ -116,7 +116,7 @@ service cloud.firestore {
         && (!('category' in d) || (d.type == 'expense' && text(d.category, 40) && text(d.get('categoryName', ''), 60)))
         && (!('method' in d) || (d.type == 'expense' && text(d.method, 40) && text(d.get('methodName', ''), 40)))
         && text(d.get('invoiceNo', ''), 40)
-        && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return', 'saleReturn'] && validLines(d))
+        && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return', 'saleReturn', 'stockCount'] && validLines(d))
           || (d.type in ['payment', 'collection', 'refund', 'expense', 'capitalIn', 'withdraw'] && d.amount is int && d.amount > 0)
           || (d.type == 'transfer' && d.amount is int && d.amount > 0 && memberUid(firmId, d.to) && d.to != d.holder)
           || (d.type == 'opening' && (validLines(d) || d.amount is int)));

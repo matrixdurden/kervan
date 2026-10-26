@@ -17,6 +17,8 @@
 //   withdraw     ortak işten para çekti
 //   transfer     para bir ortağın kasasından diğerine geçti (holder → to)
 //   opening      açılış: eldeki stok (lines) ya da bir kişinin mevcut bakiyesi (amount, eksi olabilir)
+//   stockCount   stok sayımı: depoda sayılanla kayıttaki stok arasındaki fark (satır adedi + fazla, − eksik);
+//                eksik malın maliyeti kârdan düşer (satılan malın maliyetine eklenir), fazlası kâra döner
 //
 // Para kuruş (ya da cent) cinsinden tam sayıdır. Bakiye kişinin para birimindedir:
 // satıcıda + "bize borçlu", tedarikçide + "biz borçluyuz" demektir.
@@ -28,14 +30,14 @@
 
 export const MOVE_TYPES = [
   "purchase", "payment", "sale", "collection", "consign", "consignSale", "return", "saleReturn", "refund",
-  "expense", "capitalIn", "withdraw", "transfer", "opening",
+  "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount",
 ];
 export const PARTY_KIND = {
   purchase: "supplier", payment: "supplier",
   sale: "seller", collection: "seller", consign: "seller", consignSale: "seller", return: "seller",
   saleReturn: "seller", refund: "seller",
 };
-export const LINE_TYPES = ["purchase", "sale", "consign", "consignSale", "return", "saleReturn"];
+export const LINE_TYPES = ["purchase", "sale", "consign", "consignSale", "return", "saleReturn", "stockCount"];
 export const hasLines = (type) => LINE_TYPES.includes(type);
 
 export const roundQty = (n) => Math.round(n * 1000) / 1000;
@@ -141,6 +143,15 @@ function moneyEffects(move, lines, sign) {
       month.revenue += s * lineTotal(l);
       month.cogs += s * (l.cost ?? 0);
     }
+  } else if (move.type === "stockCount") {
+    // Satırın maliyeti stok değerindeki değişimdir (+ fazla, − eksik); eksik mal maliyete yazılır.
+    month = emptyMonth();
+    month.by = {};
+    for (const l of lines) {
+      const b = (month.by[l.deal || GENERAL] ??= emptyMonth());
+      b.cogs -= sign * (l.cost ?? 0);
+      month.cogs -= sign * (l.cost ?? 0);
+    }
   } else if (move.type === "expense") {
     month = { revenue: 0, cogs: 0, expenses: sign * move.amount, by: { [move.deal || GENERAL]: { revenue: 0, cogs: 0, expenses: sign * move.amount } } };
   }
@@ -177,6 +188,17 @@ export function applyMove(move, get) {
       t.setShelf(move.party, id, out.product);
       cost = out.cost;
       t.setProduct(id, stockIn(t.product(id), qty, unit(cost, qty)));
+    } else if (move.type === "stockCount") {
+      // Fazla çıkan mal ortalama maliyetle girer; eksik çıkan ortalama maliyetle düşer. cost işaretlidir.
+      const p = t.product(id);
+      if (qty >= 0) {
+        cost = Math.round(qty * avgCost(p));
+        t.setProduct(id, stockIn(p, qty, avgCost(p)));
+      } else {
+        const out = stockOut(p, -qty);
+        t.setProduct(id, out.product);
+        cost = -out.cost;
+      }
     } else if (move.type === "saleReturn") {
       // Geri gelen mal depoya ortalama maliyetle girer (yoksa son alış fiyatıyla).
       const p = t.product(id);
@@ -211,6 +233,8 @@ export function revertMove(move, get) {
     } else if (move.type === "return") {
       t.setProduct(id, removeExact(t.product(id), qty, cost));
       t.setShelf(move.party, id, stockIn(t.shelf(move.party, id), qty, unit(cost, qty)));
+    } else if (move.type === "stockCount" && qty < 0) {
+      t.setProduct(id, stockIn(t.product(id), -qty, unit(-cost, -qty)));
     } else {
       t.setProduct(id, removeExact(t.product(id), qty, cost));
     }

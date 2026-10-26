@@ -172,7 +172,7 @@ export function productLabel(p) {
   return p.variant ? `${p.name} · ${p.variant}` : p.name;
 }
 
-const PROFIT_TYPES = ["sale", "consignSale", "saleReturn"];
+const PROFIT_TYPES = ["sale", "consignSale", "saleReturn", "stockCount"];
 
 // Hareketleri ve etkilerini batch'e ekler; yazılan hareketleri (id'leriyle) döner.
 // reverted: aynı batch'te iptal edilen hareketler (düzenleme); etkileri önce geri alınır ki

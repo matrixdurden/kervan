@@ -280,3 +280,24 @@ test("satış iadesi iptal edilince stok, borç ve ay eski haline döner", () =>
   assert.deepEqual(replay([buy("çay", 10, 10000), sell("çay", 4, 15000), takeBack("çay", 2, 15000)].map((m, i) => ({ ...m, at: i }))).products.get("çay"),
     { stock: 8, value: 80000, lastCost: 10000 });
 });
+
+const counted2 = (product, qty, price = 0) => ({ type: "stockCount", party: "", date: D, by: "ali", lines: [{ product, qty, price }] });
+
+test("stok sayımı: eksik ortalama maliyetle düşer ve maliyete yazılır, fazla geri girer", () => {
+  const { products, results, months, balances } = run([buy("çay", 10, 10000), counted2("çay", -2), counted2("çay", 1)]);
+  assert.deepEqual(products.get("çay"), { stock: 9, value: 90000, lastCost: 10000 });
+  assert.equal(results[1].lines[0].cost, -20000);
+  assert.equal(results[2].lines[0].cost, 10000);
+  assert.deepEqual(months.get("2026-10"), { revenue: 0, cogs: 10000, expenses: 0 });
+  assert.equal(balances.get("sup"), 100000); // sayım kimsenin bakiyesine dokunmaz
+});
+
+test("stok sayımı iptal edilince stok ve kâr eski haline döner", () => {
+  const base = [buy("çay", 10, 10000), sell("çay", 3, 15000)];
+  const state = run(base);
+  const get = { product: (id) => state.products.get(id) };
+  const loss = recorded(counted2("çay", -2), get);
+  const after = run([...base, loss, { revert: loss }]);
+  assert.deepEqual(after.products.get("çay"), state.products.get("çay"));
+  assert.deepEqual(after.months.get("2026-10"), state.months.get("2026-10"));
+});

@@ -9,7 +9,7 @@ import { db } from "./firebase.js";
 import { $, h, icon, store, toast, avatar, today, currentTheme, applyTheme, formatDay, formatMonth, millis, dateLocale } from "./ui.js";
 import { t, unitLabel, lang, setLang } from "./i18n.js";
 import { session, currentFirm, partners, person, sharePlan, resetFirm, myName } from "./session.js";
-import { formatMoney, formatNumber } from "./money.js";
+import { formatMoney, formatNumber, parseQty, qtyInput } from "./money.js";
 import { avgCost, sumMonths, splitBuckets, lineTotal, roundQty } from "./ledger.js";
 import {
   moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, newestFirst, productThumb,
@@ -18,11 +18,11 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods, sendToChat, openProductCategories,
+  openMethodsSheet, paymentMethods, sendToChat, openProductCategories, openSheet, closeButton, failed,
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
-import { productByBarcode, productLabel, recompute, restoreProduct, restoreParty, purgeTrash } from "./data.js";
+import { productByBarcode, productLabel, recompute, restoreProduct, restoreParty, purgeTrash, recordMoves, voidMoves } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
 import { sharedAiReady } from "./ai.js";
 import { REPORT_TYPES, buildReport, salesSeries } from "./report.js";
@@ -249,11 +249,12 @@ const START = {
 const SECTIONS = [
   ["collections", "plusCircle"], ["payments", "minusCircle"],
   ["sellers", "store"], ["suppliers", "truck"],
-  ["products", "box"], ["expenses", "receipt"],
-  ["consign", "send"], ["saleReturns", "undo"],
-  ["invoice", "fileScan"], ["cash", "wallet"],
-  ["ledger", "book"], ["reports", "chart"],
-  ["trash", "trash"], ["settings", "gear"],
+  ["products", "box"], ["stockCount", "clipboard"],
+  ["expenses", "receipt"], ["consign", "send"],
+  ["saleReturns", "undo"], ["invoice", "fileScan"],
+  ["cash", "wallet"], ["ledger", "book"],
+  ["reports", "chart"], ["trash", "trash"],
+  ["settings", "gear"],
 ];
 
 const HOME = {
@@ -408,6 +409,7 @@ function productItems(items) {
 const productsPage = {
   fab: () => [t("newProduct"), () => openProductSheet()],
   top: () => pageTop(t("page_products"), h("div", { class: "top-actions" },
+    h("button", { type: "button", class: "icon-btn", "aria-label": t("page_stockCount"), title: t("page_stockCount"), onclick: () => openPage("stockCount") }, icon("clipboard")),
     h("button", { type: "button", class: "icon-btn", "aria-label": t("productCategories"), title: t("productCategories"), onclick: () => openProductCategories() }, icon("tag")),
     viewToggle())),
   head: () => h("div", { class: "page-head" },
@@ -774,9 +776,165 @@ const reportPage = {
   },
 };
 
+// --- Stok sayımı ------------------------------------------------------------------------------
+// Depodaki mal sayılır: her ürünün kartında sayılan / kayıttaki adet, − / + ve durum (sayılmadı, tam,
+// eksik, fazla). Barkod okuttukça o ürün bir artar. Sayım bu telefonda saklanır, yarıda bırakılabilir.
+// "Sayımı uygula" farkları tek bir stok sayımı kaydıyla stoğa işler; sayılmayan ürünlere dokunulmaz.
+
+const countKey = () => `count.${session.firm.id}`;
+let counts = {}; // ürünId → sayılan
+let countFilter = "all"; // all | todo | diff
+let countCat = "";
+
+function loadCounts() {
+  try {
+    counts = JSON.parse(store.get(countKey()) || "{}") ?? {};
+  } catch {
+    counts = {};
+  }
+}
+const saveCounts = () => store.set(countKey(), Object.keys(counts).length ? JSON.stringify(counts) : null);
+
+function setCount(id, n) {
+  if (n == null || Number.isNaN(n)) delete counts[id];
+  else counts[id] = Math.max(0, roundQty(n));
+  saveCounts();
+  rerenderBody();
+}
+
+const countDiff = (p) => (counts[p.id] == null ? null : roundQty(counts[p.id] - p.stock));
+const countStatus = (p) => {
+  const d = countDiff(p);
+  return d == null ? "todo" : d === 0 ? "ok" : d < 0 ? "short" : "over";
+};
+
+// Barkod okutma: okunan ürün bir artar ve kamera hemen yeniden açılır; vazgeçince durur.
+async function scanCount() {
+  for (;;) {
+    const code = await scanBarcode();
+    if (!code) return;
+    const p = productByBarcode(code);
+    if (!p) {
+      toast(t("barcodeUnknown", { code }));
+      continue;
+    }
+    setCount(p.id, (counts[p.id] ?? 0) + 1);
+    navigator.vibrate?.(30);
+    toast(t("cnt_scanned", { name: productLabel(p), n: formatNumber(counts[p.id]) }));
+  }
+}
+
+function countCard(p) {
+  const c = counts[p.id];
+  const d = countDiff(p);
+  const st = countStatus(p);
+  const label = st === "todo" ? t("cnt_todo") : st === "ok" ? t("cnt_ok")
+    : st === "short" ? t("cnt_short", { n: formatNumber(-d) }) : t("cnt_over", { n: formatNumber(d) });
+  const input = h("input", {
+    class: "count-input", inputmode: "decimal", autocomplete: "off", dir: "ltr", placeholder: "–",
+    value: c == null ? "" : c === 0 ? "0" : qtyInput(c), "aria-label": t("cnt_counted"),
+    onfocus: (e) => e.target.select(),
+    onchange: (e) => setCount(p.id, e.target.value.trim() === "" ? null : parseQty(e.target.value)),
+  });
+  return h("li", { class: `card count-card ${st}` },
+    h("div", { class: "count-top" },
+      productThumb(p, "sm"),
+      h("span", { class: "main" },
+        h("span", { class: "title" }, h("bdi", {}, productLabel(p))),
+        h("span", { class: "count-chips" },
+          p.barcode && h("span", { class: "count-chip", dir: "ltr" }, p.barcode),
+          h("span", { class: "count-chip status" }, label)))),
+    h("div", { class: "count-step" },
+      h("button", { type: "button", "aria-label": t("stepLess"), onclick: () => setCount(p.id, (c ?? 0) - 1) }, icon("minus")),
+      h("span", { class: "count-nums" }, input, h("small", {}, `/ ${formatNumber(p.stock)} ${unitLabel(p.unit)}`)),
+      h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => setCount(p.id, (c ?? 0) + 1) }, icon("plus"))));
+}
+
+// Sayımı uygula: farklar ve değerleri gösterilir; onaylanınca tek kayıt olarak işlenir.
+function openCountApply() {
+  const diffs = [...session.firm.products.values()].filter((p) => countDiff(p)).sort(byName);
+  const countedN = Object.keys(counts).filter((id) => session.firm.products.has(id)).length;
+  if (!countedN) return toast(t("cnt_nothing"));
+  if (!diffs.length) {
+    const before = counts;
+    counts = {};
+    saveCounts();
+    rerenderBody();
+    return toast(t("cnt_noDiff"), async () => { counts = before; saveCounts(); rerenderBody(); });
+  }
+  const value = (p) => Math.round(Math.abs(countDiff(p)) * avgCost(p));
+  const shortV = sum(diffs.filter((p) => countDiff(p) < 0), value);
+  const overV = sum(diffs.filter((p) => countDiff(p) > 0), value);
+  return openSheet(t("cnt_applyTitle"), [
+    h("ul", { class: "line-list" }, diffs.map((p) => h("li", {},
+      h("span", { class: "main" },
+        h("span", { class: "title" }, h("bdi", {}, productLabel(p))),
+        h("span", { class: "meta" }, t("cnt_line", { stock: formatNumber(p.stock), count: formatNumber(counts[p.id]), unit: unitLabel(p.unit) }))),
+      h("strong", { class: countDiff(p) < 0 ? "out" : "in" }, `${countDiff(p) > 0 ? "+" : "−"}${formatNumber(Math.abs(countDiff(p)))}`)))),
+    h("div", { class: "facts" },
+      fact(t("cnt_shortValue"), formatMoney(shortV)),
+      fact(t("cnt_overValue"), formatMoney(overV))),
+    h("small", { class: "field-hint" }, t("cnt_applyHint")),
+  ], [h("button", { class: "primary block" }, icon("check"), t("cnt_applyNow")), closeButton()], () => {
+    const lines = diffs.map((p) => ({ product: p.id, qty: countDiff(p), price: Math.round(avgCost(p)) }));
+    const { moves, done } = recordMoves([{ type: "stockCount", party: "", date: today(), note: "", lines }]);
+    done.catch(failed);
+    const before = counts;
+    counts = {};
+    saveCounts();
+    $("#sheet").close();
+    rerenderBody();
+    toast(t("cnt_applied", { n: lines.length }), () => voidMoves(moves, t("undoReason")).then(() => {
+      counts = before;
+      saveCounts();
+      rerenderBody();
+      toast(t("undone"));
+    }, failed));
+    return undefined;
+  });
+}
+
+function resetCount() {
+  const before = counts;
+  counts = {};
+  saveCounts();
+  rerenderBody();
+  toast(t("cnt_resetDone"), async () => { counts = before; saveCounts(); rerenderBody(); });
+}
+
+const stockCountPage = {
+  top: () => {
+    loadCounts();
+    return pageTop(t("page_stockCount"));
+  },
+  head: () => h("div", { class: "page-head" },
+    searchBox(t("searchProducts"), search.count ?? "", (v) => { search.count = v; rerenderBody(); }, canScan() ? scanCount : null),
+    segmented([["all", t("filterAll")], ["todo", t("cnt_filterTodo")], ["diff", t("cnt_filterDiff")]], countFilter,
+      (v) => { countFilter = v; rerenderBody(); }, "tabs")),
+  body() {
+    const all = [...session.firm.products.values()].sort(byName);
+    if (!all.length) return [emptyState("📦", t("noProducts"))];
+    const q = (search.count ?? "").trim();
+    const base = all.filter((p) => matches(productLabel(p), q) || (q && p.barcode === q));
+    const list = base.filter((p) => inCategory(p, countCat))
+      .filter((p) => countFilter === "all" || (countFilter === "todo" ? countStatus(p) === "todo" : !["todo", "ok"].includes(countStatus(p))));
+    const countedN = all.filter((p) => counts[p.id] != null).length;
+    $("#firm").classList.add("has-fab");
+    return [
+      h("p", { class: "field-hint trash-hint" }, t("cnt_hint")),
+      categoryBubbles(base, countCat, (v) => { countCat = v; rerenderBody(); }),
+      list.length ? h("ul", { class: "cards count-list" }, list.map(countCard)) : emptyState("✅", t(countFilter === "all" ? "noMatch" : "cnt_noneHere")),
+      h("div", { class: "fab-bar count-bar" },
+        h("div", { class: "count-progress" }, h("small", {}, t("cnt_progress")), h("strong", {}, `${countedN} / ${all.length}`)),
+        h("button", { type: "button", class: "primary block", disabled: !countedN, onclick: openCountApply }, icon("check"), t("cnt_apply")),
+        h("button", { type: "button", class: "icon-btn", "aria-label": t("cnt_reset"), title: t("cnt_reset"), disabled: !countedN, onclick: resetCount }, icon("refresh"))),
+    ];
+  },
+};
+
 // --- Hareketler (defter) ---------------------------------------------------------------------
 
-const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening"];
+const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount"];
 
 const ledgerPage = {
   types: "all",
@@ -797,7 +955,7 @@ const TRASH_GROUPS = [
   ["products"], ["sellers"], ["suppliers"],
   ["sales", ["sale", "consignSale"]], ["purchases", ["purchase"]], ["collections", ["collection"]],
   ["saleReturns", ["saleReturn", "refund"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
-  ["cash", ["capitalIn", "withdraw", "transfer", "opening"]],
+  ["stockCount", ["stockCount"]], ["cash", ["capitalIn", "withdraw", "transfer", "opening"]],
 ];
 let trashCat = "";
 
@@ -1006,6 +1164,7 @@ const PAGES = {
   expenses: expensesPage,
   consign: consignPage,
   products: productsPage,
+  stockCount: stockCountPage,
   sellers: partiesPage("seller"),
   suppliers: partiesPage("supplier"),
   cash: cashPage,
