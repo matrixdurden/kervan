@@ -1356,7 +1356,8 @@ export function openCashSheet(type, { edit } = {}) {
   if (!edit && type !== "expense") amount.focus(); // giderde önce kategori seçilir
 }
 
-// Gider kategorisinin resmi: hazır kategoriler kimliğinden, eklenenler adından tahmin edilir.
+// Gider kategorisinin resmi: kullanıcının seçtiği (emoji); seçilmemişse hazır kategoriler kimliğinden,
+// eklenenler adından tahmin edilir.
 const CATEGORY_EMOJI = {
   rent: "🏠", fuel: "⛽", shipping: "🚚", tax: "🧾", salary: "👷", utilities: "💡", food: "🍽️", other: "📦",
 };
@@ -1366,9 +1367,20 @@ const EMOJI_WORDS = [
   [/yemek|çay|kahve|طعام/i, "🍽️"], [/telefon|hat|هاتف/i, "📱"], [/temizlik|تنظيف/i, "🧹"],
   [/tamir|bakım|صيانة/i, "🔧"], [/reklam|إعلان/i, "📣"], [/banka|komisyon|بنك/i, "🏦"], [/kırtasiye|قرطاس/i, "✏️"],
   [/araç|araba|oto|سيارة/i, "🚗"], [/sigorta|تأمين/i, "🛡️"], [/ambalaj|poşet|koli|تغليف/i, "🛍️"],
+  [/taksit|kredi|borç|قسط/i, "💳"], [/market|bakkal|alışveriş|سوق|بقالة/i, "🛒"], [/pazar|manav|meyve|sebze|خضار/i, "🧺"],
+  [/su\b|damacana|ماء/i, "💧"], [/ekmek|fırın|خبز/i, "🍞"], [/ilaç|eczane|sağlık|hastane|دواء/i, "💊"],
+  [/okul|eğitim|kurs|مدرسة/i, "🎓"], [/giyim|kıyafet|ملابس/i, "👕"], [/hediye|هدية/i, "🎁"], [/otopark|park/i, "🅿️"],
+  [/taksi|yol|ulaşım|otobüs|مواصلات/i, "🚕"], [/otel|konaklama|فندق/i, "🏨"], [/bilgisayar|yazılım|حاسوب/i, "🖥️"],
+];
+// Seçilebilen resimler (kategori düzenlemede).
+const CATEGORY_PICKS = [
+  "🏠", "⛽", "🚚", "🧾", "👷", "💡", "🍽️", "📦", "💳", "🛒", "🧺", "📱",
+  "🧹", "🔧", "📣", "🏦", "✏️", "🚗", "🛡️", "🛍️", "☕", "🍞", "🥩", "🍎",
+  "💧", "🔥", "💊", "🎓", "👕", "🧰", "🪑", "🖥️", "🖨️", "📄", "🎁", "🅿️",
+  "🚕", "✈️", "🏨", "🎉", "💼", "📮", "🔒", "💰", "📊", "🌐", "📞", "🏪",
 ];
 function categoryEmoji(c) {
-  return CATEGORY_EMOJI[c.id] ?? EMOJI_WORDS.find(([re]) => re.test(c.name))?.[1] ?? "🏷️";
+  return c.emoji || CATEGORY_EMOJI[c.id] || EMOJI_WORDS.find(([re]) => re.test(c.name))?.[1] || "🏷️";
 }
 
 // --- Ortaklık payları ---------------------------------------------------------------
@@ -1862,18 +1874,42 @@ export function openBusinessSheet() {
 // Ad listesi düzenleyici (gider kategorileri, ödeme şekilleri): her satır bir ad; kimlikler korunur
 // ki eski kayıtlar bozulmasın. save(liste) en az bir ad varsa çağrılır. inside(liste) verilirse
 // gider formunun üstünde açılır ve kaydedince form kaybolmadan yeni listeyle güncellenir.
-function openNameListSheet({ title, hint, items, placeholder, addLabel, needOne, prefix, save, inside }) {
+// emoji: verilirse (gider kategorileri) her satırın başında resim düğmesi olur; dokununca resim seçilir.
+// Seçilmeyen satırın resmi adından tahmin edilir (yazdıkça değişir).
+function openNameListSheet({ title, hint, items, placeholder, addLabel, needOne, prefix, save, inside, emoji }) {
   const list = h("div", { class: "cat-list" });
   const rows = [];
+  let openPicker = null;
   const addRow = (item) => {
     const input = textInput({ maxlength: 40, value: item?.name ?? "", placeholder });
-    const row = { id: item?.id ?? `${prefix}${crypto.randomUUID().slice(0, 8)}`, input };
-    const el = h("div", { class: "cat-row" }, input, iconButton("x", t("remove"), () => {
+    const row = { id: item?.id ?? `${prefix}${crypto.randomUUID().slice(0, 8)}`, input, emoji: item?.emoji ?? "" };
+    let pickBtn = null;
+    let picker = null;
+    if (emoji) {
+      const paint = () => { pickBtn.textContent = emoji({ id: row.id, name: input.value, emoji: row.emoji }); };
+      picker = h("div", { class: "emoji-grid", hidden: true }, CATEGORY_PICKS.map((e) => h("button", {
+        type: "button", "aria-label": e,
+        onclick: () => { row.emoji = e; paint(); picker.hidden = true; openPicker = null; },
+      }, e)));
+      pickBtn = h("button", {
+        type: "button", class: "emoji-pick", "aria-label": t("pickPicture"), title: t("pickPicture"),
+        onclick: () => {
+          if (openPicker && openPicker !== picker) openPicker.hidden = true;
+          picker.hidden = !picker.hidden;
+          openPicker = picker.hidden ? null : picker;
+        },
+      });
+      input.addEventListener("input", () => { if (!row.emoji) paint(); });
+      paint();
+    }
+    const el = h("div", { class: "cat-row" }, pickBtn, input, iconButton("x", t("remove"), () => {
       rows.splice(rows.indexOf(row), 1);
       el.remove();
+      picker?.remove();
     }));
     rows.push(row);
     list.append(el);
+    if (picker) list.append(picker);
     return input;
   };
   for (const item of items) addRow(item);
@@ -1882,7 +1918,7 @@ function openNameListSheet({ title, hint, items, placeholder, addLabel, needOne,
     list,
     h("button", { type: "button", class: "small add-line", onclick: () => addRow().focus() }, "+ ", addLabel),
   ], [saveButton(), closeButton()], () => {
-    const names = rows.map((r) => ({ id: r.id, name: r.input.value.trim() })).filter((c) => c.name);
+    const names = rows.map((r) => ({ id: r.id, name: r.input.value.trim(), ...(r.emoji && { emoji: r.emoji }) })).filter((c) => c.name);
     if (!names.length) return needOne;
     save(names).catch(failed);
     if (inside) {
@@ -1900,7 +1936,7 @@ export function openCategoriesSheet(inside) {
   openNameListSheet({
     title: t("expenseCategories"), hint: t("categoriesHint"), items: expenseCategories(currentFirm()),
     placeholder: t("categoryPlaceholder"), addLabel: t("addCategory"), needOne: t("addAtLeastOneCategory"), prefix: "c",
-    save: (expenseCategories) => saveFirmSettings({ expenseCategories }), inside,
+    save: (expenseCategories) => saveFirmSettings({ expenseCategories }), inside, emoji: categoryEmoji,
   });
 }
 
