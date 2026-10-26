@@ -232,23 +232,24 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
   const barcode = barcodeField(product?.barcode ?? preset.barcode ?? "");
   const category = categoryField(base.category ?? "");
 
-  // Kâr marjı canlı: satış fiyatı ile ortalama (ya da son) alış maliyetinden.
-  const cost = product ? (product.stock > 0 ? avgCost(product) : product.lastCost) : 0;
-  const margin = h("small", { class: "field-hint margin" });
-  const showMargin = () => {
-    const p = parseMoney(price.value);
-    const m = marginPct(p, cost);
-    margin.textContent = m == null ? (product ? "" : t("marginAfterPurchase"))
-      : t("marginLine", { pct: formatNumber(m), amount: formatMoney(p - Math.round(cost)), cost: formatMoney(Math.round(cost)) });
-    margin.classList.toggle("bad", m != null && m < 0);
-  };
-  price.addEventListener("input", showMargin);
-  showMargin();
-
   // Stok, birim ve fiyatın hemen altında: yeni üründe "Elinde şu an var mı?", kayıtlı üründe depo durumu.
   let qty;
   let openingCost;
   let stockBlock;
+
+  // Kâr marjı canlı: satış fiyatı ile maliyetten. Kayıtlı üründe ortalama (ya da son) alış maliyeti,
+  // yeni üründe yazılan birim maliyet (fiyatı belirlerken yüzdeyi görmek için).
+  const cost = () => (product ? (product.stock > 0 ? avgCost(product) : product.lastCost) : parseMoney(openingCost?.value ?? "") ?? 0);
+  const margin = h("small", { class: "field-hint margin" });
+  const showMargin = () => {
+    const p = parseMoney(price.value);
+    const c = cost();
+    const m = marginPct(p, c);
+    margin.textContent = m == null ? (product ? "" : t("marginNeedsCost"))
+      : t("marginLine", { pct: formatNumber(m), amount: formatMoney(p - Math.round(c)), cost: formatMoney(Math.round(c)) });
+    margin.classList.toggle("bad", m != null && m < 0);
+  };
+  price.addEventListener("input", showMargin);
   if (product) {
     stockBlock = [h("div", { class: "facts" },
       fact(t("inStock"), `${formatNumber(product.stock)} ${unitLabel(product.unit)}`),
@@ -257,12 +258,14 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
       fact(t("stockValue"), formatMoney(product.value)))];
   } else {
     qty = numberInput({ placeholder: "0" });
-    openingCost = numberInput({ placeholder: "0,00" });
+    openingCost = numberInput({ placeholder: "0,00", oninput: showMargin });
     stockBlock = [
       h("p", { class: "label" }, t("openingStock")),
       h("div", { class: "row2" }, field(t("qtyOnHand"), qty), field(t("unitCost"), openingCost)),
+      margin,
       h("small", { class: "field-hint" }, t("openingStockHint"))];
   }
+  showMargin();
 
   const fields = [
     photo.el,
@@ -270,7 +273,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     category.el,
     field(t("variant"), variant, t("variantHint")),
     h("div", { class: "row2" }, field(t("unit"), unit), field(t("salePrice"), price)),
-    margin,
+    product ? margin : null, // yeni üründe marj birim maliyetin altında
     ...stockBlock,
     h("div", { class: "row2" }, field(t("vatRate"), vat), field(t("minStock"), minStock)),
     h("small", { class: "field-hint" }, t("minStockHint")),
@@ -337,18 +340,26 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     const twin = code && productByBarcode(code);
     if (twin && twin.id !== product?.id) return t("barcodeTaken", { name: productLabel(twin) });
     let opening;
+    // Miktar varsa açılış kaydı; sadece birim maliyet yazıldıysa ürünün son alış maliyeti olur
+    // (marj ve alışta önerilen fiyat için).
+    let lastCost;
     if (!product && (qty.value.trim() || openingCost.value.trim())) {
-      const q = parseQty(qty.value);
       const c = openingCost.value.trim() ? parseMoney(openingCost.value) : 0;
-      if (!q || c == null) return t("badOpening");
-      opening = { qty: q, cost: c };
+      if (c == null) return t("badNumber");
+      if (qty.value.trim()) {
+        const q = parseQty(qty.value);
+        if (!q) return t("badOpening");
+        opening = { qty: q, cost: c };
+      } else {
+        lastCost = c;
+      }
     }
     const data = {
       name: n, variant: variant.value.trim(), category: category.value(), unit: unit.value, price: p, barcode: code, vat: v, minStock: min,
       groupId: product?.groupId ?? preset.groupId ?? "",
     };
     const nextDeal = deal && deal.value !== currentDeal ? deal.value : undefined;
-    const done = saveProduct(product?.id, data, { opening, photo: photo.value(), deal: nextDeal });
+    const done = saveProduct(product?.id, data, { opening, lastCost, photo: photo.value(), deal: nextDeal });
     if (inside) {
       done.catch(failed);
       subsheet.close();

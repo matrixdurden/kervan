@@ -265,7 +265,8 @@ export function voidMoves(moves, reason) {
 //   photo: { thumb, full }    yeni fotoğraf; null fotoğrafı kaldırır; undefined dokunmaz
 //   deal: ortaklık id'si      "" genel paylara döner; undefined dokunmaz
 // fields: { name, unit, price, barcode, variant, groupId, minStock, vat }
-export function saveProduct(id, fields, { opening, photo, deal } = {}) {
+// lastCost: yeni üründe stok olmadan yazılan birim maliyet (marj ve alış fiyatı önerisi için).
+export function saveProduct(id, fields, { opening, lastCost, photo, deal } = {}) {
   const batch = writeBatch(db);
   const productRef = id ? ref("products", id) : newRef("products");
   fields = { ...fields };
@@ -275,7 +276,7 @@ export function saveProduct(id, fields, { opening, photo, deal } = {}) {
   if (id) {
     batch.update(productRef, fields);
   } else {
-    const product = { ...fields, ...EMPTY, consigned: 0 };
+    const product = { ...fields, ...EMPTY, consigned: 0, ...(lastCost > 0 && !opening && { lastCost }) };
     batch.set(productRef, { ...product, createdBy: session.uid, createdAt: serverTimestamp() });
     if (opening) {
       addMoves(batch, [{ type: "opening", party: "", lines: [{ product: productRef.id, qty: opening.qty, price: opening.cost }] }],

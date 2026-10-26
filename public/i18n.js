@@ -146,7 +146,8 @@ const STRINGS = {
     openingStock: "Elinde şu an var mı?",
     qtyOnHand: "Miktar",
     unitCost: "Birim maliyet",
-    openingStockHint: "Boş bırakabilirsin. Doldurursan defterde açılış kaydı olarak görünür.",
+    openingStockHint: "Boş bırakabilirsin. Miktar yazarsan defterde açılış kaydı olur; sadece birim maliyeti yazarsan kâr marjı ve alışta önerilen fiyat için saklanır.",
+    marginNeedsCost: "Birim maliyeti yazınca kâr marjı burada görünür.",
     cantDeleteProduct: "Depoda ya da müşterilerde malı olan ürün silinemez.",
 
     // Cariler
@@ -797,7 +798,8 @@ const STRINGS = {
     openingStock: "هل لديك منه الآن؟",
     qtyOnHand: "الكمية",
     unitCost: "تكلفة الوحدة",
-    openingStockHint: "يمكنك تركه فارغًا. إذا ملأته يظهر في الدفتر كقيد افتتاحي.",
+    openingStockHint: "يمكنك تركه فارغًا. إذا كتبت الكمية يُسجَّل قيد افتتاحي في الدفتر؛ وإذا كتبت تكلفة الوحدة فقط تُحفظ لهامش الربح ولسعر الشراء المقترح.",
+    marginNeedsCost: "يظهر هامش الربح هنا عند كتابة تكلفة الوحدة.",
     cantDeleteProduct: "لا يمكن حذف منتج له بضاعة في المستودع أو عند العملاء.",
 
     seller: "عميل",
