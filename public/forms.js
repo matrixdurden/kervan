@@ -12,7 +12,7 @@ import {
 } from "./money.js";
 import { PARTY_KIND, hasLines, lineTotal, avgCost, roundQty } from "./ledger.js";
 import {
-  recordMoves, voidMoves, replaceMove, restoreMove, saveProduct, saveParty, deleteProduct, deleteParty, saveShares,
+  recordMoves, voidMoves, replaceMove, restoreMove, saveProduct, saveParty, deleteProduct, deleteParty, restoreProduct, restoreParty, saveShares,
   saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode, productLabel, saveFirmSettings,
 } from "./data.js";
 import {
@@ -78,6 +78,13 @@ function saved(promise, message) {
   sheet.close();
   toast(message);
   promise.catch(failed);
+}
+
+// Ürün / cari silindi: çöp kutusuna taşındı; bildirimdeki "Geri al" geri yükler.
+function trashed(promise, undo) {
+  sheet.close();
+  promise.catch(failed);
+  toast(t("movedToTrash"), () => undo().then(() => toast(t("restored")), failed));
 }
 
 // Hareket kaydı: bildirimdeki "Geri al" kaydı iptal eder (defterde iz kalır).
@@ -319,7 +326,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
       type: "button", class: "block danger", disabled: hasStock,
       onclick: () => {
         if (!confirm(t("confirmDelete", { name: productLabel(product) }))) return;
-        saved(deleteProduct(product.id), t("deleted", { name: productLabel(product) }));
+        trashed(deleteProduct(product.id), () => restoreProduct(product.id));
       },
     }, t("delete")));
     if (hasStock) buttons.push(h("small", { class: "field-hint center" }, t("cantDeleteProduct")));
@@ -437,7 +444,7 @@ export function openPartySheet(kind, party) {
       type: "button", class: "block danger", disabled: busy,
       onclick: () => {
         if (!confirm(t("confirmDelete", { name: party.name }))) return;
-        saved(deleteParty(party.id), t("deleted", { name: party.name }));
+        trashed(deleteParty(party.id), () => restoreParty(party.id));
       },
     }, t("delete")));
     if (busy) buttons.push(h("small", { class: "field-hint center" }, t("cantDeleteParty")));

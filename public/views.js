@@ -106,11 +106,16 @@ export function categoryBubbles(products, value, onchange) {
   if (!cats.length) return null;
   const loose = products.filter((p) => !p.category).length;
   const options = [["", t("filterAll"), products.length], ...cats.map(([c, n]) => [c, c, n]), ...(loose ? [[NO_CATEGORY, t("noCategory"), loose]] : [])];
-  const el = h("div", { class: "bubbles", role: "group", "aria-label": t("category") });
-  const render = (current) => el.replaceChildren(...options.map(([v, label, n]) => h("button", {
+  return bubbleRow(options, value, onchange, t("category"));
+}
+
+// Yatay kayan baloncuk sırası: options [[değer, etiket, sayı], …]; seçili olan koyu.
+export function bubbleRow(options, value, onchange, label = "") {
+  const el = h("div", { class: "bubbles", role: "group", "aria-label": label });
+  const render = (current) => el.replaceChildren(...options.map(([v, text, n]) => h("button", {
     type: "button", class: "bubble", "aria-pressed": String(v === current),
     onclick: () => { render(v); onchange(v); },
-  }, h("bdi", {}, label), h("small", {}, String(n)))));
+  }, h("bdi", {}, text), n != null ? h("small", {}, String(n)) : null)));
   render(value);
   return el;
 }

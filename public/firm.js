@@ -6,14 +6,14 @@ import {
   collection, query, where, orderBy, limit, onSnapshot, getDocs,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
-import { $, h, icon, store, toast, avatar, today, currentTheme, applyTheme, formatDay, formatMonth } from "./ui.js";
+import { $, h, icon, store, toast, avatar, today, currentTheme, applyTheme, formatDay, formatMonth, millis, dateLocale } from "./ui.js";
 import { t, unitLabel, lang, setLang } from "./i18n.js";
 import { session, currentFirm, partners, person, sharePlan, resetFirm, myName } from "./session.js";
 import { formatMoney, formatNumber } from "./money.js";
 import { avgCost, sumMonths, splitBuckets, lineTotal, roundQty } from "./ledger.js";
 import {
   moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, newestFirst, productThumb,
-  productCategories, categoryBubbles, inCategory,
+  productCategories, categoryBubbles, inCategory, bubbleRow,
 } from "./views.js";
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
@@ -21,7 +21,7 @@ import {
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
-import { productByBarcode, productLabel, recompute } from "./data.js";
+import { productByBarcode, productLabel, recompute, restoreProduct, restoreParty } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
 import { sharedAiReady } from "./ai.js";
 import { REPORT_TYPES, buildReport, salesSeries, topBy } from "./report.js";
@@ -48,10 +48,13 @@ export const currentPage = () => page;
 export function openFirm(id) {
   closeFirm();
   resetFirm(id);
-  const docs = (snap) => new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+  const docs = (snap) => new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data({ serverTimestamps: "estimate" }) }]));
   const failed = (err) => { console.error(err); toast(t("readFailed")); };
+  // Silinmiş (çöp kutusundaki) ürün ve cariler uygulamanın geri kalanına hiç girmez; ayrı tutulur.
   const listen = (name, key) => onSnapshot(collection(db, "firms", id, name), (snap) => {
-    session.firm[key] = docs(snap);
+    const all = docs(snap);
+    session.firm[key] = new Map([...all].filter(([, x]) => !x.deleted));
+    if (key in session.firm.trash) session.firm.trash[key] = new Map([...all].filter(([, x]) => x.deleted));
     refreshFirm();
   }, failed);
   unsubs = [listen("products", "products"), listen("parties", "parties"), listen("accounts", "accounts"), listen("months", "months")];
@@ -867,16 +870,63 @@ const ledgerPage = {
 
 // --- Çöp kutusu: silinen kayıtlar; dokununca ayrıntı ve "Geri yükle" -------------------------
 
+// Çöp kutusu bölümleri: ürünler, müşteriler, tedarikçiler ve hareket türleri. Sadece içinde bir şey
+// olanların baloncuğu görünür.
+const TRASH_GROUPS = [
+  ["products"], ["sellers"], ["suppliers"],
+  ["sales", ["sale", "consignSale"]], ["purchases", ["purchase"]], ["collections", ["collection"]],
+  ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
+  ["cash", ["capitalIn", "withdraw", "transfer", "opening"]],
+];
+let trashCat = "";
+
+// Çöpteki ürün ya da cari: kim, ne zaman sildi; yanında "Geri yükle".
+function trashRecord(x, kind) {
+  const firm = currentFirm();
+  const at = millis(x.deleted?.at);
+  const when = at ? new Intl.DateTimeFormat(dateLocale(), { day: "numeric", month: "short" }).format(at) : "";
+  const what = kind === "product" ? t("trashProduct") : t(x.kind);
+  const restore = async () => {
+    try {
+      await (kind === "product" ? restoreProduct(x.id) : restoreParty(x.id));
+      toast(t("restored"));
+    } catch (err) {
+      console.error(err);
+      toast(t("saveFailed"));
+    }
+  };
+  return h("li", {}, h("div", { class: "card row trash-record" },
+    kind === "product" ? productThumb(x) : partyAvatar(x),
+    h("span", { class: "main" },
+      h("span", { class: "title" }, h("bdi", {}, kind === "product" ? productLabel(x) : x.name)),
+      h("span", { class: "meta" }, [what, t("trashedBy", { name: person(firm, x.deleted?.by).name }), when].filter(Boolean).join(" · "))),
+    h("button", { type: "button", class: "small primary", onclick: restore }, icon("undo"), t("restore"))));
+}
+
 const trashPage = {
   trash: true,
   top: () => pageTop(t("page_trash")),
   body() {
     if (!pageMoves) return [];
-    const list = pageMoves.filter((m) => !m.restored);
-    if (!list.length) return [emptyState("🗑️", t("trashEmpty"))];
+    const { products, parties } = session.firm.trash;
+    const groupOf = (m) => TRASH_GROUPS.find(([, types]) => types?.includes(m.type))?.[0] ?? "cash";
+    const items = [
+      ...[...products.values()].map((p) => ({ group: "products", at: millis(p.deleted?.at), el: () => trashRecord(p, "product") })),
+      ...[...parties.values()].map((p) => ({ group: p.kind === "seller" ? "sellers" : "suppliers", at: millis(p.deleted?.at), el: () => trashRecord(p, "party") })),
+      ...pageMoves.filter((m) => !m.restored).map((m) => ({ group: groupOf(m), at: millis(m.voided?.at), el: () => moveRow(m, { onclick: () => openMoveDetail(m) }) })),
+    ].sort((a, b) => b.at - a.at);
+    if (!items.length) return [emptyState("🗑️", t("trashEmpty"))];
+
+    const counts = new Map();
+    for (const it of items) counts.set(it.group, (counts.get(it.group) ?? 0) + 1);
+    if (trashCat && !counts.has(trashCat)) trashCat = "";
+    const options = [["", t("filterAll"), items.length],
+      ...TRASH_GROUPS.filter(([g]) => counts.has(g)).map(([g]) => [g, t(g === "cash" ? "trashCash" : `page_${g}`), counts.get(g)])];
+    const shown = items.filter((it) => !trashCat || it.group === trashCat);
     const out = [
+      bubbleRow(options, trashCat, (v) => { trashCat = v; rerenderBody(); }, t("page_trash")),
       h("p", { class: "field-hint trash-hint" }, t("trashHint")),
-      h("ul", { class: "cards" }, list.map((m) => moveRow(m, { onclick: () => openMoveDetail(m) }))),
+      h("ul", { class: "cards" }, shown.map((it) => it.el())),
     ];
     if (pageMoves.length >= pageLimit) {
       out.push(h("button", { type: "button", class: "block more", onclick: () => { pageLimit += PAGE; listenPageMoves(); } }, t("olderMoves")));

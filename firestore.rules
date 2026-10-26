@@ -68,7 +68,8 @@ service cloud.firestore {
         && text(d.get('groupId', ''), 40)
         && text(d.get('category', ''), 40)
         && optNumber(d, 'minStock')
-        && optNumber(d, 'vat');
+        && optNumber(d, 'vat')
+        && trashable(d, d.stock == 0 && d.value == 0 && d.get('consigned', 0) == 0);
     }
 
     function validParty(d) {
@@ -82,7 +83,13 @@ service cloud.firestore {
         && text(d.get('thumb', ''), 40000)
         && text(d.get('taxNo', ''), 20)
         && text(d.get('taxOffice', ''), 60)
-        && text(d.get('address', ''), 300);
+        && text(d.get('address', ''), 300)
+        && trashable(d, d.balance == 0);
+    }
+
+    // Çöp kutusu: "deleted" işareti sadece silinebilecek kayda konur (stoksuz ürün, bakiyesiz cari).
+    function trashable(d, empty) {
+      return !('deleted' in d) || (empty && d.deleted.by == request.auth.uid);
     }
 
     // Faturadan okunan alışlar uzun olabilir.

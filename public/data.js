@@ -4,7 +4,7 @@
 // birbirinin rakamını ezmez. Bir şey kayarsa recompute() hepsini hareketlerden baştan kurar.
 
 import {
-  doc, collection, writeBatch, serverTimestamp, increment, getDocs, updateDoc, deleteDoc, deleteField,
+  doc, collection, writeBatch, serverTimestamp, increment, getDocs, updateDoc, deleteField,
   arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
@@ -328,14 +328,21 @@ export function saveParty(id, { kind, ...fields }, opening, photo) {
 }
 
 // Ürünle birlikte fotoğrafı silinir ve ortaklıklardan çıkarılır.
+// Silme çöp kutusuna taşır: kayıt durur, "deleted" işaretiyle listelerden kalkar; geri yüklenebilir.
+// (Kurallar: sadece stoksuz ürün ve bakiyesiz cari.) Ürün, ortaklığından çıkarılır.
+const trashMark = () => ({ deleted: { by: session.uid, at: serverTimestamp() } });
+
 export function deleteProduct(id) {
   const batch = writeBatch(db);
-  batch.delete(ref("products", id));
-  batch.delete(ref("images", id));
+  batch.update(ref("products", id), trashMark());
   addDealMove(batch, id, "");
   return batch.commit();
 }
-export const deleteParty = (id) => deleteDoc(ref("parties", id));
+export const deleteParty = (id) => updateDoc(ref("parties", id), trashMark());
+
+// Çöp kutusundan geri yükleme.
+export const restoreProduct = (id) => updateDoc(ref("products", id), { deleted: deleteField() });
+export const restoreParty = (id) => updateDoc(ref("parties", id), { deleted: deleteField() });
 
 // Genel ortaklık payları: { ortakId: yüzde } (ürün ortaklığına girmeyen her şey için).
 export const saveShares = (shares) => updateDoc(firmRef(), { shares });
