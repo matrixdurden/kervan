@@ -12,11 +12,18 @@
   <!-- İlk boyama CSS'ten önce doğru renkte olsun (beyaz parlama olmasın). -->
   <style>
     html { background: #F3F1EC; }
-    @media (prefers-color-scheme: dark) { html { background: #0F1716; } }
+    @media (prefers-color-scheme: dark) { html:not([data-theme="light"]) { background: #0F1716; } }
+    html[data-theme="dark"] { background: #0F1716; }
   </style>
   <script>
-    document.head.insertAdjacentHTML("beforeend", '<link rel="manifest" href="/manifest'
-      + (matchMedia("(prefers-color-scheme: dark)").matches ? "-dark" : "") + '.webmanifest">');
+    // Ayarlar'dan seçilen tema (light / dark) ilk boyamadan önce uygulanır; seçilmemişse telefonun ayarı.
+    (function () {
+      var theme = null;
+      try { theme = localStorage.getItem("kervan.theme"); } catch (e) { /* gizli sekme */ }
+      if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      var dark = theme ? theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+      document.head.insertAdjacentHTML("beforeend", '<link rel="manifest" href="/manifest' + (dark ? "-dark" : "") + '.webmanifest">');
+    })();
   </script>
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">

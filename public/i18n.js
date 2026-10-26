@@ -382,6 +382,11 @@ const STRINGS = {
     recomputeHintShort: "Rakamlar tutmuyor gibiyse",
     done: "Tamam",
     tryAgain: "Tekrar dene",
+    theme: "Görünüm",
+    theme_auto: "Otomatik",
+    theme_light: "Açık",
+    theme_dark: "Koyu",
+    themeHint: "Otomatik, telefonun ayarına göre açık ya da koyu olur. Seçim bu telefonda saklanır.",
 
     // Ürün: çeşit, KDV, stok uyarısı, marj
     variant: "Çeşit",
@@ -913,6 +918,11 @@ const STRINGS = {
     recomputeHintShort: "إذا بدت الأرقام غير صحيحة",
     done: "تم",
     tryAgain: "حاول مرة أخرى",
+    theme: "المظهر",
+    theme_auto: "تلقائي",
+    theme_light: "فاتح",
+    theme_dark: "داكن",
+    themeHint: "التلقائي يتبع إعداد الهاتف. يُحفظ الاختيار على هذا الهاتف.",
 
     variant: "النوع",
     variantPlaceholder: "مثلًا: أسود، مقاس كبير (اختياري)",

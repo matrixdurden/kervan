@@ -26,7 +26,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0F1716;
     --card: #192322;
     --card-border: #2B3937;
@@ -48,6 +48,31 @@
     --shadow: none;
   }
 }
+:root[data-theme="dark"] {
+    --bg: #0F1716;
+    --card: #192322;
+    --card-border: #2B3937;
+    --field: #192322;
+    --text: #F0F4F3;
+    --text-2: #B9C6C3;
+    --text-3: #8F9D9A;
+    --border: #3D4D49;
+    --primary: #4DB3A8;
+    --on-primary: #0B1514;
+    --accent: #E3A458;
+    --in: #5CC79A;
+    --out: #E58E66;
+    --blue: #7FA9DA;
+    --ink: #EAF0EE;
+    --on-ink: #121A19;
+    --danger: #F09A86;
+    --warn: #E3B04B;
+    --shadow: none;
+  }
+
+/* Ayarlar'dan seçilen tema (bkz. ui.js applyTheme); seçilmezse telefonun ayarı. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 
@@ -561,8 +586,9 @@ button.card.partner { width: 100%; height: auto; font-weight: 400; text-align: s
 
 :root { --sale: #23935A; --purchase: #D4483B; --collect: #2F6FB5; --spend: #2E3F5C; }
 @media (prefers-color-scheme: dark) {
-  :root { --sale: #2FA866; --purchase: #DE5A4D; --collect: #3B7FC8; --spend: #3C5070; }
+  :root:not([data-theme="light"]) { --sale: #2FA866; --purchase: #DE5A4D; --collect: #3B7FC8; --spend: #3C5070; }
 }
+:root[data-theme="dark"] { --sale: #2FA866; --purchase: #DE5A4D; --collect: #3B7FC8; --spend: #3C5070; }
 
 img.firm-mark { object-fit: cover; background: var(--card); }
 .firm-mark.lg { width: 56px; height: 56px; border-radius: 16px; font-size: 26px; }
@@ -750,8 +776,9 @@ label.check input { width: 22px; height: 22px; accent-color: var(--primary); }
 .tone-invoice { --c: #B7791F; }
 .tone-settings { --c: #5F6B69; }
 @media (prefers-color-scheme: dark) {
-  .tile-ic { color: color-mix(in srgb, var(--c) 60%, white); background: color-mix(in srgb, var(--c) 28%, var(--card)); }
+  :root:not([data-theme="light"]) .tile-ic { color: color-mix(in srgb, var(--c) 60%, white); background: color-mix(in srgb, var(--c) 28%, var(--card)); }
 }
+:root[data-theme="dark"] .tile-ic { color: color-mix(in srgb, var(--c) 60%, white); background: color-mix(in srgb, var(--c) 28%, var(--card)); }
 
 /* Listeler ve bölüm başlıkları */
 .sec .link { color: var(--primary); text-decoration: none; font-weight: 800; }

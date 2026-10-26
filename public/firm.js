@@ -6,7 +6,7 @@ import {
   collection, query, where, orderBy, limit, onSnapshot, getDocs,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
-import { $, h, icon, store, toast, avatar, today } from "./ui.js";
+import { $, h, icon, store, toast, avatar, today, currentTheme, applyTheme } from "./ui.js";
 import { t, unitLabel, lang, setLang } from "./i18n.js";
 import { session, currentFirm, partners, person, sharePlan, resetFirm, myName } from "./session.js";
 import { formatMoney, formatNumber } from "./money.js";
@@ -711,6 +711,9 @@ const settingsPage = {
         item("tag", t("expenseCategories"), cats?.length ? cats.map((c) => c.name).join(", ") : t("defaultCategoriesHint"), () => openCategoriesSheet()),
         item("fileScan", t("aiSettings"), firm.ai?.key ? t("aiReady") : t("aiNotSet"), () => openAiSheet()),
         item("wallet", t("page_cash"), t("cashSettingsHint"), () => openPage("cash"))),
+      h("div", { class: "field" }, h("span", {}, t("theme")),
+        segmented([["auto", t("theme_auto")], ["light", t("theme_light")], ["dark", t("theme_dark")]], currentTheme(), applyTheme),
+        h("small", { class: "field-hint" }, t("themeHint"))),
       h("div", { class: "field" }, h("span", {}, t("language")),
         segmented([["tr", "Türkçe"], ["ar", "العربية"]], lang, (v) => {
           setLang(v);

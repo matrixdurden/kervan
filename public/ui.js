@@ -131,6 +131,26 @@ export function formatMonth(key) {
   return new Intl.DateTimeFormat(dateLocale(), { month: "long", year: "numeric" }).format(new Date(y, m - 1, 1));
 }
 
+// Tema: "auto" (telefonun ayarı), "light" ya da "dark". Seçim bu cihazda saklanır;
+// index.html'deki küçük betik aynı seçimi sayfa çizilmeden önce uygular.
+export const currentTheme = () => {
+  const saved = store.get("theme");
+  return saved === "light" || saved === "dark" ? saved : "auto";
+};
+
+export function applyTheme(theme) {
+  store.set("theme", theme === "auto" ? null : theme);
+  const root = document.documentElement;
+  if (theme === "auto") delete root.dataset.theme;
+  else root.dataset.theme = theme;
+  // Telefonun üst çubuğu: seçilen temaya göre, otomatikte sistemin ayarına göre.
+  const metas = document.querySelectorAll('meta[name="theme-color"]');
+  metas.forEach((meta) => {
+    const forDark = meta.media.includes("dark");
+    meta.content = theme === "auto" ? (forDark ? "#0F1716" : "#F3F1EC") : (theme === "dark" ? "#0F1716" : "#F3F1EC");
+  });
+}
+
 // Bildirim "popover" olarak açılır ki açık bir formun (dialog) üstünde de görünsün.
 let toastTimer;
 export function toast(message, undo) {

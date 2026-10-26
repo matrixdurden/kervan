@@ -10,7 +10,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { auth, db } from "./firebase.js";
 import {
-  $, h, store, toast, avatar, avatarStack, PALETTE, randomCode, normalizeCode, formatCode,
+  $, h, store, toast, avatar, avatarStack, PALETTE, randomCode, normalizeCode, formatCode, applyTheme, currentTheme,
 } from "./ui.js";
 import { session, currentFirm, myName, myColor, members } from "./session.js";
 import { show } from "./nav.js";
@@ -22,6 +22,7 @@ import { lang, setLang, t, applyStatic } from "./i18n.js";
 import "./install.js";
 
 applyStatic();
+applyTheme(currentTheme()); // telefonun üst çubuk rengi seçilen temaya uysun
 
 // Davet linkiyle gelindiyse (?join=ABC123) giriş sonrası katılma penceresini aç.
 // Yönlendirmeli girişte sayfa yeniden yüklendiği için kod saklanır.
