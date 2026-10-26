@@ -9,7 +9,9 @@
 //   collection   satıcıdan tahsilat: satıcının borcu düşer, alan ortağın kasasına para girer
 //   consign      emanet: mal depodan satıcının rafına geçer ama hâlâ bizimdir, borç oluşmaz
 //   consignSale  sayım: raftan satılan emanet mal satıcının borcuna yazılır
-//   return       iade: satıcının rafındaki mal depoya döner
+//   return       emanet iadesi: satıcının rafındaki mal depoya döner
+//   saleReturn   satış iadesi: müşteri satın aldığı malı geri getirir; mal depoya girer, borcu ve satış düşer
+//   refund       para iadesi: müşteriye para geri verilir; ödeyen ortağın kasasından çıkar
 //   expense      gider (yakıt, kira…): kârdan ve ödeyen ortağın kasasından düşer
 //   capitalIn    ortak işe para koydu
 //   withdraw     ortak işten para çekti
@@ -25,14 +27,15 @@
 // Aylık kâr: revenue (satış) − cogs (satılan malın maliyeti) − expenses (giderler).
 
 export const MOVE_TYPES = [
-  "purchase", "payment", "sale", "collection", "consign", "consignSale", "return",
+  "purchase", "payment", "sale", "collection", "consign", "consignSale", "return", "saleReturn", "refund",
   "expense", "capitalIn", "withdraw", "transfer", "opening",
 ];
 export const PARTY_KIND = {
   purchase: "supplier", payment: "supplier",
   sale: "seller", collection: "seller", consign: "seller", consignSale: "seller", return: "seller",
+  saleReturn: "seller", refund: "seller",
 };
-export const LINE_TYPES = ["purchase", "sale", "consign", "consignSale", "return"];
+export const LINE_TYPES = ["purchase", "sale", "consign", "consignSale", "return", "saleReturn"];
 export const hasLines = (type) => LINE_TYPES.includes(type);
 
 export const roundQty = (n) => Math.round(n * 1000) / 1000;
@@ -96,6 +99,8 @@ export function balanceOf(move) {
     case "opening": return move.lines ? 0 : move.amount;
     case "purchase": case "sale": case "consignSale": return moveTotal(move);
     case "payment": case "collection": return -move.amount;
+    case "saleReturn": return -moveTotal(move);
+    case "refund": return move.amount;
     default: return 0;
   }
 }
@@ -115,6 +120,7 @@ function moneyEffects(move, lines, sign) {
     case "collection": add(cash, holder, move.amount); break;
     case "payment": add(cash, holder, -Math.round(move.amount * (move.rate || 1))); break;
     case "expense": add(cash, holder, -move.amount); break;
+    case "refund": add(cash, holder, -move.amount); break;
     case "capitalIn": add(cash, holder, move.amount); add(capital, owner, move.amount); break;
     case "withdraw": add(cash, holder, -move.amount); add(capital, owner, -move.amount); break;
     case "transfer": add(cash, holder, -move.amount); add(cash, move.to, move.amount); break;
@@ -123,15 +129,17 @@ function moneyEffects(move, lines, sign) {
   // Aylık kâr, ortaklık (deal) bazında da tutulur: satış satırının ortaklığı satış anında yazılır;
   // ortaklığa girmeyen ürünler ve giderler "general" (genel paylar) kovasına gider.
   let month = null;
-  if (move.type === "sale" || move.type === "consignSale") {
+  // Satış iadesi satışın tersidir: o ayın satışından ve satılan malın maliyetinden düşer.
+  if (move.type === "sale" || move.type === "consignSale" || move.type === "saleReturn") {
+    const s = move.type === "saleReturn" ? -sign : sign;
     month = emptyMonth();
     month.by = {};
     for (const l of lines) {
       const b = (month.by[l.deal || GENERAL] ??= emptyMonth());
-      b.revenue += sign * lineTotal(l);
-      b.cogs += sign * (l.cost ?? 0);
-      month.revenue += sign * lineTotal(l);
-      month.cogs += sign * (l.cost ?? 0);
+      b.revenue += s * lineTotal(l);
+      b.cogs += s * (l.cost ?? 0);
+      month.revenue += s * lineTotal(l);
+      month.cogs += s * (l.cost ?? 0);
     }
   } else if (move.type === "expense") {
     month = { revenue: 0, cogs: 0, expenses: sign * move.amount, by: { [move.deal || GENERAL]: { revenue: 0, cogs: 0, expenses: sign * move.amount } } };
@@ -169,6 +177,12 @@ export function applyMove(move, get) {
       t.setShelf(move.party, id, out.product);
       cost = out.cost;
       t.setProduct(id, stockIn(t.product(id), qty, unit(cost, qty)));
+    } else if (move.type === "saleReturn") {
+      // Geri gelen mal depoya ortalama maliyetle girer (yoksa son alış fiyatıyla).
+      const p = t.product(id);
+      const unitCost = avgCost(p);
+      cost = Math.round(qty * unitCost);
+      t.setProduct(id, stockIn(p, qty, unitCost));
     } else {
       // Alış ve açılış: dövizli alışta maliyet o günün kuruyla TL'ye çevrilir.
       const rate = move.rate || 1;

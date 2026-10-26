@@ -13,7 +13,7 @@ import { applyMove, revertMove, replay, moveTotal, roundQty, shelfKey, addMonth 
 import { millis, today, PALETTE } from "./ui.js";
 
 const EMPTY = { stock: 0, value: 0, lastCost: 0 };
-const MONEY_TYPES = ["payment", "collection", "expense", "capitalIn", "withdraw", "transfer"];
+const MONEY_TYPES = ["payment", "collection", "refund", "expense", "capitalIn", "withdraw", "transfer"];
 const firmRef = () => doc(db, "firms", session.firm.id);
 const ref = (name, id) => doc(db, "firms", session.firm.id, name, id);
 const newRef = (name) => doc(collection(db, "firms", session.firm.id, name));
@@ -172,7 +172,7 @@ export function productLabel(p) {
   return p.variant ? `${p.name} · ${p.variant}` : p.name;
 }
 
-const PROFIT_TYPES = ["sale", "consignSale"];
+const PROFIT_TYPES = ["sale", "consignSale", "saleReturn"];
 
 // Hareketleri ve etkilerini batch'e ekler; yazılan hareketleri (id'leriyle) döner.
 // reverted: aynı batch'te iptal edilen hareketler (düzenleme); etkileri önce geri alınır ki

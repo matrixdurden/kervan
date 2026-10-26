@@ -85,3 +85,21 @@ test("groupTotals, salesVat, monthsInRange; hareket listesi en yeni üstte ve ip
   assert.deepEqual(monthsInRange(months, "2026-01", "2026-12"), ["2026-10", "2026-08"]);
   assert.deepEqual(monthsInRange(months, "", "9999-99"), ["2026-10", "2026-08", "2025-12"]);
 });
+
+test("buildReport: satış iadesi satıştan, kârdan ve adetten düşer; para iadesi ayrı sayılır", () => {
+  const moves = [
+    sale("2026-10-02", "ali", "Ali Market", [{ product: "cay", name: "Çay", unit: "paket", qty: 2, price: 25000, cost: 38000 }]),
+    { type: "saleReturn", date: "2026-10-03", party: "ali", partyName: "Ali Market", total: 25000,
+      lines: [{ product: "cay", name: "Çay", unit: "paket", qty: 1, price: 25000, cost: 19000 }] },
+    { type: "refund", date: "2026-10-03", party: "ali", total: 25000 },
+  ];
+  const r = buildReport(moves);
+  assert.equal(r.sales, 25000);
+  assert.equal(r.cogs, 19000);
+  assert.equal(r.salesCount, 1);
+  assert.equal(r.returns, 25000);
+  assert.equal(r.refunds, 25000);
+  assert.deepEqual(r.products.get("cay"), { name: "Çay", unit: "paket", qty: 1, revenue: 25000, profit: 6000 });
+  assert.equal(r.customers.get("ali").sales, 25000);
+  assert.equal(salesVat(moves, () => 20).gross, 25000);
+});

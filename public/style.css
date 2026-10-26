@@ -349,6 +349,7 @@ button.avatars { height: auto; padding: 4px; border: 0; }
 }
 .quick svg { width: 24px; height: 24px; color: var(--c); }
 .quicks.three { grid-template-columns: repeat(3, 1fr); margin-top: 8px; }
+.quicks.three.first { margin-top: 0; }
 .quick:disabled { opacity: 0.4; }
 .quicks.two .quick { height: 54px; flex-direction: row; font-size: 15px; }
 .quicks.three .quick { height: 64px; }
@@ -778,6 +779,7 @@ label.check input { width: 22px; height: 22px; accent-color: var(--primary); }
 .tone-trash { --c: #A04A3A; }
 .tone-collections { --c: #2F6FB5; }
 .tone-expenses { --c: #B4562F; }
+.tone-saleReturns { --c: #8A5A9E; }
 button.bubble.add svg { width: 15px; height: 15px; }
 .tile-dark { background: var(--spend); }
 @media (prefers-color-scheme: dark) {

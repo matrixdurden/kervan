@@ -229,11 +229,11 @@ function fabBar(label, onclick) {
 
 // --- Ana ekran ------------------------------------------------------------------
 
-// Sol sütun alış tarafı (alış, ödeme, tedarikçi), sağ sütun satış tarafı (satış, tahsilat, müşteri):
+// Sol sütun satış tarafı (satış, tahsilat), sağ sütun alış tarafı (alış, ödeme):
 // her satırda karşılıklı iki iş yan yana durur.
 // "Satış başlat" ve "Gider başlat" sayfa değil, doğrudan formu açar (köşelerinde + yok).
 const TILES = [
-  ["purchases", "in", "tile-purchase"], ["sales", "out", "tile-sale"],
+  ["sales", "out", "tile-sale"], ["purchases", "in", "tile-purchase"],
   ["direct", "bolt", "tile-dark"], ["expenseStart", "receipt", "tile-dark"],
 ];
 const QUICK_NEW = {
@@ -246,12 +246,12 @@ const START = {
 };
 const SECTIONS = [
   ["collections", "plusCircle"], ["payments", "minusCircle"],
-  ["suppliers", "truck"], ["sellers", "store"],
+  ["sellers", "store"], ["suppliers", "truck"],
   ["products", "box"], ["expenses", "receipt"],
-  ["consign", "send"], ["invoice", "fileScan"],
-  ["cash", "wallet"], ["ledger", "book"],
-  ["reports", "chart"], ["trash", "trash"],
-  ["settings", "gear"],
+  ["consign", "send"], ["saleReturns", "undo"],
+  ["invoice", "fileScan"], ["cash", "wallet"],
+  ["ledger", "book"], ["reports", "chart"],
+  ["trash", "trash"], ["settings", "gear"],
 ];
 
 const HOME = {
@@ -768,7 +768,7 @@ const reportPage = {
 
 // --- Hareketler (defter) ---------------------------------------------------------------------
 
-const FILTERS = ["sale", "collection", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening"];
+const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening"];
 
 const ledgerPage = {
   types: "all",
@@ -788,7 +788,7 @@ const ledgerPage = {
 const TRASH_GROUPS = [
   ["products"], ["sellers"], ["suppliers"],
   ["sales", ["sale", "consignSale"]], ["purchases", ["purchase"]], ["collections", ["collection"]],
-  ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
+  ["saleReturns", ["saleReturn", "refund"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
   ["cash", ["capitalIn", "withdraw", "transfer", "opening"]],
 ];
 let trashCat = "";
@@ -902,7 +902,13 @@ const PAGES = {
   sales: movesPage({
     types: ["sale", "consignSale"], empty: "noSales",
     fab: () => [t("new_sale"), () => openMoveSheet("sale")],
-    actions: () => [[t("page_consign"), "send", () => openPage("consign")]],
+    actions: () => [[t("new_saleReturn"), "undo", () => openMoveSheet("saleReturn")], [t("page_consign"), "send", () => openPage("consign")]],
+  }),
+  // İadeler: satış sayfasının aynısı; müşterinin geri getirdiği mal ve geri verilen para.
+  saleReturns: movesPage({
+    types: ["saleReturn", "refund"], empty: "noSaleReturns",
+    fab: () => [t("new_saleReturn"), () => openMoveSheet("saleReturn")],
+    summary: () => monthTotal(["saleReturn"]),
   }),
   purchases: movesPage({
     types: ["purchase"], empty: "noPurchases",

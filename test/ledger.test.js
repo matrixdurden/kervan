@@ -247,3 +247,36 @@ test("dışarıdan ortak: koyduğu para onun sermayesine, kasaya teslim alan ort
   assert.equal(capital.get("kuzen"), 15000);
   assert.equal(capital.get("ali"), undefined);
 });
+
+const takeBack = (product, qty, price) => ({ type: "saleReturn", party: "sel", date: D, by: "ali", lines: [{ product, qty, price }] });
+
+test("satış iadesi: mal ortalama maliyetle depoya döner, borç ve aylık satış düşer", () => {
+  const { products, balances, results, months } = run([buy("çay", 10, 10000), sell("çay", 4, 15000), takeBack("çay", 1, 15000)]);
+  assert.deepEqual(products.get("çay"), { stock: 7, value: 70000, lastCost: 10000 });
+  assert.equal(results[2].lines[0].cost, 10000);
+  assert.equal(balances.get("sel"), 45000);
+  assert.deepEqual(months.get("2026-10"), { revenue: 45000, cogs: 30000, expenses: 0 });
+});
+
+test("para iadesi: müşteriye verilen para kasadan çıkar, bakiyesine eklenir", () => {
+  const { balances, cash } = run([
+    buy("çay", 10, 10000), sell("çay", 2, 15000),
+    money("collection", 30000, { party: "sel", holder: "ali" }),
+    takeBack("çay", 1, 15000),
+    money("refund", 15000, { party: "sel", holder: "ali" }),
+  ]);
+  assert.equal(balances.get("sel"), 0);
+  assert.equal(cash.get("ali"), 15000);
+});
+
+test("satış iadesi iptal edilince stok, borç ve ay eski haline döner", () => {
+  const state = run([buy("çay", 10, 10000), sell("çay", 4, 15000)]);
+  const get = { product: (id) => state.products.get(id) };
+  const move = recorded(takeBack("çay", 2, 15000), get);
+  const after = run([buy("çay", 10, 10000), sell("çay", 4, 15000), move, { revert: move }]);
+  assert.deepEqual(after.products.get("çay"), state.products.get("çay"));
+  assert.equal(after.balances.get("sel"), state.balances.get("sel"));
+  assert.deepEqual(after.months.get("2026-10"), state.months.get("2026-10"));
+  assert.deepEqual(replay([buy("çay", 10, 10000), sell("çay", 4, 15000), takeBack("çay", 2, 15000)].map((m, i) => ({ ...m, at: i }))).products.get("çay"),
+    { stock: 8, value: 80000, lastCost: 10000 });
+});

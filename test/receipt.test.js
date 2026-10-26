@@ -11,6 +11,7 @@ const labels = {
   disclaimer: "Bu belge e-Fatura / e-Arşiv fatura yerine geçmez.",
   paymentTitle: "Ödeme Makbuzu", collectionTitle: "Tahsilat Makbuzu", paidTo: "Ödeme yapılan", receivedFrom: "Ödeyen",
   amount: "Tutar", rate: "Kur", statementTitle: "Hesap Ekstresi", previousBalance: "Önceki bakiye", onShelf: "Emanetteki mal",
+  returnTitle: "İade Fişi", refunded: "Geri verilen", refundTitle: "Para İadesi Makbuzu",
 };
 
 const doc = (kind, lines) => ({
@@ -71,7 +72,7 @@ test("whatsappUrl: Türkçe metin ve satır sonu kodlanır", () => {
 
 test("RECEIPT_LABEL_KEYS tam liste", () => {
   assert.deepEqual([...RECEIPT_LABEL_KEYS].sort(), Object.keys(labels).sort());
-  assert.equal(new Set(RECEIPT_LABEL_KEYS).size, 34);
+  assert.equal(new Set(RECEIPT_LABEL_KEYS).size, 37);
 });
 
 test("receiptHtml: hesap ekstresi satırlar, önceki ve güncel bakiye, emanet", () => {
@@ -137,4 +138,15 @@ test("receiptHtml: sağdan sola ve logo süzgeci", () => {
   assert.ok(!html.includes("javascript:"));
   d.firm.logo = "data:image/png;base64,iVBORw0KGgo=";
   assert.ok(receiptHtml(d, labels).includes('src="data:image/png;base64,iVBORw0KGgo="'));
+});
+
+test("receiptHtml: iade fişi kendi başlığıyla, geri verilen para; para iadesi makbuzu", () => {
+  const ret = { ...doc("receipt", [{ name: "Çay", qty: 1, unit: "paket", price: 15000, vatRate: 20 }]), title: "İade Fişi", paid: 15000, paidLabel: "Geri verilen" };
+  const html = receiptHtml(ret, labels);
+  assert.match(html, /<h2 class="c">İade Fişi<\/h2>/);
+  assert.match(html, /Geri verilen/);
+  assert.doesNotMatch(html, /Satış Fişi/);
+  const refund = receiptHtml({ kind: "refund", number: "R-1", date: "2026-10-26", currency: "TRY", firm: { name: "K" }, party: { name: "Ali" }, amount: 15000 }, labels);
+  assert.match(refund, /Para İadesi Makbuzu/);
+  assert.match(refund, /Ödeme yapılan: Ali/);
 });

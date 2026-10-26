@@ -7,11 +7,11 @@ export const RECEIPT_LABEL_KEYS = [
   "address", "product", "qty", "unitPrice", "unitPriceNet", "vat", "lineTotal", "net", "vatTotal",
   "total", "paid", "balanceOwed", "balanceCredit", "note", "thanks", "disclaimer",
   "paymentTitle", "collectionTitle", "paidTo", "receivedFrom", "amount", "rate",
-  "statementTitle", "previousBalance", "onShelf",
+  "statementTitle", "previousBalance", "onShelf", "returnTitle", "refunded", "refundTitle",
 ];
 
 // Makbuz belgeleri (kind): tedarikçiye ödeme ve satıcıdan tahsilat. Satır yok; tek tutar var.
-export const MONEY_KINDS = ["payment", "collection"];
+export const MONEY_KINDS = ["payment", "collection", "refund"];
 
 const FONT = "Nunito, Tajawal, system-ui, sans-serif";
 const SCALE = 2;
@@ -34,7 +34,7 @@ const rateFormat = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 4 });
 // Dövizli makbuzda kur satırı: "1 USD = ₺49,738"
 const rateText = (doc) => (doc.rate && doc.currency && doc.currency !== "TRY" ? `1 ${doc.currency} = ₺${rateFormat.format(doc.rate)}` : "");
 // Makbuzda kişi satırı: ödemede "Ödeme yapılan", tahsilatta "Ödeyen".
-const moneyParty = (doc, L) => (doc.party?.name ? `${doc.kind === "payment" ? L.paidTo : L.receivedFrom}: ${doc.party.name}` : "");
+const moneyParty = (doc, L) => (doc.party?.name ? `${doc.kind === "collection" ? L.receivedFrom : L.paidTo}: ${doc.party.name}` : "");
 const pct = (rate, rtl) => (rtl ? `${qtyFormat.format(rate)}%` : `%${qtyFormat.format(rate)}`);
 // "2026-10-25" → "25.10.2026"
 const day = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d.split("-").reverse().join(".") : d || "");
@@ -196,7 +196,7 @@ function drawReceipt(c, doc, L, logo) {
   line(c, f.phone, { size: 19, align: "center", color: C.text2, ltr: true });
   line(c, f.address, { size: 19, align: "center", color: C.text2 });
   rule(c, { dash: [6, 5] });
-  line(c, L.receiptTitle, { size: 25, weight: 800, align: "center", gap: 8 });
+  line(c, doc.title || L.receiptTitle, { size: 25, weight: 800, align: "center", gap: 8 });
   pair(c, doc.number ? `${L.number}: ${doc.number}` : "", when(doc), { size: 19, color: C.text2 });
   if (doc.party?.name) line(c, `${L.customer}: ${doc.party.name}`, { size: 21, weight: 600 });
   rule(c, { dash: [6, 5] });
@@ -206,7 +206,7 @@ function drawReceipt(c, doc, L, logo) {
   }
   rule(c, { before: 2 });
   pair(c, L.total, money(tot.gross, cur), { size: 28, weight: 800 });
-  if (doc.paid) pair(c, L.paid, money(doc.paid, cur), { size: 21 });
+  if (doc.paid) pair(c, doc.paidLabel || L.paid, money(doc.paid, cur), { size: 21 });
   const bal = balanceRow(doc, L);
   if (bal) pair(c, bal[0], bal[1], { size: 21, weight: 600, color: doc.balanceAfter > 0 ? C.text : C.primary });
   if (doc.note) { c.y += 8; line(c, `${L.note}: ${doc.note}`, { size: 19, color: C.text2 }); }
@@ -222,7 +222,7 @@ function drawMoney(c, doc, L, logo) {
   line(c, f.phone, { size: 19, align: "center", color: C.text2, ltr: true });
   line(c, f.address, { size: 19, align: "center", color: C.text2 });
   rule(c, { dash: [6, 5] });
-  line(c, doc.kind === "payment" ? L.paymentTitle : L.collectionTitle, { size: 25, weight: 800, align: "center", gap: 8 });
+  line(c, L[`${doc.kind}Title`], { size: 25, weight: 800, align: "center", gap: 8 });
   pair(c, doc.number ? `${L.number}: ${doc.number}` : "", when(doc), { size: 19, color: C.text2 });
   line(c, moneyParty(doc, L), { size: 21, weight: 600 });
   rule(c, { dash: [6, 5] });
@@ -441,17 +441,17 @@ function receiptBody(doc, L) {
   const rows = tot.lines.map((l) => `<tr><td colspan="2" class="name">${esc(l.name)}</td></tr>`
     + tr(`<span class="mute">${esc(`${qty(l.qty)} ${l.unit || ""}`)} × ${m(l.price, cur)}</span>`, m(l.gross, cur))).join("");
   return `<div class="c">${logo ? `<img class="logo" src="${esc(logo)}" alt="">` : ""}<h1>${esc(f.name || f.title)}</h1>
-${p(f.phone, "mute")}${p(f.address, "mute")}</div><hr><h2 class="c">${esc(L.receiptTitle)}</h2>
+${p(f.phone, "mute")}${p(f.address, "mute")}</div><hr><h2 class="c">${esc(doc.title || L.receiptTitle)}</h2>
 <table>${tr(doc.number ? esc(`${L.number}: ${doc.number}`) : "", esc(when(doc)), "mute")}</table>
 ${doc.party?.name ? p(`${L.customer}: ${doc.party.name}`) : ""}<hr><table>${rows}</table><hr>
-<table>${tr(esc(L.total), m(tot.gross, cur), "tot")}${doc.paid ? tr(esc(L.paid), m(doc.paid, cur)) : ""}${bal ? tr(esc(bal[0]), esc(bal[1])) : ""}</table>
+<table>${tr(esc(L.total), m(tot.gross, cur), "tot")}${doc.paid ? tr(esc(doc.paidLabel || L.paid), m(doc.paid, cur)) : ""}${bal ? tr(esc(bal[0]), esc(bal[1])) : ""}</table>
 ${doc.note ? `<hr>${p(`${L.note}: ${doc.note}`, "mute")}` : ""}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
 }
 
 function moneyBody(doc, L) {
   const cur = doc.currency || "TRY", f = doc.firm || {}, logo = safeLogo(f.logo), bal = balanceRow(doc, L);
   return `<div class="c">${logo ? `<img class="logo" src="${esc(logo)}" alt="">` : ""}<h1>${esc(f.name || f.title)}</h1>
-${p(f.phone, "mute")}${p(f.address, "mute")}</div><hr><h2 class="c">${esc(doc.kind === "payment" ? L.paymentTitle : L.collectionTitle)}</h2>
+${p(f.phone, "mute")}${p(f.address, "mute")}</div><hr><h2 class="c">${esc(L[`${doc.kind}Title`])}</h2>
 <table>${tr(doc.number ? esc(`${L.number}: ${doc.number}`) : "", esc(when(doc)), "mute")}</table>
 ${p(moneyParty(doc, L))}<hr><table>${tr(esc(L.amount), m(doc.amount, cur), "tot")}${rateText(doc) ? tr(esc(L.rate), esc(rateText(doc)), "mute") : ""}
 ${bal ? tr(esc(bal[0]), esc(bal[1])) : ""}</table>
@@ -500,7 +500,7 @@ export function receiptHtml(doc, labels) {
   const L = labels || {}, invoice = doc.kind === "invoice", dir = L.dir === "rtl" ? "rtl" : "ltr";
   const moneyDoc = MONEY_KINDS.includes(doc.kind);
   const heading = invoice ? L.invoiceTitle : moneyDoc ? L[`${doc.kind}Title`]
-    : doc.kind === "statement" ? L.statementTitle : doc.kind === "summary" ? doc.title : L.receiptTitle;
+    : doc.kind === "statement" ? L.statementTitle : doc.kind === "summary" ? doc.title : doc.title || L.receiptTitle;
   const title = `${heading} ${doc.number ?? ""}`.trim();
   const body = invoice ? invoiceBody(doc, L) : moneyDoc ? moneyBody(doc, L)
     : doc.kind === "statement" ? statementBody(doc, L) : doc.kind === "summary" ? summaryBody(doc, L) : receiptBody(doc, L);

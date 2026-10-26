@@ -197,9 +197,10 @@ function render() {
 
   if (seller) {
     out.push(
-      h("div", { class: "quicks two" },
+      h("div", { class: "quicks three first" },
         actionButton("sale", t("quick_sale"), open("sale")),
-        actionButton("collection", t("quick_collection"), open("collection"))),
+        actionButton("collection", t("quick_collection"), open("collection")),
+        actionButton("saleReturn", t("quick_saleReturn"), open("saleReturn"))),
       h("div", { class: "quicks three" },
         actionButton("consign", t("quick_consign"), open("consign")),
         actionButton("consignSale", t("quick_count"), () => openShelfSheet("count", partyId), !hasShelf),

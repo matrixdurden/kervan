@@ -102,8 +102,8 @@ const holderName = (m) => person(currentFirm(), m.holder).name;
 
 // Tüm İşlemler: tür baloncuklarıyla süzülen liste.
 const ALL_GROUPS = [
-  ["sales", ["sale", "consignSale"]], ["purchases", ["purchase"]], ["collections", ["collection"]],
-  ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
+  ["sales", ["sale", "consignSale"]], ["saleReturns", ["saleReturn", "refund"]], ["purchases", ["purchase"]],
+  ["collections", ["collection"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
   ["cash", ["capitalIn", "withdraw", "transfer"]],
 ];
 let allGroup = "";
@@ -151,7 +151,7 @@ const PAGES = {
     const firm = currentFirm();
     const { accounts } = session.firm;
     const inTypes = ["collection", "capitalIn"];
-    const outTypes = ["payment", "expense", "withdraw"];
+    const outTypes = ["payment", "refund", "expense", "withdraw"];
     const moneyIn = sum(ofType(r, ...inTypes), inLira);
     const moneyOut = sum(ofType(r, ...outTypes), inLira);
     const cashNow = sum(firm.members, (uid) => accounts.get(uid)?.cash ?? 0);
@@ -185,10 +185,10 @@ const PAGES = {
   },
 
   sales(r, { from, to }) {
-    const sales = ofType(r, "sale", "consignSale");
+    const sales = ofType(r, "sale", "consignSale", "saleReturn");
     return [
       h("div", { class: "kpis" },
-        kpi(t("rp_sales"), formatMoney(r.sales), t("rp_salesCount", { n: r.salesCount }), "green"),
+        kpi(t("rp_sales"), formatMoney(r.sales), r.returns ? t("rp_netOfReturns", { amount: formatMoney(r.returns) }) : t("rp_salesCount", { n: r.salesCount }), "green"),
         kpi(t("grossProfit"), formatMoney(r.sales - r.cogs), r.sales ? t("rp_grossMargin", { pct: formatNumber(pct(r.sales - r.cogs, r.sales)) }) : "", "green"),
         kpi(t("rp_avgSale"), formatMoney(r.salesCount ? Math.round(r.sales / r.salesCount) : 0), null, "blue"),
         kpi(t("rp_itemsSold"), formatNumber(roundQty(sum([...r.products.values()], (x) => x.qty))), null, "ink")),
@@ -225,9 +225,10 @@ const PAGES = {
     ];
   },
 
+  // İadeler: müşterinin geri getirdiği satılmış mal (satış iadesi), geri verilen para ve emanet iadeleri.
   returns(r) {
-    const returns = ofType(r, "return");
-    const total = sum(returns, (m) => m.total);
+    const returns = ofType(r, "saleReturn");
+    const total = r.returns;
     const byProduct = new Map();
     for (const m of returns) {
       for (const l of m.lines ?? []) {
@@ -239,15 +240,17 @@ const PAGES = {
     }
     return [
       h("div", { class: "kpis" },
-        kpi(t("rp_returnsTotal"), formatMoney(total), t("rp_returnCount", { n: returns.length }), "ink"),
-        kpi(t("rp_consignGiven"), formatMoney(sum(ofType(r, "consign"), (m) => m.total)), null, "blue")),
+        kpi(t("rp_returnsTotal"), formatMoney(total), t("rp_returnCount", { n: returns.length }), "red"),
+        kpi(t("rp_refunds"), formatMoney(r.refunds), null, "amber"),
+        kpi(t("rp_returnRate"), `%${formatNumber(pct(total, r.sales + total))}`, null, "ink"),
+        kpi(t("rp_consignReturns"), formatMoney(sum(ofType(r, "return"), (m) => m.total)), null, "blue")),
       sec(t("rp_perCustomer")),
       breakdown(topBy(groupTotals(returns, (m) => m.party, partyName, (m) => m.total), "total", 20).map(([, g]) =>
         shareRow(g.name, g.total, total, t("rp_returnCount", { n: g.count })))),
       sec(t("rp_byProduct")),
       breakdown(topBy(byProduct, "total", 20).map(([, x]) => shareRow(x.name, x.total, total, `${formatNumber(x.qty)} ${unitLabel(x.unit)}`))),
       sec(t("rp_list")),
-      movesList(returns),
+      movesList(ofType(r, "saleReturn", "refund", "return")),
     ];
   },
 

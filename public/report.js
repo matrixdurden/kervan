@@ -6,7 +6,7 @@ import { lineTotal, roundQty } from "./ledger.js";
 import { invoiceTotals } from "./receipt.js";
 
 const SALES = ["sale", "consignSale"];
-export const REPORT_TYPES = [...SALES, "purchase", "expense", "collection", "payment", "return", "consign", "capitalIn", "withdraw", "transfer"];
+export const REPORT_TYPES = [...SALES, "saleReturn", "refund", "purchase", "expense", "collection", "payment", "return", "consign", "capitalIn", "withdraw", "transfer"];
 
 // Dövizli hareketin TL karşılığı.
 export const inLira = (m) => (m.currency && m.rate ? Math.round(m.total * m.rate) : m.total);
@@ -21,7 +21,8 @@ export function buildReport(moves) {
   const r = {
     // Dönemin geçerli hareketleri, en yeni tarih üstte (detay raporlarının listeleri için).
     moves: moves.filter((m) => !m.voided).sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0)),
-    sales: 0, cogs: 0, salesCount: 0, purchases: 0, expenses: 0, collections: 0, payments: 0,
+    // sales ve cogs iadeler düşülmüş (net) rakamlardır; returns iade edilen satış tutarı, refunds geri verilen para.
+    sales: 0, cogs: 0, salesCount: 0, purchases: 0, expenses: 0, collections: 0, payments: 0, returns: 0, refunds: 0,
     days: new Map(), // "YYYY-MM-DD" → { sales, profit }
     customers: new Map(), // kişi → { name, sales, profit, count }
     products: new Map(), // ürün → { name, unit, qty, revenue, profit }
@@ -30,25 +31,28 @@ export function buildReport(moves) {
   };
   for (const m of moves) {
     if (m.voided) continue;
-    if (SALES.includes(m.type)) {
-      const cost = (m.lines ?? []).reduce((s, l) => s + (l.cost ?? 0), 0);
-      const profit = m.total - cost;
-      r.sales += m.total;
-      r.cogs += cost;
-      r.salesCount += 1;
-      bump(r.days, m.date, () => ({ sales: 0, profit: 0 }), (d) => { d.sales += m.total; d.profit += profit; });
+    if (SALES.includes(m.type) || m.type === "saleReturn") {
+      // İade satışın tersidir: satıştan, kârdan ve satılan adetten düşer.
+      const s = m.type === "saleReturn" ? -1 : 1;
+      const cost = (m.lines ?? []).reduce((sum, l) => sum + (l.cost ?? 0), 0);
+      const profit = s * (m.total - cost);
+      r.sales += s * m.total;
+      r.cogs += s * cost;
+      if (s > 0) r.salesCount += 1;
+      else r.returns += m.total;
+      bump(r.days, m.date, () => ({ sales: 0, profit: 0 }), (d) => { d.sales += s * m.total; d.profit += profit; });
       if (m.party) {
         bump(r.customers, m.party, () => ({ name: m.partyName ?? "", sales: 0, profit: 0, count: 0 }), (c) => {
-          c.sales += m.total;
+          c.sales += s * m.total;
           c.profit += profit;
-          c.count += 1;
+          if (s > 0) c.count += 1;
         });
       }
       for (const l of m.lines ?? []) {
         bump(r.products, l.product, () => ({ name: l.name, unit: l.unit, qty: 0, revenue: 0, profit: 0 }), (p) => {
-          p.qty = roundQty(p.qty + l.qty);
-          p.revenue += lineTotal(l);
-          p.profit += lineTotal(l) - (l.cost ?? 0);
+          p.qty = roundQty(p.qty + s * l.qty);
+          p.revenue += s * lineTotal(l);
+          p.profit += s * (lineTotal(l) - (l.cost ?? 0));
         });
       }
     } else if (m.type === "purchase") {
@@ -64,6 +68,8 @@ export function buildReport(moves) {
       r.collections += m.total;
     } else if (m.type === "payment") {
       r.payments += inLira(m);
+    } else if (m.type === "refund") {
+      r.refunds += m.total;
     }
   }
   return r;
@@ -110,8 +116,9 @@ export function groupTotals(moves, keyOf, nameOf = () => "", valueOf = inLira) {
 
 // Satışlardaki KDV: satış fiyatları KDV dahildir; oranı ürünün KDV oranı (rateOf(ürünId)).
 export function salesVat(moves, rateOf) {
-  const lines = moves.filter((m) => SALES.includes(m.type) && !m.voided)
-    .flatMap((m) => m.lines ?? []).map((l) => ({ qty: l.qty, price: l.price, vatRate: rateOf(l.product) }));
+  // İadeler eksi adetle girer: KDV'si satışın KDV'sinden düşer.
+  const lines = moves.filter((m) => (SALES.includes(m.type) || m.type === "saleReturn") && !m.voided)
+    .flatMap((m) => (m.lines ?? []).map((l) => ({ qty: m.type === "saleReturn" ? -l.qty : l.qty, price: l.price, vatRate: rateOf(l.product) })));
   return invoiceTotals(lines);
 }
 
