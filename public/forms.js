@@ -1141,38 +1141,54 @@ export function openCashSheet(type, { edit } = {}) {
   // Gider kategorisi (kira, yakıt, vergi…): resimli kutucuklara dokunarak seçilir, en üstte;
   // liste Ayarlar'dan değiştirilir. Altta bir baloncuk ne kaydedileceğini düz cümleyle söyler.
   let category = null;
+  let method = null;
   let bubble = null;
   const say = () => {
     if (!bubble) return;
     const a = parseMoney(amount.value);
     bubble.textContent = !category ? t("expenseAskWhat")
       : !a ? t("expenseAskAmount", { cat: category.name })
-        : t("expenseBubble", { who: person(firm, holder.el.value).name, cat: category.name, amount: formatMoney(a) });
+        : t("expenseBubble", { who: person(firm, holder.el.value).name, cat: category.name, amount: formatMoney(a), method: method?.name ?? "" });
     bubble.classList.toggle("ready", Boolean(category && a));
   };
   if (type === "expense") {
-    const cats = expenseCategories(firm);
-    const grid = h("div", { class: "cat-tiles" }, cats.map((c) => {
-      const tile = h("button", {
-        type: "button", class: "cat-tile", "aria-pressed": "false",
+    // Düzenlemede kayıttaki kategori ve ödeme şekli seçili gelir (listeden silindiyse kayıttaki adıyla).
+    if (edit?.category) {
+      category = expenseCategories(firm).find((c) => c.id === edit.category) ?? { id: edit.category, name: edit.categoryName ?? "" };
+    }
+    if (edit?.method) {
+      method = paymentMethods(firm).find((m) => m.id === edit.method) ?? { id: edit.method, name: edit.methodName ?? "" };
+    }
+    // Kategori ve ödeme şekli listeleri formun içinden düzenlenebilir (form kaybolmaz).
+    const grid = h("div", { class: "cat-tiles" });
+    const renderCats = (cats = expenseCategories(currentFirm())) => grid.replaceChildren(
+      ...cats.map((c) => h("button", {
+        type: "button", class: "cat-tile", "aria-pressed": String(c.id === category?.id),
         onclick: () => {
           category = c;
-          grid.querySelectorAll(".cat-tile").forEach((x) => x.setAttribute("aria-pressed", String(x === tile)));
+          renderCats(cats);
           if (!note.value.trim()) note.placeholder = c.name;
           say();
           if (!amount.value.trim()) amount.focus();
         },
-      }, h("span", { class: "cat-emoji", "aria-hidden": "true" }, categoryEmoji(c)), h("bdi", {}, c.name));
-      return tile;
-    }), h("button", { type: "button", class: "cat-tile add", onclick: () => openCategoriesSheet() },
-      h("span", { class: "cat-emoji", "aria-hidden": "true" }, icon("pencil")), t("edit")));
-    // Düzenlemede kayıttaki kategori seçili gelir (listeden silindiyse kayıttaki adıyla).
-    if (edit?.category) {
-      category = cats.find((c) => c.id === edit.category) ?? { id: edit.category, name: edit.categoryName ?? "" };
-      const i = cats.findIndex((c) => c.id === edit.category);
-      if (i >= 0) grid.children[i].setAttribute("aria-pressed", "true");
-    }
+      }, h("span", { class: "cat-emoji", "aria-hidden": "true" }, categoryEmoji(c)), h("bdi", {}, c.name))),
+      h("button", { type: "button", class: "cat-tile add", onclick: () => openCategoriesSheet(renderCats) },
+        h("span", { class: "cat-emoji", "aria-hidden": "true" }, icon("pencil")), t("edit")));
+    const methods = h("div", { class: "bubbles wrap" });
+    const renderMethods = (list = paymentMethods(currentFirm())) => {
+      if (!method || (!list.some((m) => m.id === method.id) && method.id !== edit?.method)) method = list[0];
+      methods.replaceChildren(
+        ...list.map((m) => h("button", {
+          type: "button", class: "bubble", "aria-pressed": String(m.id === method?.id),
+          onclick: () => { method = m; renderMethods(list); say(); },
+        }, h("bdi", {}, m.name))),
+        h("button", { type: "button", class: "bubble add", onclick: () => openMethodsSheet(renderMethods) }, icon("pencil"), t("edit")));
+    };
+    renderCats();
+    renderMethods();
     fields.unshift(h("p", { class: "label" }, t("expenseWhat")), grid);
+    // "Nasıl ödendi?" tutar ve tarihin hemen altında.
+    fields.splice(3, 0, h("p", { class: "label" }, t("paymentMethod")), methods);
     bubble = h("p", { class: "say-bubble", "aria-live": "polite" });
     amount.addEventListener("input", say);
     holder.el.addEventListener("change", say);
@@ -1197,6 +1213,10 @@ export function openCashSheet(type, { edit } = {}) {
     if (category) {
       input.category = category.id;
       input.categoryName = category.name;
+    }
+    if (type === "expense" && method) {
+      input.method = method.id;
+      input.methodName = method.name;
     }
     if (capitalMove) {
       input.partner = owner.value;
@@ -1614,13 +1634,15 @@ export function openBusinessSheet() {
   });
 }
 
-export function openCategoriesSheet() {
-  const firm = currentFirm();
+// Ad listesi düzenleyici (gider kategorileri, ödeme şekilleri): her satır bir ad; kimlikler korunur
+// ki eski kayıtlar bozulmasın. save(liste) en az bir ad varsa çağrılır. inside(liste) verilirse
+// gider formunun üstünde açılır ve kaydedince form kaybolmadan yeni listeyle güncellenir.
+function openNameListSheet({ title, hint, items, placeholder, addLabel, needOne, prefix, save, inside }) {
   const list = h("div", { class: "cat-list" });
   const rows = [];
-  const addRow = (cat) => {
-    const input = textInput({ maxlength: 40, value: cat?.name ?? "", placeholder: t("categoryPlaceholder") });
-    const row = { id: cat?.id ?? `c${crypto.randomUUID().slice(0, 8)}`, input };
+  const addRow = (item) => {
+    const input = textInput({ maxlength: 40, value: item?.name ?? "", placeholder });
+    const row = { id: item?.id ?? `${prefix}${crypto.randomUUID().slice(0, 8)}`, input };
     const el = h("div", { class: "cat-row" }, input, iconButton("x", t("remove"), () => {
       rows.splice(rows.indexOf(row), 1);
       el.remove();
@@ -1629,16 +1651,45 @@ export function openCategoriesSheet() {
     list.append(el);
     return input;
   };
-  for (const c of expenseCategories(firm)) addRow(c);
-  open(t("expenseCategories"), [
-    h("small", { class: "field-hint" }, t("categoriesHint")),
+  for (const item of items) addRow(item);
+  open(title, [
+    h("small", { class: "field-hint" }, hint),
     list,
-    h("button", { type: "button", class: "small add-line", onclick: () => addRow().focus() }, "+ ", t("addCategory")),
+    h("button", { type: "button", class: "small add-line", onclick: () => addRow().focus() }, "+ ", addLabel),
   ], [saveButton(), closeButton()], () => {
-    const cats = rows.map((r) => ({ id: r.id, name: r.input.value.trim() })).filter((c) => c.name);
-    if (!cats.length) return t("addAtLeastOneCategory");
-    saved(saveFirmSettings({ expenseCategories: cats }), t("saved"));
+    const names = rows.map((r) => ({ id: r.id, name: r.input.value.trim() })).filter((c) => c.name);
+    if (!names.length) return needOne;
+    save(names).catch(failed);
+    if (inside) {
+      subsheet.close();
+      inside(names);
+    } else {
+      sheet.close();
+    }
+    toast(t("saved"));
     return undefined;
+  }, inside ? subsheet : sheet);
+}
+
+export function openCategoriesSheet(inside) {
+  openNameListSheet({
+    title: t("expenseCategories"), hint: t("categoriesHint"), items: expenseCategories(currentFirm()),
+    placeholder: t("categoryPlaceholder"), addLabel: t("addCategory"), needOne: t("addAtLeastOneCategory"), prefix: "c",
+    save: (expenseCategories) => saveFirmSettings({ expenseCategories }), inside,
+  });
+}
+
+// Ödeme şekilleri (giderde "Nasıl ödendi?"): düzenlenmemişse nakit, kart, banka.
+const DEFAULT_METHODS = ["cash", "card", "bank"];
+export function paymentMethods(firm) {
+  return firm.paymentMethods?.length ? firm.paymentMethods : DEFAULT_METHODS.map((id) => ({ id, name: t(`pm_${id}`) }));
+}
+
+export function openMethodsSheet(inside) {
+  openNameListSheet({
+    title: t("paymentMethods"), hint: t("methodsHint"), items: paymentMethods(currentFirm()),
+    placeholder: t("methodPlaceholder"), addLabel: t("addMethod"), needOne: t("addAtLeastOneMethod"), prefix: "m",
+    save: (methods) => saveFirmSettings({ paymentMethods: methods }), inside,
   });
 }
 
@@ -1716,7 +1767,11 @@ export function openMoveDetail(move, { balanceAfter = null } = {}) {
     if (margin != null) totals.push(fact(t("margin"), `%${formatNumber(margin)}`));
   }
   fields.push(h("div", { class: "facts" }, totals));
-  if (move.type === "expense") fields.unshift(fact(t("expenseCategory"), move.categoryName || t("uncategorized")));
+  if (move.type === "expense") {
+    fields.unshift(h("div", { class: "facts" },
+      fact(t("expenseCategory"), move.categoryName || t("uncategorized")),
+      move.methodName ? fact(t("paidWith"), move.methodName) : null));
+  }
   if (move.invoiceNo) fields.push(fact(t("invoiceNo"), move.invoiceNo));
   if (move.note) fields.push(h("p", { class: "note" }, h("bdi", {}, move.note)));
 

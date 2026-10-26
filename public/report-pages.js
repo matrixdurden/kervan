@@ -283,6 +283,9 @@ const PAGES = {
       h("div", { class: "kpis" }, kpi(t("plExpenses"), formatMoney(r.expenses), t("rp_count", { n: list.length }), "red")),
       sec(t("expensesByCategory")),
       breakdown(topBy(r.categories, "total", 30).map(([name, c]) => shareRow(name || t("uncategorized"), c.total, r.expenses))),
+      sec(t("rp_byMethod")),
+      breakdown(topBy(groupTotals(list, (m) => m.methodName || "", (m) => m.methodName || t("notSpecified")), "total").map(([, g]) =>
+        shareRow(g.name, g.total, r.expenses, t("rp_count", { n: g.count })))),
       sec(t("rp_byHolderOut")),
       breakdown(topBy(groupTotals(list, (m) => m.holder, holderName), "total").map(([, g]) => shareRow(g.name, g.total, r.expenses))),
       sec(t("rp_list")),

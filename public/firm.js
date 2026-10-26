@@ -18,6 +18,7 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
+  openMethodsSheet, paymentMethods,
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
@@ -223,24 +224,27 @@ function fabBar(label, onclick) {
 
 // Sol sütun alış tarafı (alış, ödeme, tedarikçi), sağ sütun satış tarafı (satış, tahsilat, müşteri):
 // her satırda karşılıklı iki iş yan yana durur.
-// "Satış başlat" bir sayfa değil, doğrudan satış formunu açar (köşesinde + yok).
+// "Satış başlat" ve "Gider başlat" sayfa değil, doğrudan formu açar (köşelerinde + yok).
 const TILES = [
   ["purchases", "in", "tile-purchase"], ["sales", "out", "tile-sale"],
-  ["direct", "bolt", "tile-dark"], ["expenses", "receipt", "tile-dark"],
+  ["direct", "bolt", "tile-dark"], ["expenseStart", "receipt", "tile-dark"],
 ];
 const QUICK_NEW = {
   purchases: ["new_purchase", () => openMoveSheet("purchase")],
   sales: ["new_sale", () => openMoveSheet("sale")],
-  expenses: ["new_expense", () => openCashSheet("expense")],
 };
-const startSale = () => openMoveSheet("sale"); // "Satış başlat": Satışlar → Satış gir ile aynı form
+const START = {
+  direct: () => openMoveSheet("sale"), // Satışlar → Satış gir ile aynı form
+  expenseStart: () => openCashSheet("expense"), // Giderler → Gider gir ile aynı form
+};
 const SECTIONS = [
   ["payments", "minusCircle"], ["collections", "plusCircle"],
   ["suppliers", "truck"], ["sellers", "store"],
-  ["products", "box"], ["consign", "send"],
-  ["invoice", "fileScan"], ["cash", "wallet"],
-  ["ledger", "book"], ["reports", "chart"],
-  ["trash", "trash"], ["settings", "gear"],
+  ["products", "box"], ["expenses", "receipt"],
+  ["consign", "send"], ["invoice", "fileScan"],
+  ["cash", "wallet"], ["ledger", "book"],
+  ["reports", "chart"], ["trash", "trash"],
+  ["settings", "gear"],
 ];
 
 const HOME = {
@@ -276,7 +280,7 @@ const HOME = {
         stat(t("profitThisMonth"), formatMoney(profit), profit < 0 ? "out" : "in", () => openPage("reports"))),
       // Kutucuk bölümü açar; köşedeki "+" doğrudan yeni kayıt formunu (tek dokunuş).
       h("div", { class: "tiles-big" }, TILES.map(([id, ic, cls]) => h("div", { class: "tile-wrap" },
-        h("button", { type: "button", class: `tile-big ${cls}`, onclick: () => (id === "direct" ? startSale() : openPage(id)) },
+        h("button", { type: "button", class: `tile-big ${cls}`, onclick: () => (START[id] ? START[id]() : openPage(id)) },
           h("span", { class: "big-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))),
         QUICK_NEW[id] && h("button", { type: "button", class: "tile-plus", "aria-label": t(QUICK_NEW[id][0]), title: t(QUICK_NEW[id][0]), onclick: QUICK_NEW[id][1] }, icon("plus"))))),
       low.length > 0 && h("button", { type: "button", class: "card low-banner", onclick: () => openPage("products", { filter: "low" }) },
@@ -855,6 +859,7 @@ const settingsPage = {
           icon("chevron"))),
         item("users", t("partnersAndInvite"), t("partnersAndInviteHint"), () => document.dispatchEvent(new Event("kervan:firm-menu"))),
         item("tag", t("expenseCategories"), cats?.length ? cats.map((c) => c.name).join(", ") : t("defaultCategoriesHint"), () => openCategoriesSheet()),
+        item("wallet", t("paymentMethods"), paymentMethods(firm).map((m) => m.name).join(", "), () => openMethodsSheet()),
         item("fileScan", t("aiSettings"), firm.ai?.key || sharedAiReady() ? t("aiReady") : t("aiNotSet"), () => openAiSheet()),
         item("wallet", t("page_cash"), t("cashSettingsHint"), () => openPage("cash"))),
       h("div", { class: "field" }, h("span", {}, t("theme")),

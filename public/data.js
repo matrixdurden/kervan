@@ -139,6 +139,11 @@ function moveDoc(input, lines, find, seq) {
     move.category = input.category;
     move.categoryName = input.categoryName ?? "";
   }
+  // Giderin nasıl ödendiği (nakit, kart…); bilgi içindir, kasayı değiştirmez.
+  if (input.method) {
+    move.method = input.method;
+    move.methodName = input.methodName ?? "";
+  }
   if (input.invoiceNo) move.invoiceNo = input.invoiceNo;
   if (input.type === "transfer") move.to = input.to;
   // Düzenlemede yerine geçtiği, çöp kutusundan geri yüklemede kopyası olduğu kayıt.
@@ -150,7 +155,7 @@ function moveDoc(input, lines, find, seq) {
 // Kaydedilmiş bir hareketten yeniden kaydedilebilir girdi (düzenleme ve geri yükleme için).
 export function inputOf(move) {
   const input = { type: move.type, party: move.party || "", date: move.date, note: move.note || "" };
-  for (const key of ["holder", "partner", "deal", "category", "categoryName", "invoiceNo", "to", "currency", "rate"]) {
+  for (const key of ["holder", "partner", "deal", "category", "categoryName", "method", "methodName", "invoiceNo", "to", "currency", "rate"]) {
     if (move[key] != null && move[key] !== "") input[key] = move[key];
   }
   if (move.lines) input.lines = move.lines.map((l) => ({ product: l.product, qty: l.qty, price: l.price }));

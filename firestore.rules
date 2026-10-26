@@ -48,6 +48,7 @@ service cloud.firestore {
         && text(d.get('logo', ''), 40000)
         && d.get('info', {}) is map
         && d.get('expenseCategories', []) is list && d.get('expenseCategories', []).size() <= 50
+        && d.get('paymentMethods', []) is list && d.get('paymentMethods', []).size() <= 20
         && d.get('ai', {}) is map
         && d.get('defaultVat', 0) is number;
     }
@@ -112,6 +113,7 @@ service cloud.firestore {
         && (!('partner' in d) || (d.type in ['capitalIn', 'withdraw'] && partnerId(firmId, d.partner)))
         && (!('deal' in d) || (d.type == 'expense' && text(d.deal, 40)))
         && (!('category' in d) || (d.type == 'expense' && text(d.category, 40) && text(d.get('categoryName', ''), 60)))
+        && (!('method' in d) || (d.type == 'expense' && text(d.method, 40) && text(d.get('methodName', ''), 40)))
         && text(d.get('invoiceNo', ''), 40)
         && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return'] && validLines(d))
           || (d.type in ['payment', 'collection', 'expense', 'capitalIn', 'withdraw'] && d.amount is int && d.amount > 0)
