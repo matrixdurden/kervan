@@ -14,7 +14,7 @@ import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptL
 import { show } from "./nav.js";
 import { receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
 import { currentFirm } from "./session.js";
-import { productLabel } from "./data.js";
+import { productLabel, clearPartyPrice } from "./data.js";
 import { today } from "./ui.js";
 
 const STATEMENT_ROWS = 60; // ekstre resmine en son bu kadar hareket; öncesi "önceki bakiye" olur
@@ -127,6 +127,26 @@ $("#party-edit").addEventListener("click", () => {
   if (party) openPartySheet(party.kind, party);
 });
 
+// Müşteriye özel fiyatlar: pazarlıkla verilen fiyatlar; her birinde "Sıfırla" (liste fiyatı geri gelir).
+function pricesCard(party) {
+  const items = Object.entries(party.prices ?? {})
+    .map(([id, price]) => [session.firm.products.get(id), id, price])
+    .filter(([p]) => p);
+  if (!items.length) return null;
+  return h("div", { class: "card shelf" },
+    h("p", { class: "shelf-title" }, icon("tag"), h("span", {}, t("specialPrices"))),
+    h("ul", { class: "line-list" }, items.map(([p, id, price]) => h("li", {},
+      h("span", { class: "main" },
+        h("span", { class: "title" }, h("bdi", {}, productLabel(p))),
+        h("span", { class: "meta" }, t("listShort", { list: formatMoney(p.price ?? 0) }))),
+      h("strong", {}, formatMoney(price)),
+      h("button", {
+        type: "button", class: "small",
+        onclick: () => clearPartyPrice(party.id, id).then(() => toast(t("saved")), () => toast(t("saveFailed"))),
+      }, t("resetPrice"))))),
+    h("small", { class: "field-hint" }, t("specialPricesHint")));
+}
+
 // Satıcının rafındaki emanet mal.
 function shelfCard(party) {
   const items = Object.entries(party.shelf ?? {}).filter(([, s]) => s.stock > 0);
@@ -180,7 +200,8 @@ function render() {
         actionButton("consign", t("quick_consign"), open("consign")),
         actionButton("consignSale", t("quick_count"), () => openShelfSheet("count", partyId), !hasShelf),
         actionButton("return", t("quick_return"), () => openShelfSheet("return", partyId), !hasShelf)),
-      shelfCard(party));
+      shelfCard(party),
+      pricesCard(party));
   } else {
     out.push(h("div", { class: "quicks two" },
       actionButton("purchase", t("quick_purchase"), open("purchase")),

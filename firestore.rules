@@ -85,6 +85,7 @@ service cloud.firestore {
         && text(d.get('taxNo', ''), 20)
         && text(d.get('taxOffice', ''), 60)
         && text(d.get('address', ''), 300)
+        && d.get('prices', {}) is map && d.get('prices', {}).size() <= 1000
         && trashable(d, d.balance == 0);
     }
 

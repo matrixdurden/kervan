@@ -52,7 +52,9 @@ function accumulate(steps, find) {
 }
 
 // Toplam etkiyi increment olarak yazar. Silinmiş ürün/kişi atlanır.
-function writeEffects(batch, acc, find) {
+// extra.partyFields / extra.productFields: aynı belgeye yazılacak ek alanlar (müşteriye özel fiyat,
+// liste fiyatı); bir belgeye tek güncelleme gitsin diye etkilerle birleştirilir.
+function writeEffects(batch, acc, find, { partyFields = {}, productFields = {} } = {}) {
   // Ürünün "satıcılarda" toplamı raf değişimlerinden çıkar.
   const consigned = new Map();
   const partyUpdates = new Map();
@@ -77,9 +79,10 @@ function writeEffects(batch, acc, find) {
       fields.lastCost = p.lastCost ?? 0;
     }
     if (consigned.get(id)) fields.consigned = increment(consigned.get(id));
-    batch.update(ref("products", id), fields);
+    batch.update(ref("products", id), { ...fields, ...productFields[id] });
   }
   for (const [id, delta] of acc.balances) partyUpdate(id).balance = increment(delta);
+  for (const [id, fields] of Object.entries(partyFields)) Object.assign(partyUpdate(id), fields);
   for (const [id, fields] of partyUpdates) {
     if (find.party(id) && Object.keys(fields).length) batch.update(ref("parties", id), fields);
   }
@@ -174,7 +177,7 @@ const PROFIT_TYPES = ["sale", "consignSale"];
 // Hareketleri ve etkilerini batch'e ekler; yazılan hareketleri (id'leriyle) döner.
 // reverted: aynı batch'te iptal edilen hareketler (düzenleme); etkileri önce geri alınır ki
 // yeni kayıt (örneğin satışın maliyeti) eski kayıt yokmuş gibi hesaplansın.
-function addMoves(batch, rawInputs, find, reverted = []) {
+function addMoves(batch, rawInputs, find, reverted = [], extra = {}) {
   // Giren ve (para hareketlerinde) parası değişen ortak, hesaplanmadan önce belirlenir
   // ki anlık hesap ile kaydedilen hareket aynı olsun.
   // Satış satırlarına ürünün o anki ortaklığı yazılır: ortaklık sonra değişse de geçmiş kâr bozulmaz.
@@ -194,7 +197,7 @@ function addMoves(batch, rawInputs, find, reverted = []) {
     batch.set(moveRef, data);
     return { id: moveRef.id, ...data };
   });
-  writeEffects(batch, acc, find);
+  writeEffects(batch, acc, find, extra);
   return moves;
 }
 
@@ -203,7 +206,9 @@ function addMoves(batch, rawInputs, find, reverted = []) {
 // newProducts: aynı anda oluşturulacak ürünler (faturadan alışta) → { geçiciId: { name, unit, price, … } };
 // satırlarda bu geçici id'ler kullanılabilir, gerçek id'ye çevrilir.
 // newParty: aynı anda oluşturulacak tedarikçi { tempId, data }.
-export function recordMoves(inputs, { newProducts = {}, newParty = null } = {}) {
+// prices: { party, set: { ürünId: fiyat }, clear: [ürünId] } müşteriye özel fiyatları satışla aynı anda yazar;
+// listPrices: { ürünId: fiyat } ürünlerin liste (satış) fiyatını günceller.
+export function recordMoves(inputs, { newProducts = {}, newParty = null, prices = null, listPrices = {} } = {}) {
   const batch = writeBatch(db);
   const products = new Map();
   const ids = new Map();
@@ -228,9 +233,21 @@ export function recordMoves(inputs, { newProducts = {}, newParty = null } = {}) 
     party: newParty && input.party === newParty.tempId ? partyId : input.party,
     ...(input.lines && { lines: input.lines.map((l) => ({ ...l, product: ids.get(l.product) ?? l.product })) }),
   }));
-  const moves = addMoves(batch, resolved, lookup({ products, parties }));
+  const partyFields = {};
+  if (prices?.party && (Object.keys(prices.set ?? {}).length || prices.clear?.length)) {
+    const target = newParty && prices.party === newParty.tempId ? partyId : prices.party;
+    partyFields[target] = {
+      ...Object.fromEntries(Object.entries(prices.set ?? {}).map(([id, v]) => [`prices.${id}`, v])),
+      ...Object.fromEntries((prices.clear ?? []).map((id) => [`prices.${id}`, deleteField()])),
+    };
+  }
+  const productFields = Object.fromEntries(Object.entries(listPrices).map(([id, price]) => [id, { price }]));
+  const moves = addMoves(batch, resolved, lookup({ products, parties }), [], { partyFields, productFields });
   return { moves, done: batch.commit() };
 }
+
+// Müşteriye özel fiyatı siler (satışta yine liste fiyatı gelir).
+export const clearPartyPrice = (partyId, productId) => updateDoc(ref("parties", partyId), { [`prices.${productId}`]: deleteField() });
 
 // İşletme ayarları (logo, fatura bilgileri, gider kategorileri, yapay zekâ anahtarı, varsayılan KDV).
 export const saveFirmSettings = (fields) => updateDoc(firmRef(), fields);

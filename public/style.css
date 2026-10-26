@@ -1138,6 +1138,17 @@ p.total-line, .pl-row.total-line { display: flex; justify-content: space-between
 .order-cta button { height: 52px; font-size: 16px; }
 .line-sub { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-3); }
 
+/* Satış satırında müşteriye özel fiyat notu ve hızlı düğmeler */
+.price-tools:empty { display: none; }
+.price-tools { display: flex; flex-direction: column; gap: 6px; }
+.special-note { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--accent); }
+.special-note svg { width: 15px; height: 15px; }
+.price-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.price-actions button.pill-btn { align-self: auto; height: 34px; padding: 0 12px; font-size: 13px; gap: 5px; }
+.price-actions button.pill-btn svg { width: 15px; height: 15px; }
+.price-actions button.pill-btn.on { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
+.line-list li button.small { height: 32px; padding: 0 10px; font-size: 13px; }
+
 /* Ekstre / ortak özeti: WhatsApp'tan fiş olarak gönder ve yazdır */
 .statement-actions { display: flex; gap: 8px; width: 100%; margin-top: 10px; }
 .statement-actions button.whatsapp { flex: 1; min-width: 0; height: 48px; font-size: 15.5px; white-space: normal; }

@@ -530,9 +530,9 @@ function productBrowser({ products, count, price, currency, onstep, onnew, onsca
     const all = products();
     bubbles.replaceChildren(...[categoryBubbles(all, cat, (v) => { cat = v; render(); })].filter(Boolean));
     const shown = all.filter((p) => inCategory(p, cat) && (matches(productLabel(p), q) || (q && p.barcode === q)));
-    const add = h("button", { type: "button", class: "pick-tile new", onclick: () => onnew({ name: q, category: cat && cat !== NO_CATEGORY ? cat : "" }) },
+    const add = onnew && h("button", { type: "button", class: "pick-tile new", onclick: () => onnew({ name: q, category: cat && cat !== NO_CATEGORY ? cat : "" }) },
       h("span", { class: "pt-plus", "aria-hidden": "true" }, icon("plus")), h("span", { class: "pt-name" }, t("newProduct")));
-    grid.replaceChildren(add, ...shown.map((p) => {
+    grid.replaceChildren(...[add].filter(Boolean), ...shown.map((p) => {
       const n = count(p);
       return h("div", { class: `pick-tile${n ? " picked" : ""}` },
         h("button", { type: "button", class: "pt-main", onclick: () => { onstep(p, 1); navigator.vibrate?.(15); } },
@@ -545,7 +545,7 @@ function productBrowser({ products, count, price, currency, onstep, onnew, onsca
           h("strong", {}, formatNumber(n)),
           h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => onstep(p, 1) }, icon("plus"))) : null);
     }));
-    if (!shown.length && q) grid.append(h("p", { class: "lines-empty wide" }, t("noMatchNew")));
+    if (!shown.length) grid.append(h("p", { class: "lines-empty wide" }, t(q && onnew ? "noMatchNew" : q ? "noMatch" : "noProducts")));
   };
   const el = h("div", { class: "browser" },
     searchBox(t("searchProducts"), "", (v) => { query = v; render(); }, onscan),
@@ -573,9 +573,41 @@ function stepper(input, onstep) {
 // init: { qty, price } düzenlenen kayıttan; yoksa adet 1, fiyat önerilen.
 function lineRow(ctx, p, onchange, onremove, init) {
   const qty = numberInput({ value: init ? qtyInput(init.qty) : "1", "aria-label": t("qty"), oninput: onchange });
-  const price = numberInput({ value: moneyInput(init ? init.price : ctx.suggestPrice(p)), placeholder: "0,00", "aria-label": t("unitPrice"), oninput: onchange });
+  const price = numberInput({
+    value: moneyInput(init ? init.price : ctx.suggestPrice(p)), placeholder: "0,00", "aria-label": t("unitPrice"),
+    oninput: () => { price.dataset.touched = "1"; onchange(); },
+  });
+  if (init) price.dataset.touched = "1";
   const total = h("strong", { class: "line-total" });
   const hint = h("small", { class: "field-hint" });
+
+  // Satışta fiyat liste fiyatından farklıysa: müşteriye özel fiyat notu; "Liste fiyatına dön" ve
+  // "Liste fiyatı da bu olsun" (kaydedince ürünün fiyatı herkes için güncellenir).
+  let asList = false;
+  const tools = h("div", { class: "price-tools" });
+  const showTools = () => {
+    if (!ctx.priceMemory) return;
+    const pr = parseMoney(price.value);
+    const list = p.price || 0;
+    if (pr == null || !list || pr === list) {
+      asList = false;
+      tools.replaceChildren();
+      return;
+    }
+    const remembered = ctx.specialFor(p) === pr && !price.dataset.touched;
+    const note = remembered ? "specialPriceNote" : ctx.remembers() ? "priceDiffNote" : "listPriceNote";
+    tools.replaceChildren(
+      h("small", { class: "special-note" }, icon("tag"), t(note, { list: formatMoney(list) })),
+      h("div", { class: "price-actions" },
+        h("button", {
+          type: "button", class: "pill-btn",
+          onclick: () => { price.value = moneyInput(list); price.dataset.touched = "1"; onchange(); },
+        }, icon("undo"), t("useListPrice")),
+        h("button", {
+          type: "button", class: `pill-btn${asList ? " on" : ""}`, "aria-pressed": String(asList),
+          onclick: () => { asList = !asList; showTools(); },
+        }, asList ? icon("check") : icon("pencil"), t(asList ? "listWillUpdate" : "makeListPrice", { price: formatMoney(pr) }))));
+  };
   const add = (d) => {
     qty.value = qtyInput(Math.max(0, roundQty((parseQty(qty.value) ?? 0) + d)));
     onchange();
@@ -603,6 +635,7 @@ function lineRow(ctx, p, onchange, onremove, init) {
       h("div", { class: "line-nums" },
         h("div", { class: "mini" }, h("span", {}, t("qty"), ` (${unitLabel(p.unit)})`), stepper(qty, add)),
         h("label", { class: "mini" }, h("span", {}, t("unitPrice"), ctx.symbol()), price)),
+      tools,
       h("div", { class: "line-foot" }, hint, total)),
     total() {
       const q = parseQty(qty.value);
@@ -612,7 +645,14 @@ function lineRow(ctx, p, onchange, onremove, init) {
     refresh() {
       total.textContent = formatMoney(row.total(), ctx.currency());
       showHint();
+      showTools();
     },
+    // Müşteri değişince elle değiştirilmemiş fiyat o müşterinin fiyatına geçer.
+    reprice() {
+      if (price.dataset.touched) return;
+      price.value = moneyInput(ctx.suggestPrice(p));
+    },
+    asList: () => asList,
     // Hatalıysa hata metni, doğruysa { product, qty, price }.
     read() {
       const q = parseQty(qty.value);
@@ -665,6 +705,11 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       `+ ${t(kind === "seller" ? "newSeller" : "newSupplier")}`, () => openPartySheet(kind));
   }
 
+  // Satış ve emanette ürün yoksa önce ürün eklenir (alışta yeni ürün formun içinden açılır).
+  if (hasLines(type) && type !== "purchase" && !session.firm.products.size) {
+    return missing(title, t("needProduct"), `+ ${t("newProduct")}`, () => openProductSheet());
+  }
+
   const listed = walkInOption ? parties.filter((p) => !p.walkIn) : parties;
   const partySelect = select([
     ["", t("choose")],
@@ -712,14 +757,24 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       symbol,
       margin: type === "sale" || type === "consign",
       outgoing: type === "sale" || type === "consign",
-      // Satışta ürünün satış fiyatı, emanette o satıcıya son verilen fiyat, alışta son alış fiyatı.
+      // Satışta o müşteriye özel fiyat (yoksa ürünün satış fiyatı), emanette o satıcıya son verilen
+      // fiyat, alışta son alış fiyatı.
       suggestPrice(p) {
-        if (type === "sale") return p.price;
+        if (type === "sale") return ctx.specialFor(p) ?? p.price;
         if (type === "consign") return party()?.shelf?.[p.id]?.price || p.price;
         const r = rate.value();
         return currency() === "TRY" ? p.lastCost : r ? Math.round(p.lastCost / r) : 0;
       },
+      // Müşteriye özel fiyat hafızası (sadece yeni satışta; peşin müşteride hatırlanmaz).
+      priceMemory: type === "sale" && !edit,
+      remembers: () => Boolean(party() && !party().walkIn && !isWalkIn()),
+      specialFor: (p) => (isWalkIn() ? undefined : party()?.prices?.[p.id]),
     };
+    // Müşteri değişince elle değiştirilmemiş fiyatlar o müşterinin fiyatlarına geçer.
+    partySelect.addEventListener("change", () => {
+      for (const r of rows) r.reprice();
+      refresh();
+    });
     const showEmpty = () => { empty.hidden = rows.length > 0; };
     // Ürün forma eklenir; zaten varsa adedi 1 artar. init: düzenlemede kayıtlı adet ve fiyat.
     const removeRow = (r) => {
@@ -779,7 +834,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       price: (p) => ctx.suggestPrice(p),
       currency,
       onstep: stepProduct,
-      onnew: newProduct,
+      onnew: type === "purchase" ? newProduct : null, // yeni ürün sadece alışta: satılacak mal önce alınır
       onscan: canScan() ? scanLine : null,
     });
     fields.push(browser.el, h("p", { class: "label cart-label" }, icon("listCheck"), t("cart")), empty, list);
@@ -817,6 +872,26 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   rate.set(currency());
   if (edit?.rate) rate.prefill(edit.rate);
 
+  // Satışta fiyat hafızası: liste fiyatından farklı satılan ürün o müşteriye özel fiyat olur, liste
+  // fiyatıyla satılırsa özel fiyatı silinir. "Liste fiyatı da bu olsun" seçilen ürünün fiyatı herkes
+  // için güncellenir (o zaman özel fiyat gerekmez). customer null: peşin satış, sadece liste fiyatları.
+  const priceOptions = (customer) => {
+    const set = {};
+    const clear = [];
+    const listPrices = {};
+    for (const r of rows) {
+      const line = r.read();
+      if (typeof line === "string") continue;
+      const list = r.product.price ?? 0;
+      if (r.asList() && line.price !== list) listPrices[line.product] = line.price;
+      const special = !r.asList() && line.price !== list ? line.price : null;
+      const had = customer?.prices?.[line.product];
+      if (special != null && special !== had) set[line.product] = special;
+      if (special == null && had != null) clear.push(line.product);
+    }
+    return { listPrices, ...(customer && { prices: { party: customer.id, set, clear } }) };
+  };
+
   // Direkt satış: satış + tamamının tahsilatı; "Peşin müşteri" yoksa aynı kayıtta açılır.
   const saveDirect = () => {
     if (!date.value) return t("chooseDate");
@@ -835,7 +910,10 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     record([
       { ...base, type: "sale", note: note.value.trim(), lines },
       { ...base, type: "collection", note: t("directNote"), amount },
-    ], undefined, walkIn ? {} : { newParty: { tempId: partyId, data: { kind: "seller", name: t("walkInCustomer"), walkIn: true } } });
+    ], undefined, {
+      listPrices: priceOptions(null).listPrices,
+      ...(!walkIn && { newParty: { tempId: partyId, data: { kind: "seller", name: t("walkInCustomer"), walkIn: true } } }),
+    });
     return undefined;
   };
 
@@ -881,7 +959,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     }
     const clean = ({ lines, ...rest }) => (lines ? { ...rest, lines } : rest);
     if (edit) return saveEdit(edit, clean(input));
-    record([input, ...extra].map(clean));
+    record([input, ...extra].map(clean), undefined, type === "sale" ? priceOptions(p) : {});
     return undefined;
   });
 }
