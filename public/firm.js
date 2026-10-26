@@ -6,7 +6,7 @@ import {
   collection, query, where, orderBy, limit, onSnapshot, getDocs,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
-import { $, h, icon, store, toast, avatar, today, currentTheme, applyTheme } from "./ui.js";
+import { $, h, icon, store, toast, avatar, today, currentTheme, applyTheme, formatDay, formatMonth } from "./ui.js";
 import { t, unitLabel, lang, setLang } from "./i18n.js";
 import { session, currentFirm, partners, person, sharePlan, resetFirm, myName } from "./session.js";
 import { formatMoney, formatNumber } from "./money.js";
@@ -16,13 +16,14 @@ import {
 } from "./views.js";
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
-  openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet,
+  openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet,
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
 import { productByBarcode, productLabel, recompute } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
 import { sharedAiReady } from "./ai.js";
+import { REPORT_TYPES, buildReport, salesSeries, topBy } from "./report.js";
 
 const PAGE = 100;
 
@@ -361,7 +362,11 @@ const productsPage = {
       const key = p.groupId || p.id;
       groups.set(key, [...(groups.get(key) ?? []), p]);
     }
-    return [h("ul", { class: "cards" }, [...groups.values()].map((items) => (items.length === 1 && !items[0].variant ? productRow(items[0]) : groupCard(items))))];
+    // Azalanlarda en üstte: hepsi için sipariş hazırla (WhatsApp) ve mal gelince alış gir.
+    const order = productFilter === "low" && h("div", { class: "order-cta" },
+      h("p", {}, t("orderCta", { n: list.length })),
+      h("button", { type: "button", class: "ink block", onclick: () => openOrderSheet(list) }, icon("send"), t("orderPrepare")));
+    return [order, h("ul", { class: "cards" }, [...groups.values()].map((items) => (items.length === 1 && !items[0].variant ? productRow(items[0]) : groupCard(items))))];
   },
 };
 
@@ -609,7 +614,7 @@ const cashPage = {
 
 // --- Raporlar -------------------------------------------------------------------------
 
-// Dönemin satış ve gider hareketlerini bir kez okur (ürün ve kategori dökümü için).
+// Dönemin satış, alış, gider, tahsilat ve ödeme hareketlerini bir kez okur ve raporu kurar.
 async function loadReport() {
   const [from, to] = periodRange();
   const key = `${from}|${to}`;
@@ -618,65 +623,142 @@ async function loadReport() {
   try {
     const col = collection(db, "firms", session.firm.id, "moves");
     const snap = await getDocs(query(col,
-      where("type", "in", ["sale", "consignSale", "expense"]),
+      where("type", "in", REPORT_TYPES),
       where("date", ">=", from ? `${from}-01` : ""), where("date", "<=", `${to}-31`)));
-    const moves = snap.docs.map((d) => d.data()).filter((m) => !m.voided);
-    report = { key, moves };
+    report = { key, data: buildReport(snap.docs.map((d) => d.data())) };
   } catch (err) {
     console.error(err);
-    report = { key, moves: [], failed: true };
+    report = { key, data: buildReport([]), failed: true };
   }
   if (page === "reports") rerenderBody();
 }
+
+const pct = (part, whole) => (whole ? Math.round((part / whole) * 1000) / 10 : 0);
+
+// Özet kutucuğu: başlık, büyük rakam, altında kısa açıklama.
+const kpi = (label, value, sub, tone = "") =>
+  h("div", { class: `kpi ${tone}` }, h("span", {}, label), h("strong", {}, value), sub ? h("small", {}, sub) : null);
+
+// Satış grafiği: günlük ya da aylık sütunlar; sütuna dokununca o günün satışı ve kârı yazar.
+function salesChart(series) {
+  const max = Math.max(1, ...series.map((s) => s.sales));
+  const label = (s) => (s.unit === "day" ? formatDay(s.key) : formatMonth(s.key));
+  const caption = h("div", { class: "chart-caption", "aria-live": "polite" });
+  const show = (s) => caption.replaceChildren(
+    h("span", {}, label(s)), h("strong", {}, formatMoney(s.sales)),
+    h("small", {}, s.sales ? `${t("plProfit")}: ${formatMoney(s.profit)}` : t("rp_noSaleThatDay")));
+  let picked = null;
+  const bars = series.map((s) => {
+    const bar = h("button", {
+      type: "button", class: "bar", "aria-label": `${label(s)}: ${formatMoney(s.sales)}`,
+      onclick: () => {
+        picked?.classList.remove("on");
+        bar.classList.add("on");
+        picked = bar;
+        show(s);
+      },
+    }, h("span", { class: "bar-fill", style: `height:${s.sales ? Math.max(3, Math.round((s.sales / max) * 100)) : 0}%` }));
+    return bar;
+  });
+  // Son satış olan sütun seçili başlar.
+  const lastIdx = series.map((s) => s.sales > 0).lastIndexOf(true);
+  if (lastIdx >= 0) bars[lastIdx].click();
+  else caption.replaceChildren(h("small", {}, t("noSalesInPeriod")));
+  const ends = series.length > 1 ? [series[0], series.at(-1)] : series;
+  return h("div", { class: "card chart" },
+    h("p", { class: "chart-title" }, t("rp_salesChart")),
+    caption,
+    h("div", { class: "bars", style: `--n:${series.length}` }, bars),
+    h("div", { class: "chart-axis" }, ends.map((s) => h("span", {}, label(s)))));
+}
+
+// Pay çubuklu döküm satırı: ad, tutar ve bütün içindeki payı.
+const shareRow = (name, value, whole, meta) => h("div", { class: "share-line" },
+  h("div", { class: "pl-row" }, h("span", {}, h("bdi", {}, name), meta ? h("small", {}, ` · ${meta}`) : null), h("strong", {}, formatMoney(value))),
+  h("span", { class: "share-track" }, h("span", { class: "share-fill", style: `width:${Math.max(2, pct(value, whole))}%` })));
+
+let productSort = "profit";
 
 const reportsPage = {
   top: () => pageTop(t("page_reports")),
   head: () => periodSeg(() => { report = null; rerenderBody(); }),
   body() {
-    const { months } = session.firm;
+    const { months, products } = session.firm;
     const [from, to] = periodRange();
     loadReport();
-    const out = [profitCard(sumMonths(months, from, to))];
+    const p = sumMonths(months, from, to);
+    const r = report?.data;
+    const loading = !r;
+    const dash = "…";
 
-    // En çok kâr getiren ürünler
-    const byProduct = new Map();
-    const byCat = new Map();
-    for (const m of report?.moves ?? []) {
-      if (m.type === "expense") {
-        const k = m.categoryName || t("uncategorized");
-        byCat.set(k, (byCat.get(k) ?? 0) + m.total);
-        continue;
-      }
-      for (const l of m.lines ?? []) {
-        const cur = byProduct.get(l.product) ?? { name: l.name, unit: l.unit, qty: 0, revenue: 0, profit: 0 };
-        cur.qty = roundQty(cur.qty + l.qty);
-        cur.revenue += lineTotal(l);
-        cur.profit += lineTotal(l) - (l.cost ?? 0);
-        byProduct.set(l.product, cur);
-      }
+    const out = [
+      h("div", { class: "kpis" },
+        kpi(t("rp_sales"), formatMoney(p.revenue), r ? t("rp_salesCount", { n: r.salesCount }) : dash, "green"),
+        kpi(t("plProfit"), formatMoney(p.profit), p.revenue ? t("rp_grossMargin", { pct: formatNumber(pct(p.revenue - p.cogs, p.revenue)) }) : "", p.profit < 0 ? "red" : "green"),
+        kpi(t("rp_purchases"), r ? formatMoney(r.purchases) : dash, null, "amber"),
+        kpi(t("plExpenses"), formatMoney(p.expenses), null, "red"),
+        kpi(t("rp_collections"), r ? formatMoney(r.collections) : dash, t("rp_collectionsSub"), "blue"),
+        kpi(t("rp_payments"), r ? formatMoney(r.payments) : dash, t("rp_paymentsSub"), "ink")),
+    ];
+    if (r) out.push(salesChart(salesSeries(r.days, { from, to, today: today() })));
+    out.push(profitCard(p));
+
+    // Şu anki durum (döneme bağlı değil)
+    const receivable = sum(parties("seller"), (x) => Math.max(x.balance, 0));
+    const stockValue = sum([...products.values()], (x) => Math.max(x.value ?? 0, 0));
+    const shelfValue = sum(parties("seller"), (x) => sum(shelfItems(x), ([, s]) => s.value ?? 0));
+    out.push(h("h2", { class: "sec" }, t("rp_now")),
+      h("div", { class: "card pl" },
+        h("div", { class: "pl-row" }, h("span", {}, t("receivable")), h("strong", { class: "in" }, formatMoney(receivable))),
+        h("div", { class: "pl-row" }, h("span", {}, t("totalPayable")), h("strong", {}, payableText())),
+        h("div", { class: "pl-row" }, h("span", {}, t("rp_stockValue")), h("strong", {}, formatMoney(stockValue))),
+        h("div", { class: "pl-row" }, h("span", {}, t("shelfValue")), h("strong", {}, formatMoney(shelfValue)))));
+
+    if (loading) {
+      out.push(h("p", { class: "muted center" }, dash));
+      return out;
     }
-    const top = [...byProduct.values()].sort((a, b) => b.profit - a.profit).slice(0, 10);
-    out.push(h("h2", { class: "sec" }, t("topProducts")));
-    if (report?.loading) out.push(h("p", { class: "muted center" }, "…"));
-    else if (!top.length) out.push(h("p", { class: "field-hint" }, t("noSalesInPeriod")));
+
+    // Müşterilere göre satış
+    const customers = topBy(r.customers, "sales");
+    if (customers.length) {
+      out.push(h("h2", { class: "sec" }, t("rp_byCustomer")),
+        h("div", { class: "card breakdown" }, customers.map(([, c]) =>
+          shareRow(c.name, c.sales, r.sales, `${t("rp_salesCount", { n: c.count })} · ${t("plProfit")} ${formatMoney(c.profit)}`))));
+    }
+
+    // Ürünler: en kârlı ya da en çok satan
+    const prods = topBy(r.products, productSort === "qty" ? "qty" : "profit");
+    out.push(h("h2", { class: "sec" }, t("rp_byProduct")));
+    if (!prods.length) out.push(h("p", { class: "field-hint" }, t("noSalesInPeriod")));
     else {
-      out.push(h("ul", { class: "cards" }, top.map((x) => h("li", { class: "card row" },
-        h("span", { class: "main" },
-          h("span", { class: "title" }, h("bdi", {}, x.name)),
-          h("span", { class: "meta" }, `${formatNumber(x.qty)} ${unitLabel(x.unit)} · ${formatMoney(x.revenue)}`
-            + (x.revenue ? ` · ${t("marginShort", { pct: formatNumber(Math.round((x.profit / x.revenue) * 1000) / 10) })}` : ""))),
-        h("span", { class: `end ${x.profit < 0 ? "out" : "in"}` },
-          h("span", { class: "amount" }, formatMoney(x.profit)), h("span", { class: "after" }, t("grossProfit")))))));
+      out.push(segmented([["profit", t("rp_mostProfit")], ["qty", t("rp_mostSold")]], productSort, (v) => { productSort = v; rerenderBody(); }),
+        h("ul", { class: "cards report-products" }, prods.map(([, x]) => h("li", { class: "card row" },
+          h("span", { class: "main" },
+            h("span", { class: "title" }, h("bdi", {}, x.name)),
+            h("span", { class: "meta" }, `${formatNumber(x.qty)} ${unitLabel(x.unit)} · ${formatMoney(x.revenue)}`
+              + (x.revenue ? ` · ${t("marginShort", { pct: formatNumber(pct(x.profit, x.revenue)) })}` : ""))),
+          h("span", { class: `end ${x.profit < 0 ? "out" : "in"}` },
+            h("span", { class: "amount" }, productSort === "qty" ? `${formatNumber(x.qty)} ${unitLabel(x.unit)}` : formatMoney(x.profit)),
+            h("span", { class: "after" }, productSort === "qty" ? t("rp_sold") : t("grossProfit")))))));
     }
 
-    if (byCat.size) {
+    // Tedarikçilere göre alış
+    const suppliers = topBy(r.suppliers, "total");
+    if (suppliers.length) {
+      out.push(h("h2", { class: "sec" }, t("rp_bySupplier")),
+        h("div", { class: "card breakdown" }, suppliers.map(([, s]) => shareRow(s.name, s.total, r.purchases, t("rp_purchaseCount", { n: s.count })))));
+    }
+
+    // Giderler kategoriye göre
+    if (r.categories.size) {
       out.push(h("h2", { class: "sec" }, t("expensesByCategory")),
-        h("div", { class: "card breakdown" }, [...byCat].sort((a, b) => b[1] - a[1]).map(([name, v]) =>
-          h("div", { class: "pl-row" }, h("span", {}, h("bdi", {}, name)), h("strong", {}, formatMoney(v))))));
+        h("div", { class: "card breakdown" }, topBy(r.categories, "total", 20).map(([name, c]) =>
+          shareRow(name || t("uncategorized"), c.total, r.expenses))));
     }
 
-    // En çok borcu olan satıcılar
-    const debtors = parties("seller").filter((p) => p.balance > 0).sort((a, b) => b.balance - a.balance).slice(0, 5);
+    // En çok borcu olan müşteriler
+    const debtors = parties("seller").filter((x) => x.balance > 0).sort((a, b) => b.balance - a.balance).slice(0, 5);
     if (debtors.length) out.push(h("h2", { class: "sec" }, t("topDebtors")), h("ul", { class: "cards" }, debtors.map(partyRow)));
 
     const low = lowProducts();

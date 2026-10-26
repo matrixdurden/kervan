@@ -263,6 +263,11 @@ export function openProductSheet(product, preset = {}) {
 
   const buttons = [saveButton()];
   if (product) {
+    // Stok tedarikçiden alışla artar: ürünle dolu alış formu açılır.
+    buttons.push(h("button", {
+      type: "button", class: "block",
+      onclick: () => openMoveSheet("purchase", { lines: [{ product: product.id, qty: suggestedOrder(product) }] }),
+    }, icon("in"), t("addStock")));
     const hasStock = Boolean(product.stock || product.value || product.consigned);
     buttons.push(h("button", {
       type: "button", class: "block danger", disabled: hasStock,
@@ -531,7 +536,8 @@ function shortages(lines, previous = []) {
 const PAID_NOW = { sale: "collection", purchase: "payment" };
 
 // edit: düzenlenen kayıt; form onun bilgileriyle dolu açılır, kaydedince eskisi çöp kutusuna gider.
-export function openMoveSheet(type, { party: fixedParty, edit } = {}) {
+// lines: hazır satırlar [{ product, qty }] (siparişten ya da "Stok ekle"den alış); fiyat önerilen gelir.
+export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLines } = {}) {
   const kind = PARTY_KIND[type];
   const title = edit ? t("editMoveTitle", { type: t(`type_${type}`) }) : t(`new_${type}`);
   const parties = [...session.firm.parties.values()].filter((p) => p.kind === kind).sort(byName);
@@ -614,6 +620,10 @@ export function openMoveSheet(type, { party: fixedParty, edit } = {}) {
       const p = session.firm.products.get(l.product)
         ?? { id: l.product, name: l.name, variant: "", unit: l.unit, stock: 0, price: 0, lastCost: 0, value: 0 };
       addProduct(p, { qty: l.qty, price: l.price });
+    }
+    for (const l of presetLines ?? []) {
+      const p = session.firm.products.get(l.product);
+      if (p) addProduct(p, { qty: l.qty, price: ctx.suggestPrice(p) });
     }
     const pickLines = () => pickProducts({
       products,
@@ -705,6 +715,48 @@ export function openMoveSheet(type, { party: fixedParty, edit } = {}) {
     record([input, ...extra].map(clean));
     return undefined;
   });
+}
+
+// Önerilen sipariş adedi: stoğu "azalınca uyar" sınırının iki katına tamamlar (sınır yoksa 1).
+export const suggestedOrder = (p) => Math.max(1, roundQty((p.minStock > 0 ? p.minStock * 2 : 1) - Math.max(p.stock, 0)));
+
+// Sipariş: verilen (azalan) ürünler önerilen adetlerle gelir, adetler − / + ile ayarlanır.
+// Liste tedarikçiye WhatsApp'tan gönderilir; mal gelince aynı listeyle alış girilir (stok artar).
+export function openOrderSheet(list) {
+  const firm = currentFirm();
+  const suppliers = [...session.firm.parties.values()].filter((p) => p.kind === "supplier").sort(byName);
+  const supplier = select([["", t("orderAnySupplier")], ...suppliers.map((p) => [p.id, p.name])], suppliers.length === 1 ? suppliers[0].id : "");
+  const items = list.map((p) => {
+    const input = numberInput({ value: qtyInput(suggestedOrder(p)), "aria-label": t("orderQty") });
+    const add = (d) => { input.value = qtyInput(Math.max(0, roundQty((parseQty(input.value) ?? 0) + d))); };
+    const el = h("div", { class: "line" },
+      h("div", { class: "line-top" },
+        productThumb(p, "sm"),
+        h("span", { class: "line-name" }, h("bdi", {}, productLabel(p)),
+          h("small", { class: "line-sub" }, t("orderMeta", { n: formatNumber(p.stock), unit: unitLabel(p.unit), min: formatNumber(p.minStock ?? 0) })))),
+      h("div", { class: "mini" }, h("span", {}, t("orderQty"), ` (${unitLabel(p.unit)})`), stepper(input, add)));
+    return { p, el, qty: () => parseQty(input.value) ?? 0 };
+  });
+  const chosen = () => items.filter((it) => it.qty() > 0);
+
+  const send = async () => {
+    const lines = chosen();
+    if (!lines.length) return toast(t("noOrderLines"));
+    const text = [t("orderGreeting"), ...lines.map((it) => `• ${productLabel(it.p)}: ${formatNumber(it.qty())} ${unitLabel(it.p.unit)}`), `— ${firm.name}`].join("\n");
+    return shareOnWhatsApp({ text, phone: session.firm.parties.get(supplier.value)?.phone ?? null });
+  };
+  const received = () => {
+    const lines = chosen();
+    if (!lines.length) return toast(t("noOrderLines"));
+    return openMoveSheet("purchase", { party: supplier.value || undefined, lines: lines.map((it) => ({ product: it.p.id, qty: it.qty() })) });
+  };
+
+  open(t("orderTitle"), [
+    h("small", { class: "field-hint" }, t("orderHint")),
+    suppliers.length > 0 && field(t("supplier"), supplier),
+    items.length ? h("div", { class: "lines" }, items.map((it) => it.el)) : h("p", { class: "lines-empty" }, t("noLowStock")),
+    items.length > 0 && h("button", { type: "button", class: "block whatsapp", onclick: send }, icon("whatsapp"), t("orderSend")),
+  ], [items.length > 0 && h("button", { type: "button", class: "primary block", onclick: received }, icon("in"), t("orderReceived"))]);
 }
 
 // Düzenlenen kayıt: eskisi "düzenlendi" diye çöp kutusuna, yenisi deftere (tek seferde).
