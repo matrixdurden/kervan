@@ -8,7 +8,7 @@ import { avgCost } from "./ledger.js";
 
 export const TYPE_ICON = {
   purchase: "in", sale: "out", payment: "coin", collection: "coin",
-  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin", stockCount: "clipboard", costFix: "pencil", debtOut: "out", debtIn: "in",
+  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin", stockCount: "clipboard", costFix: "pencil", debtOut: "out", debtIn: "in", fundMove: "swap", fundAdjust: "wallet",
   expense: "receipt", capitalIn: "plusCircle", withdraw: "minusCircle", transfer: "swap", opening: "flag",
 };
 
@@ -51,6 +51,8 @@ function moveTitle(move, firm) {
   if (move.type === "transfer") return `${person(firm, move.holder).name} → ${person(firm, move.to).name}`;
   if (move.type === "capitalIn" || move.type === "withdraw") return person(firm, move.partner || move.holder).name;
   if (move.type === "expense") return move.note || t("type_expense");
+  if (move.type === "fundMove") return `${move.methodName} → ${move.toMethodName}`;
+  if (move.type === "fundAdjust") return move.methodName || t("type_fundAdjust");
   return move.partyName || (move.lines ? linesSummary(move.lines) : t("type_opening"));
 }
 

@@ -1218,6 +1218,28 @@ p.total-line, .pl-row.total-line { display: flex; justify-content: space-between
 .move-actions button.danger { border-color: color-mix(in srgb, var(--danger) 40%, var(--card)); }
 .trash-hint { margin: 0 4px 10px; }
 .top-actions { display: flex; gap: 6px; }
+/* Kasalar: simgeli kare kutular (nakit, kart, banka…) */
+.fund-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
+button.card.fund-tile {
+  width: 100%; height: auto; aspect-ratio: 1; padding: 10px 8px; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; text-align: center; white-space: normal; font-weight: 400;
+}
+.ft-emoji { font-size: 34px; line-height: 1; }
+.ft-name { font-size: 13px; font-weight: 800; color: var(--text-2); line-height: 1.15; }
+.ft-bal { font-size: clamp(14px, 4.4vw, 18px); font-variant-numeric: tabular-nums; color: var(--in); overflow-wrap: anywhere; }
+.fund-tile.neg .ft-bal { color: var(--danger); }
+.fund-notice { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 8px; font-size: 13.5px; }
+.fund-notice span { flex: 1; }
+/* Formda "Hangi kasa?" */
+.fund-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+button.fund-btn {
+  height: auto; min-height: 64px; padding: 6px 4px; flex-direction: column; gap: 2px; white-space: normal;
+  font-size: 12.5px; line-height: 1.15; border-radius: 14px;
+}
+.fund-btn .fund-emoji { font-size: 24px; line-height: 1; }
+.fund-btn .fund-emoji svg { width: 20px; height: 20px; color: var(--primary); }
+button.fund-btn[aria-pressed="true"] { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--card)); color: var(--text); }
+button.fund-btn.add { border-style: dashed; color: var(--primary); }
 /* Müşteri / tedarikçi sayfası: hareket türü kutuları */
 .type-boxes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 14px 0 4px; }
 button.card.type-box {

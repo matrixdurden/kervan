@@ -8,6 +8,7 @@ const emptyFirm = (id = null) => ({
   parties: new Map(),
   accounts: new Map(), // ortak uid → { cash, capital }
   months: new Map(), // "2026-10" → { revenue, cogs, expenses }
+  funds: new Map(), // kasa (nakit, kart, banka…) → { balance }
   trash: { products: new Map(), parties: new Map() }, // çöp kutusundaki (silinmiş) ürün ve cariler
 });
 

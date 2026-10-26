@@ -953,6 +953,12 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     holder = partnerField(t(["sale", "collection", "debtIn"].includes(type) ? "holderIn" : "holderOut"), edit?.holder);
     fields.push(holder.field);
   }
+  // Kasa: paranın girdiği / çıktığı yer (satışta ve alışta peşin ödenen kısım için).
+  let fund = null;
+  if (["collection", "payment", "refund", "debtOut", "debtIn", "sale", "purchase", "saleReturn"].includes(type)) {
+    fund = fundField(t(["collection", "debtIn", "sale"].includes(type) ? "fundIn" : "fundOut"), fundOf(edit));
+    fields.push(fund.el);
+  }
   fields.push(noteField(note));
 
   partySelect.addEventListener("change", () => rate.set(currency()));
@@ -992,6 +998,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     if (!lines.length) return t("addAtLeastOne");
     const partyId = walkIn?.id ?? WALK_IN;
     const base = { party: partyId, date: date.value, holder: holder?.el.value };
+    setFund(base, fund?.value());
     const amount = sum(lines, (l) => lineTotal(l));
     record([
       { ...base, type, note: note.value.trim(), lines },
@@ -1010,6 +1017,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     if (!p) return t(`choose_${kind}`);
     if (!date.value) return t("chooseDate");
     const input = { type, party: p.id, date: date.value, note: note.value.trim(), holder: holder?.el.value };
+    setFund(input, fund?.value());
     const cur = currency();
     if (cur !== base()) {
       const r = rate.value();
@@ -1316,23 +1324,22 @@ export function openCashSheet(type, { edit } = {}) {
   // Gider kategorisi (kira, yakıt, vergi…): resimli kutucuklara dokunarak seçilir, en üstte;
   // liste Ayarlar'dan değiştirilir. Altta bir baloncuk ne kaydedileceğini düz cümleyle söyler.
   let category = null;
-  let method = null;
   let bubble = null;
+  // Kasa: gider ve para çekmede paranın çıktığı, para koymada girdiği yer.
+  const fund = type === "transfer" ? null
+    : fundField(t(type === "capitalIn" ? "fundIn" : "fundOut"), fundOf(edit), () => say());
   const say = () => {
     if (!bubble) return;
     const a = parseMoney(amount.value);
     bubble.textContent = !category ? t("expenseAskWhat")
       : !a ? t("expenseAskAmount", { cat: category.name })
-        : t("expenseBubble", { who: person(firm, holder.el.value).name, cat: category.name, amount: formatMoney(a), method: method?.name ?? "" });
+        : t("expenseBubble", { who: person(firm, holder.el.value).name, cat: category.name, amount: formatMoney(a), method: fund?.value()?.name ?? "" });
     bubble.classList.toggle("ready", Boolean(category && a));
   };
   if (type === "expense") {
     // Düzenlemede kayıttaki kategori ve ödeme şekli seçili gelir (listeden silindiyse kayıttaki adıyla).
     if (edit?.category) {
       category = expenseCategories(firm).find((c) => c.id === edit.category) ?? { id: edit.category, name: edit.categoryName ?? "" };
-    }
-    if (edit?.method) {
-      method = paymentMethods(firm).find((m) => m.id === edit.method) ?? { id: edit.method, name: edit.methodName ?? "" };
     }
     // Kategori ve ödeme şekli listeleri formun içinden düzenlenebilir (form kaybolmaz).
     const grid = h("div", { class: "cat-tiles" });
@@ -1349,25 +1356,15 @@ export function openCashSheet(type, { edit } = {}) {
       }, h("span", { class: "cat-emoji", "aria-hidden": "true" }, categoryEmoji(c)), h("bdi", {}, c.name))),
       h("button", { type: "button", class: "cat-tile add", onclick: () => openCategoriesSheet(renderCats) },
         h("span", { class: "cat-emoji", "aria-hidden": "true" }, icon("pencil")), t("edit")));
-    const methods = h("div", { class: "bubbles wrap" });
-    const renderMethods = (list = paymentMethods(currentFirm())) => {
-      if (!method || (!list.some((m) => m.id === method.id) && method.id !== edit?.method)) method = list[0];
-      methods.replaceChildren(
-        ...list.map((m) => h("button", {
-          type: "button", class: "bubble", "aria-pressed": String(m.id === method?.id),
-          onclick: () => { method = m; renderMethods(list); say(); },
-        }, h("bdi", {}, m.name))),
-        h("button", { type: "button", class: "bubble add", onclick: () => openMethodsSheet(renderMethods) }, icon("pencil"), t("edit")));
-    };
     renderCats();
-    renderMethods();
     fields.unshift(h("p", { class: "label" }, t("expenseWhat")), grid);
-    // "Nasıl ödendi?" tutar ve tarihin hemen altında.
-    fields.splice(3, 0, h("p", { class: "label" }, t("paymentMethod")), methods);
     bubble = h("p", { class: "say-bubble", "aria-live": "polite" });
     amount.addEventListener("input", say);
     holder.el.addEventListener("change", say);
   }
+
+  // "Hangi kasa?" tutar ve tarihin hemen altında.
+  if (fund) fields.splice(fields.findIndex((f) => f?.classList?.contains("row2")) + 1, 0, fund.el);
 
   // Gider bir ürün ortaklığına ait olabilir; o zaman o ortaklığın kârından düşer.
   let deal;
@@ -1389,10 +1386,7 @@ export function openCashSheet(type, { edit } = {}) {
       input.category = category.id;
       input.categoryName = category.name;
     }
-    if (type === "expense" && method) {
-      input.method = method.id;
-      input.methodName = method.name;
-    }
+    setFund(input, fund?.value());
     if (capitalMove) {
       input.partner = owner.value;
       // Uygulamadaki ortak kendi parasını kendisi koyar/çeker.
@@ -2139,11 +2133,80 @@ export function paymentMethods(firm) {
   return firm.paymentMethods?.length ? firm.paymentMethods : DEFAULT_METHODS.map((id) => ({ id, name: t(`pm_${id}`) }));
 }
 
+// Kasa resmi: seçilen emoji; yoksa hazır kasalar kimliğinden, eklenenler adından.
+const FUND_EMOJI = { cash: "💵", card: "💳", bank: "🏦" };
+export function methodEmoji(m) {
+  return m.emoji || FUND_EMOJI[m.id]
+    || (/kart|card|بطاق/i.test(m.name) ? "💳" : /banka|havale|eft|bank|بنك/i.test(m.name) ? "🏦" : /nakit|cash|نقد/i.test(m.name) ? "💵" : "💰");
+}
+
+// "Hangi kasa?": paranın girdiği / çıktığı kasa (nakit, kart, banka…). Simgeli kare düğmeler;
+// "Düzenle" kasa listesini formun üstünde açar. current: düzenlemede kayıttaki kasa.
+function fundField(label, current, onchange) {
+  let chosen = current?.id ? current : null;
+  const box = h("div", { class: "fund-pick" });
+  const render = (list = paymentMethods(currentFirm())) => {
+    if (!chosen || (!list.some((m) => m.id === chosen.id) && chosen.id !== current?.id)) chosen = list[0];
+    box.replaceChildren(
+      ...list.map((m) => h("button", {
+        type: "button", class: "fund-btn", "aria-pressed": String(m.id === chosen?.id),
+        onclick: () => { chosen = m; render(list); onchange?.(m); },
+      }, h("span", { class: "fund-emoji", "aria-hidden": "true" }, methodEmoji(m)), h("bdi", {}, m.name))),
+      h("button", { type: "button", class: "fund-btn add", onclick: () => openMethodsSheet(render) },
+        h("span", { class: "fund-emoji", "aria-hidden": "true" }, icon("pencil")), t("edit")));
+  };
+  render();
+  return { el: h("div", { class: "field" }, h("span", {}, label), box), value: () => chosen };
+}
+const setFund = (input, f) => {
+  if (!f) return;
+  input.method = f.id;
+  input.methodName = f.name;
+};
+const fundOf = (move) => (move?.method ? { id: move.method, name: move.methodName ?? "" } : null);
+
+// Kasalar arası aktarma (ör. nakiti bankaya yatırmak).
+export function openFundMoveSheet(from) {
+  const amount = numberInput({ placeholder: "0,00" });
+  const date = dateInput();
+  const note = textInput({ maxlength: 200, placeholder: t("notePlaceholder") });
+  const src = fundField(t("fundFrom"), from ?? null);
+  const list = paymentMethods(currentFirm());
+  const dst = fundField(t("fundTo"), list.find((m) => m.id !== (from?.id ?? list[0]?.id)) ?? null);
+  open(t("type_fundMove"), [
+    h("div", { class: "row2" }, field(t("amount"), amount), field(t("date"), date)),
+    src.el, dst.el, noteField(note), h("small", { class: "field-hint" }, t("fundMoveHint")),
+  ], [saveButton(), closeButton()], () => {
+    const a = parseMoney(amount.value);
+    if (!a) return t("enterAmount");
+    const f = src.value();
+    const to = dst.value();
+    if (!f || !to || f.id === to.id) return t("fundSame");
+    record([{ type: "fundMove", party: "", date: date.value, note: note.value.trim(), amount: a, method: f.id, methodName: f.name, toMethod: to.id, toMethodName: to.name }]);
+    return undefined;
+  });
+}
+
+// Kasa bakiyesini düzeltme (ya da açılış): gerçekte ne kadar olduğu yazılır, fark kasaya işlenir.
+export function openFundAdjustSheet(fund, current) {
+  const actual = numberInput({ value: moneyInput(current), placeholder: "0,00" });
+  open(t("fundAdjustTitle", { name: fund.name }), [
+    field(t("fundAdjustLabel"), actual, t("fundAdjustHint")),
+  ], [saveButton(), closeButton()], () => {
+    const v = parseMoney(actual.value);
+    if (v == null) return t("badNumber");
+    const delta = v - current;
+    if (!delta) return sheet.close();
+    record([{ type: "fundAdjust", party: "", date: today(), note: t("fundAdjustNote"), amount: delta, method: fund.id, methodName: fund.name }]);
+    return undefined;
+  });
+}
+
 export function openMethodsSheet(inside) {
   openNameListSheet({
     title: t("paymentMethods"), hint: t("methodsHint"), items: paymentMethods(currentFirm()),
     placeholder: t("methodPlaceholder"), addLabel: t("addMethod"), needOne: t("addAtLeastOneMethod"), prefix: "m",
-    save: (methods) => saveFirmSettings({ paymentMethods: methods }), inside,
+    save: (methods) => saveFirmSettings({ paymentMethods: methods }), inside, emoji: methodEmoji,
   });
 }
 
@@ -2198,6 +2261,8 @@ export function openMoveDetail(move, { balanceAfter = null } = {}) {
       && fact(t(move.partner ? `handler_${move.type}` : `holderOf_${move.type}`), person(firm, move.holder).name),
     move.type === "expense" && fact(t("expenseDeal"), firm.deals?.[move.deal]?.name ?? t("generalShares")),
     move.type === "transfer" && fact(t("transferFromTo"), `${person(firm, move.holder).name} → ${person(firm, move.to).name}`),
+    !move.lines && move.type !== "expense" && move.methodName
+      && fact(t("fundLabel"), move.toMethodName ? `${move.methodName} → ${move.toMethodName}` : move.methodName),
     cur && fact(t("rate"), `1 ${cur} = ${currencySymbol(base())}${formatRate(move.rate)}`),
     fact(t("enteredBy"), `${person(firm, move.by).name}${time ? ` · ${time}` : ""}`),
   ];

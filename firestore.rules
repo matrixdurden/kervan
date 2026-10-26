@@ -104,9 +104,9 @@ service cloud.firestore {
 
     function validMove(firmId, d) {
       return d.type in ['purchase', 'payment', 'sale', 'collection', 'consign', 'consignSale', 'return',
-          'saleReturn', 'refund', 'expense', 'capitalIn', 'withdraw', 'transfer', 'opening', 'stockCount', 'costFix', 'debtOut', 'debtIn']
+          'saleReturn', 'refund', 'expense', 'capitalIn', 'withdraw', 'transfer', 'opening', 'stockCount', 'costFix', 'debtOut', 'debtIn', 'fundMove', 'fundAdjust']
         && text(d.party, 40) && text(d.partyName, 80)
-        && (d.type in ['opening', 'expense', 'capitalIn', 'withdraw', 'transfer', 'stockCount', 'costFix'] || d.party.size() > 0)
+        && (d.type in ['opening', 'expense', 'capitalIn', 'withdraw', 'transfer', 'stockCount', 'costFix', 'fundMove', 'fundAdjust'] || d.party.size() > 0)
         && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && d.total is int
         && text(d.note, 200)
@@ -117,11 +117,14 @@ service cloud.firestore {
         && (!('partner' in d) || (d.type in ['capitalIn', 'withdraw'] && partnerId(firmId, d.partner)))
         && (!('deal' in d) || (d.type == 'expense' && text(d.deal, 40)))
         && (!('category' in d) || (d.type == 'expense' && text(d.category, 40) && text(d.get('categoryName', ''), 60)))
-        && (!('method' in d) || (d.type == 'expense' && text(d.method, 40) && text(d.get('methodName', ''), 40)))
+        && (!('method' in d) || (text(d.method, 40) && text(d.get('methodName', ''), 40)))
+        && (!('toMethod' in d) || (d.type == 'fundMove' && text(d.toMethod, 40) && text(d.get('toMethodName', ''), 40)))
         && text(d.get('invoiceNo', ''), 40)
         && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return', 'saleReturn', 'stockCount', 'costFix'] && validLines(d))
           || (d.type in ['payment', 'collection', 'refund', 'expense', 'capitalIn', 'withdraw', 'debtOut', 'debtIn'] && d.amount is int && d.amount > 0)
           || (d.type == 'transfer' && d.amount is int && d.amount > 0 && memberUid(firmId, d.to) && d.to != d.holder)
+          || (d.type == 'fundMove' && d.amount is int && d.amount > 0 && d.toMethod is string && d.toMethod != d.get('method', 'cash'))
+          || (d.type == 'fundAdjust' && d.amount is int && d.amount != 0)
           || (d.type == 'opening' && (validLines(d) || d.amount is int)));
     }
 
@@ -182,6 +185,12 @@ service cloud.firestore {
         allow read: if isMember(firmId);
         allow create, update: if isMember(firmId)
           && optNumber(request.resource.data, 'cash') && optNumber(request.resource.data, 'capital');
+      }
+
+      // Kasalar (nakit, kart, banka…): hareketlerle aynı batch'te güncellenir.
+      match /funds/{id} {
+        allow read: if isMember(firmId);
+        allow create, update: if isMember(firmId) && optNumber(request.resource.data, 'balance');
       }
 
       match /months/{month} {

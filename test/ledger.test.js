@@ -327,3 +327,18 @@ test("borç defteri: verilen para kasadan çıkar ve kişi bize borçlanır; al�
   assert.equal(balances.get("usd"), -10000);
   assert.equal(cash.get("ali"), -50000 + 20000 + 400000);
 });
+
+test("kasalar: tahsilat seçilen kasaya girer, gider seçilen kasadan çıkar, aktarma kasalar arasında taşır", () => {
+  const moves = [
+    money("collection", 10000, { party: "sel", holder: "ali", method: "card" }),
+    money("expense", 3000, { holder: "ali" }),
+    money("fundMove", 4000, { holder: "ali", method: "card", toMethod: "bank" }),
+    money("fundAdjust", 2500, { holder: "ali", method: "cash" }),
+    money("payment", 100, { party: "sup", holder: "ali", method: "bank", currency: "USD", rate: 40 }),
+  ].map((m, i) => ({ ...m, at: i }));
+  const state = replay(moves);
+  assert.equal(state.funds.get("card"), 6000);
+  assert.equal(state.funds.get("bank"), 0);
+  assert.equal(state.funds.get("cash"), -500);
+  assert.equal(state.cash.get("ali"), 10000 - 3000 + 2500 - 4000);
+});

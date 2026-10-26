@@ -104,7 +104,7 @@ const holderName = (m) => person(currentFirm(), m.holder).name;
 const ALL_GROUPS = [
   ["sales", ["sale", "consignSale"]], ["saleReturns", ["saleReturn", "refund"]], ["purchases", ["purchase"]],
   ["collections", ["collection"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
-  ["stockCount", ["stockCount"]], ["debts", ["debtOut", "debtIn"]], ["cash", ["capitalIn", "withdraw", "transfer"]],
+  ["stockCount", ["stockCount"]], ["debts", ["debtOut", "debtIn"]], ["cash", ["capitalIn", "withdraw", "transfer", "fundMove", "fundAdjust"]],
 ];
 let allGroup = "";
 let productSort = "qty";

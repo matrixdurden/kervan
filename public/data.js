@@ -14,7 +14,7 @@ import { applyMove, revertMove, replay, moveTotal, roundQty, shelfKey, addMonth 
 import { millis, today, PALETTE } from "./ui.js";
 
 const EMPTY = { stock: 0, value: 0, lastCost: 0 };
-const MONEY_TYPES = ["payment", "collection", "refund", "debtOut", "debtIn", "expense", "capitalIn", "withdraw", "transfer"];
+const MONEY_TYPES = ["payment", "collection", "refund", "debtOut", "debtIn", "fundMove", "fundAdjust", "expense", "capitalIn", "withdraw", "transfer"];
 const firmRef = () => doc(db, "firms", session.firm.id);
 const ref = (name, id) => doc(db, "firms", session.firm.id, name, id);
 const newRef = (name) => doc(collection(db, "firms", session.firm.id, name));
@@ -30,7 +30,7 @@ function lookup(added = {}) {
 function accumulate(steps, find) {
   const acc = {
     products: new Map(), shelves: new Map(), balances: new Map(),
-    cash: new Map(), capital: new Map(), months: new Map(), lines: [],
+    cash: new Map(), capital: new Map(), months: new Map(), funds: new Map(), lines: [],
   };
   const get = {
     product: (id) => acc.products.get(id) ?? find.product(id),
@@ -44,6 +44,7 @@ function accumulate(steps, find) {
     if (move.party && fx.balance) add(acc.balances, move.party, fx.balance);
     for (const [uid, d] of fx.cash) add(acc.cash, uid, d);
     for (const [uid, d] of fx.capital) add(acc.capital, uid, d);
+    for (const [id, d] of fx.funds) add(acc.funds, id, d);
     if (fx.month) {
       acc.months.set(fx.month.key, addMonth(acc.months.get(fx.month.key) ?? { revenue: 0, cogs: 0, expenses: 0 }, fx.month));
     }
@@ -92,6 +93,7 @@ function writeEffects(batch, acc, find, { partyFields = {}, productFields = {} }
       cash: increment(acc.cash.get(uid) ?? 0), capital: increment(acc.capital.get(uid) ?? 0),
     }, { merge: true });
   }
+  for (const [id, d] of acc.funds) if (d) batch.set(ref("funds", id), { balance: increment(d) }, { merge: true });
   const inc = (m) => ({ revenue: increment(m.revenue), cogs: increment(m.cogs), expenses: increment(m.expenses) });
   for (const [key, m] of acc.months) {
     const by = Object.fromEntries(Object.entries(m.by ?? {}).map(([bucket, b]) => [bucket, inc(b)]));
@@ -151,6 +153,11 @@ function moveDoc(input, lines, find, seq) {
   }
   if (input.invoiceNo) move.invoiceNo = input.invoiceNo;
   if (input.type === "transfer") move.to = input.to;
+  // Kasalar arası aktarmada paranın gittiği kasa.
+  if (input.toMethod) {
+    move.toMethod = input.toMethod;
+    move.toMethodName = input.toMethodName ?? "";
+  }
   // Düzenlemede yerine geçtiği, çöp kutusundan geri yüklemede kopyası olduğu kayıt.
   if (input.replaces) move.replaces = input.replaces;
   if (input.restoredFrom) move.restoredFrom = input.restoredFrom;
@@ -160,7 +167,7 @@ function moveDoc(input, lines, find, seq) {
 // Kaydedilmiş bir hareketten yeniden kaydedilebilir girdi (düzenleme ve geri yükleme için).
 export function inputOf(move) {
   const input = { type: move.type, party: move.party || "", date: move.date, note: move.note || "" };
-  for (const key of ["holder", "partner", "deal", "category", "categoryName", "method", "methodName", "invoiceNo", "to", "currency", "rate"]) {
+  for (const key of ["holder", "partner", "deal", "category", "categoryName", "method", "methodName", "toMethod", "toMethodName", "invoiceNo", "to", "currency", "rate"]) {
     if (move[key] != null && move[key] !== "") input[key] = move[key];
   }
   if (move.lines) input.lines = move.lines.map((l) => ({ product: l.product, qty: l.qty, price: l.price }));
@@ -463,6 +470,10 @@ export async function recompute() {
     const next = { cash: state.cash.get(uid) ?? 0, capital: state.capital.get(uid) ?? 0 };
     const a = session.firm.accounts.get(uid);
     if (!same(next, { cash: a?.cash ?? 0, capital: a?.capital ?? 0 })) writes.push(["set", ref("accounts", uid), next]);
+  }
+  for (const id of new Set([...session.firm.funds.keys(), ...state.funds.keys()])) {
+    const next = state.funds.get(id) ?? 0;
+    if (next !== (session.firm.funds.get(id)?.balance ?? 0)) writes.push(["set", ref("funds", id), { balance: next }]);
   }
   for (const key of new Set([...session.firm.months.keys(), ...state.months.keys()])) {
     const next = cleanMonth(state.months.get(key));

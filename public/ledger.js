@@ -22,6 +22,8 @@
 //   debtOut      borç defteri: kişiye para verildi (borç verildi ya da borç geri ödendi); kasadan çıkar,
 //                kişinin bakiyesi artar (+ bize borçlu). Kişinin parası dövizse kurla ana paraya çevrilir.
 //   debtIn       borç defteri: kişiden para alındı (borç alındı ya da verilen borç tahsil edildi)
+//   fundMove     kasalar arası aktarma: para bir kasadan (method) diğerine (toMethod) geçer (ör. nakit → banka)
+//   fundAdjust   kasa bakiyesini düzeltme / açılış: amount (eksi olabilir) o kasaya ve ortağın eline eklenir
 //   costFix      maliyet düzeltme: ürünün birim maliyeti elle değiştirilir (satır fiyatı yeni maliyet,
 //                adedi o anki stok); depodaki malın değeri yeni maliyete çekilir, kâra dokunmaz
 //
@@ -31,11 +33,13 @@
 // ortalama maliyet value / stock (ağırlıklı ortalama). Depo için ürünün kendisi,
 // emanet için satıcının rafı (shelf, ayrıca o satıcıya verilen birim fiyat: price) kullanılır.
 // Kasa (cash) ortağın elindeki işletme parasıdır (TL); capital koyduğu eksi çektiğidir.
+// Kasalar (funds): paranın nerede durduğu (nakit, kart, banka…): hareketin method alanı (yoksa nakit);
+// bir hareketin kasaya etkisi ortakların elindeki paraya net etkisidir.
 // Aylık kâr: revenue (satış) − cogs (satılan malın maliyeti) − expenses (giderler).
 
 export const MOVE_TYPES = [
   "purchase", "payment", "sale", "collection", "consign", "consignSale", "return", "saleReturn", "refund",
-  "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix", "debtOut", "debtIn",
+  "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix", "debtOut", "debtIn", "fundMove", "fundAdjust",
 ];
 export const PARTY_KIND = {
   purchase: "supplier", payment: "supplier",
@@ -132,6 +136,7 @@ function moneyEffects(move, lines, sign) {
     case "refund": add(cash, holder, -move.amount); break;
     case "debtOut": add(cash, holder, -Math.round(move.amount * (move.rate || 1))); break;
     case "debtIn": add(cash, holder, Math.round(move.amount * (move.rate || 1))); break;
+    case "fundAdjust": add(cash, holder, move.amount); break;
     case "capitalIn": add(cash, holder, move.amount); add(capital, owner, move.amount); break;
     case "withdraw": add(cash, holder, -move.amount); add(capital, owner, -move.amount); break;
     case "transfer": add(cash, holder, -move.amount); add(cash, move.to, move.amount); break;
@@ -165,10 +170,21 @@ function moneyEffects(move, lines, sign) {
     month = { revenue: 0, cogs: 0, expenses: sign * move.amount, by: { [move.deal || GENERAL]: { revenue: 0, cogs: 0, expenses: sign * move.amount } } };
   }
   if (month) month.key = monthOf(move.date);
-  return { cash, capital, month };
+  // Kasalar: aktarmada biri azalır biri artar; diğerlerinde ortakların eline net giren/çıkan para.
+  const funds = new Map();
+  const fund = move.method || CASH_FUND;
+  if (move.type === "fundMove") {
+    funds.set(fund, -sign * move.amount);
+    funds.set(move.toMethod || CASH_FUND, (funds.get(move.toMethod || CASH_FUND) ?? 0) + sign * move.amount);
+  } else {
+    const net = [...cash.values()].reduce((s, v) => s + v, 0);
+    if (net) funds.set(fund, net);
+  }
+  return { cash, capital, month, funds };
 }
 
 export const GENERAL = "general";
+export const CASH_FUND = "cash"; // kasası seçilmemiş para nakittir
 
 // Bir hareketin etkisi: değişen ürünler ve raflar (yeni durumları), cari bakiye farkı,
 // kasa/sermaye farkları, aylık kâr farkı ve maliyeti eklenmiş satırlar (harekete kaydedilir).
@@ -284,7 +300,7 @@ export const byTime = (a, b) => a.at - b.at || (a.seq ?? 0) - (b.seq ?? 0);
 export function replay(moves) {
   const state = {
     products: new Map(), shelves: new Map(), balances: new Map(),
-    cash: new Map(), capital: new Map(), months: new Map(),
+    cash: new Map(), capital: new Map(), months: new Map(), funds: new Map(),
   };
   const get = {
     product: (id) => state.products.get(id),
@@ -298,6 +314,7 @@ export function replay(moves) {
     if (move.party && fx.balance) addTo(state.balances, move.party, fx.balance);
     for (const [uid, d] of fx.cash) addTo(state.cash, uid, d);
     for (const [uid, d] of fx.capital) addTo(state.capital, uid, d);
+    for (const [id, d] of fx.funds) addTo(state.funds, id, d);
     if (fx.month) state.months.set(fx.month.key, addMonth(state.months.get(fx.month.key) ?? { ...emptyMonth(), by: {} }, fx.month));
   }
   return state;

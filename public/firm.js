@@ -18,7 +18,7 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods, sendToChat, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
+  openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
 } from "./forms.js";
 import { openInvoiceImport, openSaleImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
@@ -62,7 +62,7 @@ export function openFirm(id) {
     refreshFirm();
     if (key === "products") scheduleShopSync(); // online mağaza vitrini
   }, failed);
-  unsubs = [listen("products", "products"), listen("parties", "parties"), listen("accounts", "accounts"), listen("months", "months")];
+  unsubs = [listen("products", "products"), listen("parties", "parties"), listen("accounts", "accounts"), listen("months", "months"), listen("funds", "funds")];
   // Ana ekrandaki "son işlemler".
   recentUnsub = onSnapshot(query(collection(db, "firms", id, "moves"), orderBy("at", "desc"), limit(6)), (snap) => {
     recent = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) })).sort(newestFirst);
@@ -128,6 +128,7 @@ export function openPage(id, options = {}) {
   if (options.filter) productFilter = options.filter;
   if (options.report) reportId = options.report;
   if (options.detail) { valueMode = options.detail; search.value = ""; }
+  if (options.fund) fundId = options.fund;
   if (options.ledgerFilter !== undefined) ledgerFilter = options.ledgerFilter;
   history.pushState({ page: id }, "");
   listenPageMoves();
@@ -764,6 +765,64 @@ async function sendSummary(doc, filename, phone = null) {
   if (result === "link") toast(t("receiptDownloaded"));
 }
 
+// --- Kasalar (nakit, kart, banka…) -------------------------------------------------------------
+
+const FUND_TYPES = ["collection", "payment", "expense", "refund", "capitalIn", "withdraw", "debtOut", "debtIn", "fundMove", "fundAdjust"];
+let fundId = "cash";
+const fundBalance = (id) => session.firm.funds.get(id)?.balance ?? 0;
+
+// Kayıtlı kasalar ve listede olmayıp bakiyesi kalanlar ("Diğer").
+function allFunds() {
+  const list = paymentMethods(currentFirm());
+  const known = new Set(list.map((m) => m.id));
+  const rest = [...session.firm.funds.keys()].filter((id) => !known.has(id) && fundBalance(id)).map((id) => ({ id, name: t("fundOther") }));
+  return [...list, ...rest];
+}
+
+// Kasa sayfasının en üstü: her kasa simgeli kare kutuda, bakiyesiyle; dokununca kasanın hareketleri.
+function fundsSection() {
+  const firm = currentFirm();
+  const funds = allFunds();
+  const total = sum(funds, (m) => fundBalance(m.id));
+  const cashTotal = sum(firm.members, (uid) => session.firm.accounts.get(uid)?.cash ?? 0);
+  return [
+    h("h2", { class: "sec" }, h("span", {}, t("funds")),
+      h("button", { type: "button", class: "link", onclick: () => openMethodsSheet() }, t("edit"))),
+    h("div", { class: "fund-grid" }, funds.map((m) => h("button", {
+      type: "button", class: `card fund-tile${fundBalance(m.id) < 0 ? " neg" : ""}`, onclick: () => openPage("fund", { fund: m.id }),
+    }, h("span", { class: "ft-emoji", "aria-hidden": "true" }, methodEmoji(m)),
+    h("span", { class: "ft-name" }, h("bdi", {}, m.name)),
+    h("strong", { class: "ft-bal" }, formatMoney(fundBalance(m.id)))))),
+    h("p", { class: "total-line" }, h("span", {}, t("fundsTotal")), h("strong", {}, formatMoney(total))),
+    // Eski kayıtlar kasalara henüz dağıtılmadıysa: defterden yeniden hesapla.
+    total !== cashTotal && h("div", { class: "card fund-notice" },
+      h("span", {}, t("fundsMismatch")),
+      h("button", {
+        type: "button", class: "small primary",
+        onclick: () => recompute().then(() => toast(t("fundsRecomputed")), (err) => { console.error(err); toast(t("genericError")); }),
+      }, icon("refresh"), t("fundsRecompute"))),
+    bigActions([t("type_fundMove"), "swap", () => openFundMoveSheet()]),
+  ];
+}
+
+const fundPage = {
+  types: "all",
+  top: () => pageTop(allFunds().find((m) => m.id === fundId)?.name ?? t("fundOther")),
+  head() {
+    const m = allFunds().find((x) => x.id === fundId) ?? { id: fundId, name: t("fundOther") };
+    return bigActions(
+      [t("fundAdjust"), "pencil", () => openFundAdjustSheet(m, fundBalance(fundId))],
+      [t("type_fundMove"), "swap", () => openFundMoveSheet(m)]);
+  },
+  body: () => [
+    h("p", { class: "total-line" }, h("span", {}, t("fundBalance")), h("strong", {}, formatMoney(fundBalance(fundId)))),
+    ...movesList({
+      filter: (m) => FUND_TYPES.includes(m.type) && ((m.method || "cash") === fundId || m.toMethod === fundId),
+      emptyText: t("fundNoMoves"),
+    }),
+  ],
+};
+
 const cashPage = {
   top: () => pageTop(t("page_cash")),
   head: () => h("div", { class: "page-head" },
@@ -799,6 +858,7 @@ const cashPage = {
           h("span", { class: "after" }, t("plProfit")))));
 
     return [
+      ...fundsSection(),
       profitCard(p),
       h("h2", { class: "sec" }, h("span", {}, t("deals")),
         h("button", { type: "button", class: "link", onclick: () => openDealSheet() }, `+ ${t("newDeal")}`)),
@@ -1111,7 +1171,7 @@ const ordersPage = {
 
 // --- Hareketler (defter) ---------------------------------------------------------------------
 
-const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix", "debtOut", "debtIn"];
+const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix", "debtOut", "debtIn", "fundMove", "fundAdjust"];
 
 const ledgerPage = {
   types: "all",
@@ -1132,7 +1192,7 @@ const TRASH_GROUPS = [
   ["products", ["costFix"]], ["sellers"], ["suppliers"],
   ["sales", ["sale", "consignSale"]], ["purchases", ["purchase"]], ["collections", ["collection"]],
   ["saleReturns", ["saleReturn", "refund"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
-  ["stockCount", ["stockCount"]], ["debts", ["debtOut", "debtIn"]], ["cash", ["capitalIn", "withdraw", "transfer", "opening"]],
+  ["stockCount", ["stockCount"]], ["debts", ["debtOut", "debtIn"]], ["cash", ["capitalIn", "withdraw", "transfer", "opening", "fundMove", "fundAdjust"]],
 ];
 let trashCat = "";
 
@@ -1359,6 +1419,7 @@ const PAGES = {
   stockValue: stockValuePage,
   valueDetail: valueDetailPage,
   cash: cashPage,
+  fund: fundPage,
   reports: reportsPage,
   report: reportPage,
   ledger: ledgerPage,
