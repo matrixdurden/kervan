@@ -10,3 +10,7 @@ export const firebaseConfig = {
   messagingSenderId: "741291354514",
   appId: "1:741291354514:web:d109c591b408ed52fcb94b",
 };
+
+// Anahtarsız fatura okuma (Firebase AI Logic) için App Check'in Fraud Defense
+// (reCAPTCHA Enterprise) site anahtarı. Gizli değildir. Boşsa anahtarsız yol kapalıdır.
+export const recaptchaSiteKey = "6LepSQEuAAAAAEhIg38ANwDCZJRnoWZkqM39V4_F";

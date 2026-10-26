@@ -11,6 +11,7 @@ import { recordMoves, voidMoves, productLabel } from "./data.js";
 import { byName } from "./views.js";
 import { readInvoiceFile, matchProduct, matchSupplier } from "./invoice.js";
 import { rememberRate } from "./rates.js";
+import { sharedAiReady, readInvoiceShared } from "./ai.js";
 import {
   openSheet, field, textInput, numberInput, select, saveButton, closeButton, failed, rateField, openAiSheet,
 } from "./forms.js";
@@ -34,7 +35,7 @@ const isXml = (file) => /xml/.test(file.type) || /\.xml$/i.test(file.name);
 
 export function openInvoiceImport() {
   const firm = currentFirm();
-  const hasKey = Boolean(firm.ai?.key);
+  const hasKey = Boolean(firm.ai?.key) || sharedAiReady(); // kendi anahtarı ya da ortak (anahtarsız) yol
   openSheet(t("page_invoice"), [
     h("p", { class: "muted" }, t("invoiceIntro")),
     h("button", { type: "button", class: "big-action primary", onclick: () => choose() }, icon("fileScan"), h("span", {}, t("chooseInvoice"))),
@@ -47,7 +48,7 @@ async function choose() {
   const file = await pickFile();
   if (!file) return;
   const firm = currentFirm();
-  if (!isXml(file) && !firm.ai?.key) {
+  if (!isXml(file) && !firm.ai?.key && !sharedAiReady()) {
     openSheet(t("page_invoice"), [h("p", { class: "muted center" }, t("aiNeeded"))], [
       h("button", { type: "button", class: "primary block", onclick: () => openAiSheet() }, t("aiSetup")), closeButton(),
     ]);
@@ -57,7 +58,7 @@ async function choose() {
     h("div", { class: "reading" }, h("span", { class: "spinner" }), h("strong", {}, t("readingInvoice")), h("small", { class: "muted" }, file.name)),
   ], [closeButton()]);
   try {
-    const invoice = await readInvoiceFile(file, { apiKey: firm.ai?.key });
+    const invoice = await readInvoiceFile(file, { apiKey: firm.ai?.key, reader: readInvoiceShared });
     if (!$("#sheet").open) return; // vazgeçildi
     if (!invoice.lines.length) throw Object.assign(new Error("empty"), { code: "ai-unreadable" });
     review(invoice);

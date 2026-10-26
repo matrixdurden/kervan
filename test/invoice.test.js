@@ -405,3 +405,17 @@ test("yapay zekâ: hata kodları, mesajda anahtar yok", async (t) => {
   await expect(answer({ supplier: {}, lines: [] }), "ai-unreadable");
   await expect({ body: { promptFeedback: { blockReason: "SAFETY" } } }, "ai-unreadable");
 });
+
+test("anahtarsız yol: istek parçaları ve cevap okuma ortak", async () => {
+  const { prepareAiInput, parseAiText } = await import("../public/invoice.js");
+  const file = new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31])], "fatura.pdf", { type: "application/pdf" });
+  const input = await prepareAiInput(file);
+  assert.equal(input.parts[0].inlineData.mimeType, "application/pdf");
+  assert.equal(input.parts[0].inlineData.data, "JVBERi0x");
+  assert.equal(input.generationConfig.responseMimeType, "application/json");
+  const inv = parseAiText('```json\n{"supplier":{"name":"Doğu Toptan"},"lines":[{"name":"Çay","qty":2,"unitPrice":150.5}]}\n```');
+  assert.equal(inv.source, "ai");
+  assert.equal(inv.lines[0].unitPrice, 15050);
+  assert.throws(() => parseAiText('{"lines":[]}'), (e) => e.code === "ai-unreadable");
+  await assert.rejects(prepareAiInput(new File(["GIF89a"], "x.gif", { type: "image/gif" })), (e) => e.code === "ai-unsupported");
+});

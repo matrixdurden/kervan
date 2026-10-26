@@ -8,7 +8,8 @@ import { firebaseConfig } from "./firebase-config.js";
 // Bilgisayarda yerel test ederken gerçek veritabanı yerine emülatörü kullan.
 const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
 
-const app = initializeApp(isLocal ? { ...firebaseConfig, apiKey: "demo-key", authDomain: "demo-kervan.firebaseapp.com", projectId: "demo-kervan" } : firebaseConfig);
+export const app = initializeApp(isLocal ? { ...firebaseConfig, apiKey: "demo-key", authDomain: "demo-kervan.firebaseapp.com", projectId: "demo-kervan" } : firebaseConfig);
+export { isLocal };
 
 export const auth = getAuth(app);
 export const db = initializeFirestore(app, {

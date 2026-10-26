@@ -22,6 +22,7 @@ import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
 import { productByBarcode, productLabel, recompute } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
+import { sharedAiReady } from "./ai.js";
 
 const PAGE = 100;
 
@@ -709,7 +710,7 @@ const settingsPage = {
           icon("chevron"))),
         item("users", t("partnersAndInvite"), t("partnersAndInviteHint"), () => document.dispatchEvent(new Event("kervan:firm-menu"))),
         item("tag", t("expenseCategories"), cats?.length ? cats.map((c) => c.name).join(", ") : t("defaultCategoriesHint"), () => openCategoriesSheet()),
-        item("fileScan", t("aiSettings"), firm.ai?.key ? t("aiReady") : t("aiNotSet"), () => openAiSheet()),
+        item("fileScan", t("aiSettings"), firm.ai?.key || sharedAiReady() ? t("aiReady") : t("aiNotSet"), () => openAiSheet()),
         item("wallet", t("page_cash"), t("cashSettingsHint"), () => openPage("cash"))),
       h("div", { class: "field" }, h("span", {}, t("theme")),
         segmented([["auto", t("theme_auto")], ["light", t("theme_light")], ["dark", t("theme_dark")]], currentTheme(), applyTheme),

@@ -808,3 +808,6 @@ dialog.sheet { padding: 22px 18px; }
 .fact span { font-size: 12.5px; color: var(--text-2); }
 .total { border-radius: 14px; padding: 14px 16px; }
 .big-action { border-radius: 16px; }
+
+/* Fatura okuma hazır bilgisi */
+.card.ai-ready { display: block; margin: 0; font-weight: 700; color: var(--in); background: color-mix(in srgb, var(--in) 10%, var(--card)); border-color: color-mix(in srgb, var(--in) 30%, var(--card)); }

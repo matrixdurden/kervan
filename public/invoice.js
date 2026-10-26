@@ -413,6 +413,27 @@ function toBase64(bytes) {
   return btoa(s);
 }
 
+// Firebase AI Logic (anahtarsız yol) için aynı istek, SDK'nın beklediği biçimde.
+export async function prepareAiInput(file) {
+  if (file.size > MAX_AI_BYTES) throw codeError("ai-too-big");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const mime = mimeOf(file, bytes);
+  if (!AI_TYPES.includes(mime)) throw codeError("ai-unsupported");
+  return {
+    parts: [{ inlineData: { mimeType: mime, data: toBase64(bytes) } }, { text: PROMPT }],
+    generationConfig: { responseMimeType: "application/json", responseSchema: SCHEMA, temperature: 0 },
+  };
+}
+
+// Modelin JSON cevabından fatura (her iki yol için ortak).
+export function parseAiText(text) {
+  let raw;
+  try { raw = JSON.parse(String(text ?? "").replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")); } catch { throw codeError("ai-unreadable"); }
+  const invoice = normalizeInvoice({ ...raw, source: "ai" });
+  if (!invoice.lines.length) throw codeError("ai-unreadable");
+  return invoice;
+}
+
 export async function readInvoiceWithAI(file, { apiKey, model, signal } = {}) {
   const key = String(apiKey ?? "").trim();
   if (!key) throw codeError("ai-no-key");
@@ -434,11 +455,7 @@ export async function readInvoiceWithAI(file, { apiKey, model, signal } = {}) {
     }
   }
   const text = (data.candidates?.[0]?.content?.parts ?? []).filter((p) => !p.thought).map((p) => p.text ?? "").join("");
-  let raw;
-  try { raw = JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")); } catch { throw codeError("ai-unreadable"); }
-  const invoice = normalizeInvoice({ ...raw, source: "ai" });
-  if (!invoice.lines.length) throw codeError("ai-unreadable");
-  return invoice;
+  return parseAiText(text);
 }
 
 // ---- Dosya seçimi ----
@@ -460,9 +477,13 @@ function isXml(file, head) {
   return /^<(\?xml|([\w-]+:)?Invoice\b)/.test(start);
 }
 
+// options.apiKey: işletmenin kendi Gemini anahtarı; yoksa options.reader (anahtarsız yol) kullanılır.
 export async function readInvoiceFile(file, options = {}) {
   const head = new Uint8Array(await file.slice(0, 512).arrayBuffer());
   if (isXml(file, head)) return parseUblInvoice(decodeXml(new Uint8Array(await file.arrayBuffer())));
-  if (AI_TYPES.includes(mimeOf(file, head))) return readInvoiceWithAI(file, options);
+  if (AI_TYPES.includes(mimeOf(file, head))) {
+    if (!options.apiKey && options.reader) return options.reader(file);
+    return readInvoiceWithAI(file, options);
+  }
   throw codeError("ai-unsupported");
 }

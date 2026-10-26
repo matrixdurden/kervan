@@ -18,6 +18,7 @@ import {
 import { byName, matches, searchBox, balanceText } from "./views.js";
 import { RECEIPT_LABEL_KEYS, receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
 import { pickGeminiModel } from "./invoice.js";
+import { sharedAiReady } from "./ai.js";
 import { lastRate, rememberRate, fetchRate } from "./rates.js";
 import { pickImage, preparePhoto, loadFullPhoto } from "./photos.js";
 import { canScan, scanBarcode } from "./scanner.js";
@@ -1223,7 +1224,9 @@ export function openAiSheet() {
   const key = h("input", { type: "password", autocomplete: "off", dir: "ltr", value: firm.ai?.key ?? "", placeholder: "AIza…" });
   const status = h("small", { class: "field-hint" });
   open(t("aiSettings"), [
-    h("p", { class: "muted" }, t("aiIntro")),
+    // Ortak (anahtarsız) yol açıksa anahtar sadece isteğe bağlıdır.
+    sharedAiReady() && h("p", { class: "card ai-ready" }, t("aiSharedReady")),
+    h("p", { class: "muted" }, t(sharedAiReady() ? "aiOwnKeyOptional" : "aiIntro")),
     h("ol", { class: "how" }, h("li", {}, t("aiStep1")), h("li", {}, t("aiStep2")), h("li", {}, t("aiStep3"))),
     h("a", { class: "block-link", href: "https://aistudio.google.com/apikey", target: "_blank", rel: "noopener" }, t("aiGetKey")),
     field(t("aiKey"), key),
