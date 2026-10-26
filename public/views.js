@@ -88,6 +88,33 @@ export function productThumb(p, size = "") {
     : h("span", { class: `thumb blank ${size}`, "aria-hidden": "true" }, p.name.charAt(0).toLocaleUpperCase("tr"));
 }
 
+// Ürün kategorileri (ürünlerden toplanır; ayrı bir liste tutulmaz): [[ad, ürün sayısı], …] ada göre.
+export function productCategories(products) {
+  const counts = new Map();
+  for (const p of products) if (p.category) counts.set(p.category, (counts.get(p.category) ?? 0) + 1);
+  return [...counts].sort((a, b) => a[0].localeCompare(b[0], "tr", { numeric: true }));
+}
+
+// Kategoriye göre süzme: "" hepsi, NO_CATEGORY kategorisizler, diğerleri kategori adı.
+export const NO_CATEGORY = "\u0000";
+export const inCategory = (p, cat) => !cat || (cat === NO_CATEGORY ? !p.category : p.category === cat);
+
+// Kategori baloncukları (yatay kayar): Hepsi, her kategori sayısıyla, varsa kategorisizler.
+// Hiç kategori yoksa null (gösterilmez).
+export function categoryBubbles(products, value, onchange) {
+  const cats = productCategories(products);
+  if (!cats.length) return null;
+  const loose = products.filter((p) => !p.category).length;
+  const options = [["", t("filterAll"), products.length], ...cats.map(([c, n]) => [c, c, n]), ...(loose ? [[NO_CATEGORY, t("noCategory"), loose]] : [])];
+  const el = h("div", { class: "bubbles", role: "group", "aria-label": t("category") });
+  const render = (current) => el.replaceChildren(...options.map(([v, label, n]) => h("button", {
+    type: "button", class: "bubble", "aria-pressed": String(v === current),
+    onclick: () => { render(v); onchange(v); },
+  }, h("bdi", {}, label), h("small", {}, String(n)))));
+  render(value);
+  return el;
+}
+
 // Seçenek düğmeleri: [[değer, etiket], …]. style "tabs": sayfanın üstünde tam genişlik sekmeler.
 export function segmented(options, value, onchange, style = "") {
   const el = h("div", { class: style === "tabs" ? "tabs" : "seg", role: "group" });

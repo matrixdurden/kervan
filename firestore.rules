@@ -66,6 +66,7 @@ service cloud.firestore {
         && text(d.get('thumb', ''), 40000)
         && text(d.get('variant', ''), 40)
         && text(d.get('groupId', ''), 40)
+        && text(d.get('category', ''), 40)
         && optNumber(d, 'minStock')
         && optNumber(d, 'vat');
     }

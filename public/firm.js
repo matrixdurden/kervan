@@ -13,6 +13,7 @@ import { formatMoney, formatNumber } from "./money.js";
 import { avgCost, sumMonths, splitBuckets, lineTotal, roundQty } from "./ledger.js";
 import {
   moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, newestFirst, productThumb,
+  productCategories, categoryBubbles, inCategory,
 } from "./views.js";
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
@@ -220,6 +221,12 @@ const TILES = [
   ["purchases", "in", "tile-purchase"], ["sales", "out", "tile-sale"],
   ["consign", "send", "tile-dark"], ["expenses", "receipt", "tile-dark"],
 ];
+const QUICK_NEW = {
+  purchases: ["new_purchase", () => openMoveSheet("purchase")],
+  sales: ["new_sale", () => openMoveSheet("sale")],
+  consign: ["new_consign", () => openMoveSheet("consign")],
+  expenses: ["new_expense", () => openCashSheet("expense")],
+};
 const SECTIONS = [
   ["payments", "minusCircle"], ["collections", "plusCircle"],
   ["suppliers", "truck"], ["sellers", "store"],
@@ -260,9 +267,11 @@ const HOME = {
         stat(t("receivable"), formatMoney(receivable), "in", () => openPage("sellers")),
         stat(t("cashTotal"), formatMoney(cash), "", () => openPage("cash")),
         stat(t("profitThisMonth"), formatMoney(profit), profit < 0 ? "out" : "in", () => openPage("reports"))),
-      h("div", { class: "tiles-big" }, TILES.map(([id, ic, cls]) =>
+      // Kutucuk bölümü açar; köşedeki "+" doğrudan yeni kayıt formunu (tek dokunuş).
+      h("div", { class: "tiles-big" }, TILES.map(([id, ic, cls]) => h("div", { class: "tile-wrap" },
         h("button", { type: "button", class: `tile-big ${cls}`, onclick: () => openPage(id) },
-          h("span", { class: "big-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))))),
+          h("span", { class: "big-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))),
+        h("button", { type: "button", class: "tile-plus", "aria-label": t(QUICK_NEW[id][0]), title: t(QUICK_NEW[id][0]), onclick: QUICK_NEW[id][1] }, icon("plus"))))),
       low.length > 0 && h("button", { type: "button", class: "card low-banner", onclick: () => openPage("products", { filter: "low" }) },
         icon("alert"), h("span", { class: "main" },
           h("strong", {}, t("lowStockCount", { n: low.length })),
@@ -342,9 +351,43 @@ async function scanProduct() {
   else openProductSheet(null, { barcode: code });
 }
 
+// Ürünler: kategori baloncukları; "Hepsi"de kategori başlıklarıyla gruplu. Satır ya da kutucuk
+// (yan yana) görünüm sağ üstten değişir ve bu cihazda hatırlanır.
+let productCat = "";
+let productView = store.get("productView") === "grid" ? "grid" : "list";
+
+function viewToggle() {
+  const btn = h("button", { type: "button", class: "icon-btn" });
+  const paint = () => {
+    const label = t(productView === "grid" ? "viewList" : "viewGrid");
+    btn.replaceChildren(icon(productView === "grid" ? "rows" : "grid"));
+    btn.setAttribute("aria-label", label);
+    btn.title = label;
+  };
+  btn.addEventListener("click", () => {
+    productView = productView === "grid" ? "list" : "grid";
+    store.set("productView", productView);
+    paint();
+    rerenderBody();
+  });
+  paint();
+  return btn;
+}
+
+// Ürünleri seçili görünümde çizer: satırda çeşitler tek kartta, kutucukta her çeşit ayrı.
+function productItems(items) {
+  if (productView === "grid") return h("div", { class: "product-grid" }, items.map(productTile));
+  const groups = new Map();
+  for (const p of items) {
+    const key = p.groupId || p.id;
+    groups.set(key, [...(groups.get(key) ?? []), p]);
+  }
+  return h("ul", { class: "cards" }, [...groups.values()].map((g) => (g.length === 1 && !g[0].variant ? productRow(g[0]) : groupCard(g))));
+}
+
 const productsPage = {
   fab: () => [t("newProduct"), () => openProductSheet()],
-  top: () => pageTop(t("page_products")),
+  top: () => pageTop(t("page_products"), viewToggle()),
   head: () => h("div", { class: "page-head" },
     segmented([["all", t("filterAll")], ["low", t("filterLow")]], productFilter, (v) => { productFilter = v; rerenderBody(); }, "tabs"),
     searchBox(t("searchProducts"), search.products, (v) => { search.products = v; rerenderBody(); }, canScan() ? scanProduct : null)),
@@ -352,23 +395,34 @@ const productsPage = {
     const all = [...session.firm.products.values()];
     if (!all.length) return [emptyState("📦", t("noProducts"))];
     const q = search.products.trim();
-    const list = all
+    const base = all
       .filter((p) => matches(productLabel(p), q) || (q && p.barcode === q))
-      .filter((p) => productFilter !== "low" || isLow(p));
-    if (!list.length) return [emptyState(productFilter === "low" ? "✅" : "🔍", t(productFilter === "low" ? "noLowStock" : "noMatch"))];
-    // Çeşitler (renk, beden…) aynı grupta tek kartta gösterilir.
-    const groups = new Map();
-    for (const p of list.sort(byName)) {
-      const key = p.groupId || p.id;
-      groups.set(key, [...(groups.get(key) ?? []), p]);
-    }
+      .filter((p) => productFilter !== "low" || isLow(p))
+      .sort(byName);
+    const bubbles = categoryBubbles(base, productCat, (v) => { productCat = v; rerenderBody(); });
+    const list = base.filter((p) => inCategory(p, productCat));
+    if (!list.length) return [bubbles, emptyState(productFilter === "low" ? "✅" : "🔍", t(productFilter === "low" ? "noLowStock" : "noMatch"))];
     // Azalanlarda en üstte: hepsi için sipariş hazırla (WhatsApp) ve mal gelince alış gir.
     const order = productFilter === "low" && h("div", { class: "order-cta" },
       h("p", {}, t("orderCta", { n: list.length })),
       h("button", { type: "button", class: "ink block", onclick: () => openOrderSheet(list) }, icon("send"), t("orderPrepare")));
-    return [order, h("ul", { class: "cards" }, [...groups.values()].map((items) => (items.length === 1 && !items[0].variant ? productRow(items[0]) : groupCard(items))))];
+    // Kategori seçilmemişse ve kategori varsa: her kategori kendi başlığı altında, kategorisizler en sonda.
+    const cats = productCategories(list);
+    if (productCat || !cats.length) return [order, bubbles, productItems(list)];
+    const loose = list.filter((p) => !p.category);
+    return [order, bubbles,
+      ...cats.flatMap(([c, n]) => [h("h2", { class: "sec cat-head" }, h("bdi", {}, c), h("small", {}, String(n))), productItems(list.filter((p) => p.category === c))]),
+      ...(loose.length ? [h("h2", { class: "sec cat-head" }, t("noCategory"), h("small", {}, String(loose.length))), productItems(loose)] : [])];
   },
 };
+
+// Kutucuk görünümünde ürün: büyük resim, ad, fiyat ve stok rozeti.
+function productTile(p) {
+  return h("button", { type: "button", class: "card product-tile", onclick: () => openProductSheet(p) },
+    productThumb(p, "tile"),
+    h("span", { class: "pt-name" }, h("bdi", {}, productLabel(p))),
+    h("span", { class: "pt-foot" }, h("strong", {}, p.price ? formatMoney(p.price) : "–"), stockBadge(p)));
+}
 
 // Ürünün etiketleri: satıcılardaki miktar ve kâr marjı.
 function productChips(p) {

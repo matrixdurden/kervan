@@ -15,8 +15,9 @@ import {
   recordMoves, voidMoves, replaceMove, restoreMove, saveProduct, saveParty, deleteProduct, deleteParty, saveShares,
   saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode, productLabel, saveFirmSettings,
 } from "./data.js";
-import { byName, matches, searchBox, balanceText, productThumb } from "./views.js";
-import { pickProducts } from "./picker.js";
+import {
+  byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory,
+} from "./views.js";
 import { RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
 import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
@@ -166,6 +167,36 @@ function photoField(current, { loadFull, round = false, label = t("addPhoto") } 
   return { el: h("div", { class: `photo-field${round ? " small" : ""}` }, box, remove), value: () => result };
 }
 
+// Kategori alanı: var olan kategoriler baloncuk; dokununca seçilir, seçiliye dokununca kalkar.
+// "+ Yeni kategori" bir yazı kutusu açar. Hiç kategori yoksa yazı kutusu doğrudan görünür.
+function categoryField(current) {
+  const cats = productCategories([...session.firm.products.values()]).map(([c]) => c);
+  let value = current;
+  const input = textInput({ maxlength: 40, placeholder: t("newCategoryPlaceholder") });
+  input.hidden = cats.length > 0;
+  const wrap = h("div", { class: "bubbles wrap" });
+  const render = () => wrap.replaceChildren(
+    ...cats.map((c) => h("button", {
+      type: "button", class: "bubble", "aria-pressed": String(input.hidden && c === value),
+      onclick: () => {
+        value = value === c && input.hidden ? "" : c;
+        input.hidden = true;
+        input.value = "";
+        render();
+      },
+    }, h("bdi", {}, c))),
+    h("button", {
+      type: "button", class: "bubble add", "aria-pressed": String(!input.hidden),
+      onclick: () => { input.hidden = false; input.focus(); render(); },
+    }, "+ ", t("newCategory")));
+  if (cats.length) render();
+  return {
+    el: h("div", { class: "field" }, h("span", {}, t("category")), cats.length ? wrap : null, input,
+      h("small", { class: "field-hint" }, t("categoryHint"))),
+    value: () => (input.hidden ? value : input.value.trim()),
+  };
+}
+
 // Barkod alanı: yazılabilir ya da kamerayla okutulur.
 function barcodeField(value) {
   const input = h("input", { inputmode: "numeric", autocomplete: "off", dir: "ltr", maxlength: 64, value, placeholder: t("barcodePlaceholder") });
@@ -195,6 +226,7 @@ export function openProductSheet(product, preset = {}) {
   const vat = numberInput({ value: String(base.vat ?? firm.defaultVat ?? 20).replace(".", ","), placeholder: "20" });
   const minStock = numberInput({ value: base.minStock ? qtyInput(base.minStock) : "", placeholder: t("minStockPlaceholder") });
   const barcode = barcodeField(product?.barcode ?? preset.barcode ?? "");
+  const category = categoryField(base.category ?? "");
 
   // Kâr marjı canlı: satış fiyatı ile ortalama (ya da son) alış maliyetinden.
   const cost = product ? (product.stock > 0 ? avgCost(product) : product.lastCost) : 0;
@@ -212,6 +244,7 @@ export function openProductSheet(product, preset = {}) {
   const fields = [
     photo.el,
     field(t("productName"), name),
+    category.el,
     field(t("variant"), variant, t("variantHint")),
     h("div", { class: "row2" }, field(t("unit"), unit), field(t("salePrice"), price)),
     margin,
@@ -248,7 +281,7 @@ export function openProductSheet(product, preset = {}) {
         h("button", {
           type: "button", class: "chip add",
           onclick: () => openProductSheet(null, {
-            name: product.name, unit: product.unit, price: product.price, vat: product.vat, minStock: product.minStock, groupId,
+            name: product.name, category: product.category ?? "", unit: product.unit, price: product.price, vat: product.vat, minStock: product.minStock, groupId,
           }),
         }, "+ ", t("addVariant"))),
       h("small", { class: "field-hint" }, t("variantsHint")));
@@ -301,7 +334,7 @@ export function openProductSheet(product, preset = {}) {
       opening = { qty: q, cost: c };
     }
     const data = {
-      name: n, variant: variant.value.trim(), unit: unit.value, price: p, barcode: code, vat: v, minStock: min,
+      name: n, variant: variant.value.trim(), category: category.value(), unit: unit.value, price: p, barcode: code, vat: v, minStock: min,
       groupId: product?.groupId ?? preset.groupId ?? "",
     };
     const nextDeal = deal && deal.value !== currentDeal ? deal.value : undefined;
@@ -447,6 +480,33 @@ function rateField(onchange) {
 
 // --- Alış / satış / emanet (ürün satırlı) ve ödeme / tahsilat ----------------------------
 
+// Formun içindeki ürün seçici: arama (barkod düğmeli), kategori baloncukları ve resimli kutucuklar.
+// Dokunulan ürün forma eklenir (yine dokununca adedi artar); formdaki adet kutucukta görünür.
+function productBrowser({ products, count, price, currency, onpick, onscan }) {
+  let query = "";
+  let cat = "";
+  const grid = h("div", { class: "pick-grid" });
+  const render = () => {
+    const q = query.trim();
+    const shown = products.filter((p) => inCategory(p, cat) && (matches(productLabel(p), q) || (q && p.barcode === q)));
+    grid.replaceChildren(...(shown.length ? shown.map((p) => {
+      const n = count(p);
+      return h("button", { type: "button", class: `pick-tile${n ? " picked" : ""}`, onclick: () => { onpick(p); navigator.vibrate?.(15); } },
+        productThumb(p, "tile"),
+        h("span", { class: "pt-name" }, h("bdi", {}, productLabel(p))),
+        h("span", { class: "pt-price" }, price(p) ? formatMoney(price(p), currency()) : "–"),
+        h("span", { class: `pt-stock${p.stock <= 0 ? " bad" : ""}` }, `${formatNumber(p.stock)} ${unitLabel(p.unit)}`),
+        n ? h("span", { class: "pt-count" }, `×${formatNumber(n)}`) : null);
+    }) : [h("p", { class: "lines-empty" }, t("noMatch"))]));
+  };
+  const el = h("div", { class: "browser" },
+    searchBox(t("searchProducts"), "", (v) => { query = v; render(); }, onscan),
+    categoryBubbles(products, cat, (v) => { cat = v; render(); }),
+    grid);
+  render();
+  return { el, refresh: render };
+}
+
 // Adet kutusu ve iki yanında − / + düğmeleri. onstep(d) adedi d kadar değiştirir.
 function stepper(input, onstep) {
   return h("div", { class: "stepper" },
@@ -571,9 +631,11 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     return el;
   };
 
+  let browser = null;
   const refresh = () => {
     for (const el of symbolEls) el.textContent = currency() === "TRY" ? "" : ` (${currencySymbol(currency())})`;
     for (const r of rows) r.refresh();
+    browser?.refresh();
     const value = hasLines(type) ? sum(rows, (r) => r.total()) : parseMoney(amount.value) ?? 0;
     total.textContent = formatMoney(value, currency());
     const r = rate.value();
@@ -625,11 +687,6 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       const p = session.firm.products.get(l.product);
       if (p) addProduct(p, { qty: l.qty, price: ctx.suggestPrice(p) });
     }
-    const pickLines = () => pickProducts({
-      products,
-      count: (p) => rows.find((r) => r.product.id === p.id)?.qty() ?? 0,
-      onpick: addProduct,
-    });
     // Barkod okutunca ürün forma gelir; aynı ürün tekrar okutulursa adedi artar.
     const scanLine = async () => {
       const code = await scanBarcode();
@@ -638,11 +695,16 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       if (!p) return toast(t("barcodeUnknown", { code }));
       return addProduct(p);
     };
-    fields.push(
-      h("div", { class: `pick-actions${canScan() ? "" : " one"}` },
-        h("button", { type: "button", class: "ink", onclick: pickLines }, icon("listCheck"), t("pickProducts")),
-        canScan() && h("button", { type: "button", class: "scan-btn", onclick: scanLine }, icon("barcode"), t("scanBarcode"))),
-      empty, list);
+    // Ürünler formun içinde hemen görünür: dokunulan ürün sepete eklenir.
+    browser = productBrowser({
+      products,
+      count: (p) => rows.find((r) => r.product.id === p.id)?.qty() ?? 0,
+      price: (p) => ctx.suggestPrice(p),
+      currency,
+      onpick: addProduct,
+      onscan: canScan() ? scanLine : null,
+    });
+    fields.push(browser.el, h("p", { class: "label cart-label" }, icon("listCheck"), t("cart")), empty, list);
     if (type === "consign") fields.push(h("small", { class: "field-hint" }, t("consignHint")));
     if (PAID_NOW[type] && !edit) {
       paidNow = numberInput({ placeholder: "0,00" });
