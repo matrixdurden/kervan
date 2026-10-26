@@ -648,22 +648,31 @@ function shortages(lines, previous = []) {
 }
 
 const PAID_NOW = { sale: "collection", purchase: "payment" };
+const WALK_IN = "__walkin"; // satış formundaki "Peşin müşteri (direkt satış)" seçeneği
 
 // edit: düzenlenen kayıt; form onun bilgileriyle dolu açılır, kaydedince eskisi çöp kutusuna gider.
 // lines: hazır satırlar [{ product, qty }] (siparişten ya da "Stok ekle"den alış); fiyat önerilen gelir.
-// direct: direkt (peşin, tezgâh) satış: müşteri seçilmez, "Peşin müşteri" carisine yazılır
-// (yoksa aynı anda açılır) ve tutarın tamamı tahsil edilir; kimseye borç kalmaz.
-export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLines, direct = false } = {}) {
+// Yeni satışta müşteri listesinin başında "Peşin müşteri (direkt satış)": seçilirse satış "Peşin müşteri"
+// carisine yazılır (yoksa aynı kayıtta açılır) ve tutarın tamamı tahsil edilir; kimseye borç kalmaz.
+export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLines } = {}) {
   const kind = PARTY_KIND[type];
-  const title = edit ? t("editMoveTitle", { type: t(`type_${type}`) }) : direct ? t("page_direct") : t(`new_${type}`);
+  const title = edit ? t("editMoveTitle", { type: t(`type_${type}`) }) : t(`new_${type}`);
   const parties = [...session.firm.parties.values()].filter((p) => p.kind === kind).sort(byName);
-  const walkIn = direct ? parties.find((p) => p.walkIn) : null;
-  if (!parties.length && !direct) {
+  const walkInOption = type === "sale" && !edit;
+  const walkIn = parties.find((p) => p.walkIn);
+  if (!parties.length && !walkInOption) {
     return missing(title, t(kind === "seller" ? "needSeller" : "needSupplier"),
       `+ ${t(kind === "seller" ? "newSeller" : "newSupplier")}`, () => openPartySheet(kind));
   }
 
-  const partySelect = select([["", t("choose")], ...parties.map((p) => [p.id, p.name])], edit?.party ?? fixedParty ?? walkIn?.id ?? "");
+  const listed = walkInOption ? parties.filter((p) => !p.walkIn) : parties;
+  const partySelect = select([
+    ["", t("choose")],
+    ...(walkInOption ? [[WALK_IN, t("walkInOption")]] : []),
+    ...listed.map((p) => [p.id, p.name]),
+  ], walkInOption && fixedParty && fixedParty === walkIn?.id ? WALK_IN : edit?.party ?? fixedParty ?? "");
+  const isWalkIn = () => partySelect.value === WALK_IN;
+  const walkHint = h("small", { class: "field-hint", hidden: true }, t("directHint"));
   const date = dateInput(edit?.date);
   const note = textInput({ maxlength: 200, placeholder: t("notePlaceholder"), value: edit?.note ?? "" });
   const total = h("strong", {});
@@ -671,9 +680,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   const party = () => session.firm.parties.get(partySelect.value);
   const currency = () => (kind === "supplier" ? party()?.currency || "TRY" : "TRY");
   const rate = rateField(() => refresh());
-  const fields = direct
-    ? [field(t("date"), date), h("small", { class: "field-hint" }, t("directHint"))]
-    : [h("div", { class: "row2" }, field(t(kind), partySelect), field(t("date"), date)), rate.el];
+  const fields = [h("div", { class: "row2" }, field(t(kind), partySelect), field(t("date"), date)), walkHint, rate.el];
 
   let rows = [];
   let amount;
@@ -777,11 +784,17 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     });
     fields.push(browser.el, h("p", { class: "label cart-label" }, icon("listCheck"), t("cart")), empty, list);
     if (type === "consign") fields.push(h("small", { class: "field-hint" }, t("consignHint")));
-    if (PAID_NOW[type] && !edit && !direct) {
+    if (PAID_NOW[type] && !edit) {
       paidNow = numberInput({ placeholder: "0,00" });
-      fields.push(h("label", { class: "field" },
+      const paidWrap = h("label", { class: "field" },
         h("span", {}, t(type === "sale" ? "paidNowSale" : "paidNowPurchase"), symbol()), paidNow,
-        h("small", { class: "field-hint" }, t("paidNowHint"))));
+        h("small", { class: "field-hint" }, t("paidNowHint")));
+      fields.push(paidWrap);
+      // Peşin müşteride tamamı zaten tahsil edilir: "Peşin alınan" gizlenir.
+      partySelect.addEventListener("change", () => {
+        paidWrap.hidden = isWalkIn();
+        walkHint.hidden = !isWalkIn();
+      });
     }
   } else {
     amount = numberInput({ placeholder: "0,00", oninput: refresh, value: edit ? moneyInput(edit.amount) : "" });
@@ -816,7 +829,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     if (!lines.length) return t("addAtLeastOne");
     const short = shortages(lines);
     if (short.length && !confirm(t("confirmShort", { list: short.join("\n") }))) return undefined;
-    const partyId = walkIn?.id ?? "__walkin";
+    const partyId = walkIn?.id ?? WALK_IN;
     const base = { party: partyId, date: date.value, holder: holder?.el.value };
     const amount = sum(lines, (l) => lineTotal(l));
     record([
@@ -828,7 +841,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
 
   const summary = h("div", { class: "foot-sum" }, h("span", {}, t("total")), total, totalTry);
   open(title, fields, [footBar(summary, saveButton())], () => {
-    if (direct) return saveDirect();
+    if (isWalkIn()) return saveDirect();
     const p = party();
     if (!p) return t(kind === "seller" ? "chooseSeller" : "chooseSupplier");
     if (!date.value) return t("chooseDate");

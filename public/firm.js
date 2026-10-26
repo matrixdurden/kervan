@@ -223,7 +223,7 @@ function fabBar(label, onclick) {
 
 // Sol sütun alış tarafı (alış, ödeme, tedarikçi), sağ sütun satış tarafı (satış, tahsilat, müşteri):
 // her satırda karşılıklı iki iş yan yana durur.
-// "Direkt satış" bir sayfa değil, doğrudan peşin satış formu açar (köşesinde + yok).
+// "Satış başlat" bir sayfa değil, doğrudan satış formunu açar (köşesinde + yok).
 const TILES = [
   ["purchases", "in", "tile-purchase"], ["sales", "out", "tile-sale"],
   ["direct", "bolt", "tile-dark"], ["expenses", "receipt", "tile-dark"],
@@ -233,7 +233,7 @@ const QUICK_NEW = {
   sales: ["new_sale", () => openMoveSheet("sale")],
   expenses: ["new_expense", () => openCashSheet("expense")],
 };
-const openDirectSale = () => openMoveSheet("sale", { direct: true });
+const startSale = () => openMoveSheet("sale"); // "Satış başlat": Satışlar → Satış gir ile aynı form
 const SECTIONS = [
   ["payments", "minusCircle"], ["collections", "plusCircle"],
   ["suppliers", "truck"], ["sellers", "store"],
@@ -276,7 +276,7 @@ const HOME = {
         stat(t("profitThisMonth"), formatMoney(profit), profit < 0 ? "out" : "in", () => openPage("reports"))),
       // Kutucuk bölümü açar; köşedeki "+" doğrudan yeni kayıt formunu (tek dokunuş).
       h("div", { class: "tiles-big" }, TILES.map(([id, ic, cls]) => h("div", { class: "tile-wrap" },
-        h("button", { type: "button", class: `tile-big ${cls}`, onclick: () => (id === "direct" ? openDirectSale() : openPage(id)) },
+        h("button", { type: "button", class: `tile-big ${cls}`, onclick: () => (id === "direct" ? startSale() : openPage(id)) },
           h("span", { class: "big-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))),
         QUICK_NEW[id] && h("button", { type: "button", class: "tile-plus", "aria-label": t(QUICK_NEW[id][0]), title: t(QUICK_NEW[id][0]), onclick: QUICK_NEW[id][1] }, icon("plus"))))),
       low.length > 0 && h("button", { type: "button", class: "card low-banner", onclick: () => openPage("products", { filter: "low" }) },
