@@ -13,7 +13,7 @@ import { readInvoiceFile, matchProduct, matchSupplier } from "./invoice.js";
 import { rememberRate } from "./rates.js";
 import { sharedAiReady, readInvoiceShared } from "./ai.js";
 import {
-  openSheet, field, textInput, numberInput, select, saveButton, closeButton, failed, rateField, openAiSheet,
+  openSheet, field, textInput, numberInput, select, saveButton, closeButton, failed, rateField, openAiSheet, openMoveSheet,
 } from "./forms.js";
 
 const NEW = "__new";
@@ -40,11 +40,25 @@ export function openInvoiceImport() {
     h("p", { class: "muted" }, t("invoiceIntro")),
     h("button", { type: "button", class: "big-action primary", onclick: () => choose() }, icon("fileScan"), h("span", {}, t("chooseInvoice"))),
     h("small", { class: "field-hint" }, t(hasKey ? "invoiceKinds" : "invoiceKindsNoKey")),
+    // Yanında: müşterinin siparişi ya da satış faturası okunup satışa çevrilir.
+    h("button", { type: "button", class: "big-action", onclick: () => choose("sale") }, icon("out"), h("span", {}, t("chooseSaleInvoice"))),
     !hasKey && h("button", { type: "button", class: "block", onclick: () => openAiSheet() }, t("aiSetup")),
   ], [closeButton()]);
 }
 
-async function choose() {
+// Faturadan satış: müşterinin siparişi / satış faturası okunur, satış formu dolu açılır.
+export function openSaleImport() {
+  const firm = currentFirm();
+  const hasKey = Boolean(firm.ai?.key) || sharedAiReady();
+  openSheet(t("page_saleInvoice"), [
+    h("p", { class: "muted" }, t("saleInvoiceIntro")),
+    h("button", { type: "button", class: "big-action primary", onclick: () => choose("sale") }, icon("fileScan"), h("span", {}, t("chooseSaleInvoice"))),
+    h("small", { class: "field-hint" }, t(hasKey ? "invoiceKinds" : "invoiceKindsNoKey")),
+    !hasKey && h("button", { type: "button", class: "block", onclick: () => openAiSheet() }, t("aiSetup")),
+  ], [closeButton()]);
+}
+
+async function choose(mode = "purchase") {
   const file = await pickFile();
   if (!file) return;
   const firm = currentFirm();
@@ -61,11 +75,12 @@ async function choose() {
     const invoice = await readInvoiceFile(file, { apiKey: firm.ai?.key, reader: readInvoiceShared });
     if (!$("#sheet").open) return; // vazgeçildi
     if (!invoice.lines.length) throw Object.assign(new Error("empty"), { code: "ai-unreadable" });
-    review(invoice);
+    if (mode === "sale") saleReview(invoice);
+    else review(invoice);
   } catch (err) {
     console.error(err);
     openSheet(t("page_invoice"), [h("p", { class: "error" }, t(`err_${(err.code ?? "ai-failed").replace(/-/g, "_")}`))], [
-      h("button", { type: "button", class: "primary block", onclick: () => choose() }, t("tryAgain")), closeButton(),
+      h("button", { type: "button", class: "primary block", onclick: () => choose(mode) }, t("tryAgain")), closeButton(),
     ]);
   }
 }
@@ -158,6 +173,69 @@ export function review(invoice) {
     done.catch(failed);
     $("#sheet").close();
     toast(t("purchaseSaved", { n: lines.length }), () => voidMoves(moves, t("undoReason")).then(() => toast(t("undone")), failed));
+    return undefined;
+  });
+}
+
+// Faturadan satış: müşteri ve her satırın hangi ürün olduğu seçilir; "Satış formuna aktar" satış formunu
+// ürünler, adetler ve fiyatlarla dolu açar (stok uyarısı, fiş, müşteriye özel fiyat satıştaki gibi).
+// Belgedeki fiyat KDV hariçse KDV eklenir (uygulamada satış fiyatları KDV dahildir). Listede olmayan
+// ürün satılamaz: o satır atlanır.
+export function saleReview(invoice) {
+  const sellers = [...session.firm.parties.values()].filter((p) => p.kind === "seller" && !p.walkIn).sort(byName);
+  const products = [...session.firm.products.values()].sort(byName);
+  // Belgedeki firma adı müşterilerle eşleştirilir (sipariş listesinde yazan müşteridir).
+  const guess = matchSupplier(invoice.supplier, sellers.map((p) => ({ ...p, kind: "supplier" })));
+  const customer = select([["", t("choose")], ...sellers.map((p) => [p.id, p.name])], guess ?? "");
+  const rows = invoice.lines.map((line) => {
+    const match = matchProduct(line, products.map((p) => ({ id: p.id, name: p.name, variant: p.variant, barcode: p.barcode })));
+    const product = select([["", t("saleLineSkip")], ...products.map((p) => [p.id, productLabel(p)])], match?.id ?? "");
+    const qty = numberInput({ value: qtyInput(line.qty), "aria-label": t("qty") });
+    const gross = Math.round(line.unitPrice * (1 + (line.vatRate ?? 0) / 100));
+    const price = numberInput({ value: moneyInput(gross), "aria-label": t("unitPrice") });
+    const status = h("small", { class: "field-hint" });
+    const sync = () => {
+      status.textContent = !product.value ? t("saleLineSkipped") : match?.id === product.value ? t("matchedAuto") : "";
+      // Ürün elle seçilince belgede fiyat yoksa ürünün satış fiyatı gelir.
+      if (product.value && !gross && !price.dataset.touched) price.value = moneyInput(session.firm.products.get(product.value)?.price ?? 0);
+    };
+    price.addEventListener("input", () => { price.dataset.touched = "1"; });
+    product.addEventListener("change", sync);
+    sync();
+    return {
+      el: h("div", { class: "line invoice-line" },
+        h("bdi", { class: "invoice-name" }, line.name),
+        line.code && h("small", { class: "muted", dir: "ltr" }, line.code),
+        product,
+        h("div", { class: "line-nums" }, h("span", { class: "qty" }, qty), h("span", { class: "times" }, "×"), price),
+        status),
+      read() {
+        if (!product.value) return null;
+        const q = parseQty(qty.value);
+        if (!q) return t("badQty");
+        const p = parseMoney(price.value);
+        if (p == null) return t("enterPrice");
+        return { product: product.value, qty: q, price: p };
+      },
+    };
+  });
+  openSheet(t("reviewSaleInvoice"), [
+    h("div", { class: "invoice-head card" },
+      h("strong", {}, h("bdi", {}, invoice.supplier.name || t("unknownCustomer"))),
+      h("small", { class: "muted" }, [invoice.number, invoice.source === "ai" ? t("readByAi") : t("readFromXml")].filter(Boolean).join(" · "))),
+    field(t("seller"), customer, t("saleCustomerHint")),
+    h("p", { class: "label" }, t("invoiceLines", { n: rows.length })),
+    h("div", { class: "lines" }, rows.map((r) => r.el)),
+    h("small", { class: "field-hint" }, t("saleImportHint")),
+  ], [saveButton(t("toSaleForm")), closeButton()], () => {
+    const lines = [];
+    for (const r of rows) {
+      const line = r.read();
+      if (typeof line === "string") return line;
+      if (line) lines.push(line);
+    }
+    if (!lines.length) return t("addAtLeastOne");
+    openMoveSheet("sale", { party: customer.value || undefined, lines });
     return undefined;
   });
 }

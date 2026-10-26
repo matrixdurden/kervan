@@ -20,7 +20,7 @@ import {
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
   openMethodsSheet, paymentMethods, sendToChat, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
 } from "./forms.js";
-import { openInvoiceImport } from "./importer.js";
+import { openInvoiceImport, openSaleImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
 import { productByBarcode, productLabel, recompute, restoreProduct, restoreParty, purgeTrash, recordMoves, voidMoves, saveFirmSettings } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
@@ -1221,7 +1221,10 @@ const PAGES = {
   sales: movesPage({
     types: ["sale", "consignSale"], empty: "noSales",
     fab: () => [t("new_sale"), () => openMoveSheet("sale")],
-    actions: () => [[t("new_saleReturn"), "undo", () => openMoveSheet("saleReturn")], [t("page_consign"), "send", () => openPage("consign")]],
+    actions: () => [
+      [t("new_saleReturn"), "undo", () => openMoveSheet("saleReturn")],
+      [t("page_saleInvoice"), "fileScan", () => openSaleImport()],
+      [t("page_consign"), "send", () => openPage("consign")]],
   }),
   // İadeler: satış sayfasının aynısı; müşterinin geri getirdiği mal ve geri verilen para.
   saleReturns: movesPage({
