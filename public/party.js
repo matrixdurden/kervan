@@ -12,7 +12,7 @@ import { formatMoney, formatNumber } from "./money.js";
 import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary } from "./views.js";
 import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, sendToChat } from "./forms.js";
 import { show } from "./nav.js";
-import { receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
+import { receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
 import { currentFirm } from "./session.js";
 import { productLabel, clearPartyPrice } from "./data.js";
 import { today } from "./ui.js";
@@ -183,15 +183,20 @@ function render() {
       party.note && h("p", { class: "meta" }, h("bdi", {}, party.note)),
       h("div", { class: "contact-actions" },
         party.phone && h("a", { class: "pill", href: `tel:${party.phone.replace(/[^\d+]/g, "")}`, dir: "ltr" }, icon("phone"), party.phone)),
-      // Ekstre: bütün hareketler ve bakiye; yeşil düğme doğrudan kişinin WhatsApp sohbetine yazı olarak,
-      // "Resim" paylaşım ekranıyla fiş resmi olarak, "Yazdır" kâğıda.
+      // Ekstre: bütün hareketler ve bakiye; yeşil düğme fotoğraf olarak (dosya paylaşamayan cihazda
+      // yazı + bağlantı), yanındaki doğrudan kişinin sohbetine yazı + bağlantı, "Yazdır" kâğıda.
       h("div", { class: "statement-actions" },
-        h("button", { type: "button", class: "whatsapp", onclick: () => { prepareStatement(party); sendToChat(statement.doc, party.phone); } },
-          icon("whatsapp"), t("sendStatement")),
-        h("button", { type: "button", class: "small", "aria-label": t("shareImage"), title: t("shareImage"), onclick: () => sendStatement(party) }, icon("camera")),
+        h("button", {
+          type: "button", class: "whatsapp",
+          onclick: () => { prepareStatement(party); if (canShareFiles()) sendStatement(party); else sendToChat(statement.doc, party.phone); },
+        }, icon("whatsapp"), t("sendStatement")),
+        h("button", {
+          type: "button", class: "small", "aria-label": t("sendAsText"), title: t("sendAsText"),
+          onclick: () => { prepareStatement(party); sendToChat(statement.doc, party.phone); },
+        }, icon("send")),
         h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => { prepareStatement(party); printReceipt(statement.doc, receiptLabels()); } },
           icon("printer"))),
-      !party.phone && h("small", { class: "field-hint" }, t("noPhoneChat"))),
+      !party.phone && !canShareFiles() && h("small", { class: "field-hint" }, t("noPhoneChat"))),
   ];
   if (moves) prepareStatement(party);
 

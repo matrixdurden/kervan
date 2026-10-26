@@ -8,7 +8,7 @@ import { session, currentFirm } from "./session.js";
 import { parseMoney, parseQty, formatMoney, moneyInput, qtyInput } from "./money.js";
 import { lineTotal } from "./ledger.js";
 import { recordMoves, voidMoves, productLabel } from "./data.js";
-import { byName } from "./views.js";
+import { byName, productCategories } from "./views.js";
 import { readInvoiceFile, matchProduct, matchSupplier } from "./invoice.js";
 import { rememberRate } from "./rates.js";
 import { sharedAiReady, readInvoiceShared } from "./ai.js";
@@ -176,7 +176,17 @@ function lineRow(line, products, onchange) {
   const price = numberInput({ value: moneyInput(net), "aria-label": t("unitPrice"), oninput: onchange });
   const sum = h("strong", { class: "line-total" });
   const unit = select(UNITS.map((u) => [u, unitLabel(u)]), UNITS.includes(line.unit) ? line.unit : "adet");
-  const newOnly = h("div", { class: "new-product" }, field(t("unit"), unit));
+  // Yeni ürün: faturada okunan ad düzeltilebilir; kategori (var olanlardan seçilir ya da yazılır) ve
+  // satış fiyatı da hemen verilebilir.
+  const name = textInput({ maxlength: 80, value: line.name.slice(0, 80), "aria-label": t("productName") });
+  const listId = `cats-${Math.random().toString(36).slice(2, 8)}`;
+  const category = textInput({ maxlength: 40, list: listId, placeholder: t("categoryOptional") });
+  const salePrice = numberInput({ placeholder: "0,00", "aria-label": t("salePrice") });
+  const newOnly = h("div", { class: "new-product" },
+    field(t("productName"), name, t("nameFixHint")),
+    h("div", { class: "row2" }, field(t("category"), category), field(t("unit"), unit)),
+    field(t("salePrice"), salePrice),
+    h("datalist", { id: listId }, productCategories([...session.firm.products.values()]).map(([c]) => h("option", { value: c }))));
   const status = h("small", { class: "field-hint" });
   const sync = () => {
     newOnly.hidden = product.value !== NEW;
@@ -210,6 +220,7 @@ function lineRow(line, products, onchange) {
     },
     read() {
       if (product.value === "") return null;
+      if (product.value === NEW && !name.value.trim()) return t("enterName");
       const q = parseQty(qty.value);
       if (!q) return t("badQty");
       const p = parseMoney(price.value);
@@ -219,7 +230,8 @@ function lineRow(line, products, onchange) {
     newProduct(firm) {
       const barcode = /^\d{8,14}$/.test(line.code ?? "") ? line.code : "";
       return {
-        name: line.name.slice(0, 80), unit: unit.value, price: 0, barcode, vat: line.vatRate ?? firm.defaultVat ?? 20, minStock: 0,
+        name: name.value.trim().slice(0, 80), category: category.value.trim(), unit: unit.value, price: parseMoney(salePrice.value) ?? 0,
+        barcode, vat: line.vatRate ?? firm.defaultVat ?? 20, minStock: 0,
       };
     },
   };

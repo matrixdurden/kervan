@@ -362,6 +362,13 @@ export function deleteProduct(id) {
 }
 export const deleteParty = (id) => updateDoc(ref("parties", id), trashMark());
 
+// Ürünlerin kategorisini toplu değiştirir: { ürünId: "kategori" } ("" kategorisiz).
+export function setCategories(changes) {
+  const batch = writeBatch(db);
+  for (const [id, category] of Object.entries(changes)) batch.update(ref("products", id), { category });
+  return batch.commit();
+}
+
 // Çöp kutusundan geri yükleme.
 export const restoreProduct = (id) => updateDoc(ref("products", id), { deleted: deleteField() });
 export const restoreParty = (id) => updateDoc(ref("parties", id), { deleted: deleteField() });
@@ -385,6 +392,8 @@ export function saveDeal(id, { name, products, shares }) {
 }
 
 export const deleteDeal = (id) => updateDoc(firmRef(), { [`deals.${id}`]: deleteField() });
+// Silineni geri yazar (bildirimdeki "Geri al").
+export const putDeal = (id, deal) => updateDoc(firmRef(), { [`deals.${id}`]: deal });
 
 // Uygulamayı kullanmayan ortak (sadece adı). Kimliği "g" ile başlar.
 // Uygulamasız ortak: { name, phone, party } (party: bağlı olduğu cari, varsa). Eski çağrı: sadece ad.
@@ -398,6 +407,23 @@ export function saveGuest(id, info) {
 }
 
 export const deleteGuest = (id) => updateDoc(firmRef(), { [`guests.${id}`]: deleteField() });
+export const putGuest = (id, guest) => updateDoc(firmRef(), { [`guests.${id}`]: guest });
+
+// Çöp kutusunu temizler: seçilenler kalıcı silinir, geri gelmez. Silinen (iptal edilmiş) hareketin
+// etkisi zaten geri alınmıştı; ürünün ve kişinin de stoğu/bakiyesi sıfırdır. Bu yüzden rakamlar değişmez.
+// Geçmiş hareketlerde ürün ve kişi adı yazılı olduğu için defter okunur kalır.
+export async function purgeTrash({ moves = [], products = [], parties = [] }) {
+  const deletes = [
+    ...moves.map((id) => ref("moves", id)),
+    ...products.flatMap((id) => [ref("products", id), ref("images", id)]),
+    ...parties.map((id) => ref("parties", id)),
+  ];
+  for (let i = 0; i < deletes.length; i += 400) {
+    const batch = writeBatch(db);
+    for (const r of deletes.slice(i, i + 400)) batch.delete(r);
+    await batch.commit();
+  }
+}
 
 // Bütün defteri okuyup tüm özetleri baştan hesaplar. Düzeltilen kayıt sayısını döner.
 export async function recompute() {

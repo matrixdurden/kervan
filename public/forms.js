@@ -13,12 +13,12 @@ import {
 import { PARTY_KIND, hasLines, lineTotal, avgCost, roundQty } from "./ledger.js";
 import {
   recordMoves, voidMoves, replaceMove, restoreMove, saveProduct, saveParty, deleteProduct, deleteParty, restoreProduct, restoreParty, saveShares,
-  saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode, productLabel, saveFirmSettings, shareReceipt,
+  setCategories, saveDeal, deleteDeal, putDeal, saveGuest, deleteGuest, putGuest, dealOf, productByBarcode, productLabel, saveFirmSettings, shareReceipt,
 } from "./data.js";
 import {
   byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory, NO_CATEGORY,
 } from "./views.js";
-import { RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
+import { RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
 import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
 import { lastRate, rememberRate, fetchRate } from "./rates.js";
@@ -78,6 +78,13 @@ function saved(promise, message) {
   sheet.close();
   toast(message);
   promise.catch(failed);
+}
+
+// Ortaklık / uygulamasız ortak silindi (çöp kutusu yok): bildirimdeki "Geri al" eskisini geri yazar.
+function removed(promise, message, undo) {
+  sheet.close();
+  promise.catch(failed);
+  toast(message, () => undo().then(() => toast(t("restored")), failed));
 }
 
 // Ürün / cari silindi: çöp kutusuna taşındı; bildirimdeki "Geri al" geri yükler.
@@ -208,6 +215,69 @@ function categoryField(current) {
   };
 }
 
+// Kategoriler (Ürünler sayfasından): var olanlar ürün sayılarıyla; birine ya da "Yeni kategori"ye
+// dokununca adı ve içindeki ürünler seçilir.
+export function openProductCategories() {
+  const products = [...session.firm.products.values()];
+  const cats = productCategories(products);
+  open(t("productCategories"), [
+    h("ul", { class: "cards" },
+      cats.map(([c, n]) => h("li", {}, h("button", { type: "button", class: "card row", onclick: () => openCategoryEditor(c) },
+        h("span", { class: "main" }, h("span", { class: "title" }, h("bdi", {}, c)), h("span", { class: "meta" }, t("productCount", { n }))),
+        icon("chevron"))))),
+    !cats.length && h("p", { class: "field-hint" }, t("noCategoriesYet")),
+  ], [
+    h("button", { type: "button", class: "primary block", onclick: () => openCategoryEditor("") }, icon("plus"), t("newCategory")),
+    closeButton(),
+  ]);
+}
+
+// Bir kategori: adı ve içindeki ürünler (işaretli olanlar). Kaydedince işaretlenenler bu kategoriye geçer,
+// işareti kaldırılanlar kategorisiz kalır; ad değişirse hepsi yeni adı alır. Hiç ürün kalmazsa kategori silinmiş olur.
+function openCategoryEditor(current) {
+  const products = [...session.firm.products.values()].sort(byName);
+  const name = textInput({ maxlength: 40, value: current, placeholder: t("newCategoryPlaceholder") });
+  const picked = new Set(products.filter((p) => current && p.category === current).map((p) => p.id));
+  let query = "";
+  const count = h("small", { class: "field-hint" });
+  const list = h("ul", { class: "cards pick-list" });
+  const render = () => {
+    count.textContent = t("productsChosen", { n: picked.size });
+    list.replaceChildren(...products.filter((p) => matches(productLabel(p), query)).map((p) => {
+      const on = picked.has(p.id);
+      return h("li", {}, h("button", {
+        type: "button", class: `card row check-row${on ? " picked" : ""}`, "aria-pressed": String(on),
+        onclick: () => { if (!picked.delete(p.id)) picked.add(p.id); render(); },
+      },
+      h("span", { class: `pick-check${on ? " on" : ""}`, "aria-hidden": "true" }, on ? icon("check") : null),
+      productThumb(p, "sm"),
+      h("span", { class: "main" },
+        h("span", { class: "title" }, h("bdi", {}, productLabel(p))),
+        p.category && p.category !== current && h("span", { class: "meta" }, h("bdi", {}, p.category)))));
+    }));
+  };
+  render();
+  open(current || t("newCategory"), [
+    field(t("categoryName"), name),
+    h("p", { class: "label" }, t("categoryProducts")),
+    searchBox(t("searchProducts"), "", (v) => { query = v; render(); }),
+    list,
+    count,
+  ], [saveButton(), h("button", { type: "button", class: "block ghost", onclick: openProductCategories }, t("back"))], () => {
+    const n = name.value.trim();
+    if (!n) return t("enterCategoryName");
+    if (!picked.size && !current) return t("pickSomeProducts");
+    const changes = {};
+    for (const p of products) {
+      const next = picked.has(p.id) ? n : p.category === current && current ? "" : p.category ?? "";
+      if (next !== (p.category ?? "")) changes[p.id] = next;
+    }
+    if (!Object.keys(changes).length) return sheet.close();
+    saved(setCategories(changes), t("saved"));
+    return undefined;
+  });
+}
+
 // Barkod alanı: yazılabilir ya da kamerayla okutulur.
 function barcodeField(value) {
   const input = h("input", { inputmode: "numeric", autocomplete: "off", dir: "ltr", maxlength: 64, value, placeholder: t("barcodePlaceholder") });
@@ -325,10 +395,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     const hasStock = Boolean(product.stock || product.value || product.consigned);
     buttons.push(h("button", {
       type: "button", class: "block danger", disabled: hasStock,
-      onclick: () => {
-        if (!confirm(t("confirmDelete", { name: productLabel(product) }))) return;
-        trashed(deleteProduct(product.id), () => restoreProduct(product.id));
-      },
+      onclick: () => trashed(deleteProduct(product.id), () => restoreProduct(product.id)),
     }, t("delete")));
     if (hasStock) buttons.push(h("small", { class: "field-hint center" }, t("cantDeleteProduct")));
   }
@@ -443,10 +510,7 @@ export function openPartySheet(kind, party) {
     const busy = Boolean(party.balance) || Object.values(party.shelf ?? {}).some((s) => s.stock);
     buttons.push(h("button", {
       type: "button", class: "block danger", disabled: busy,
-      onclick: () => {
-        if (!confirm(t("confirmDelete", { name: party.name }))) return;
-        trashed(deleteParty(party.id), () => restoreParty(party.id));
-      },
+      onclick: () => trashed(deleteParty(party.id), () => restoreParty(party.id)),
     }, t("delete")));
     if (busy) buttons.push(h("small", { class: "field-hint center" }, t("cantDeleteParty")));
   }
@@ -543,7 +607,9 @@ function productBrowser({ products, count, price, currency, onstep, onnew, onsca
         n ? h("div", { class: "pt-step" },
           h("button", { type: "button", "aria-label": t("stepLess"), onclick: () => onstep(p, -1) }, icon("minus")),
           h("strong", {}, formatNumber(n)),
-          h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => onstep(p, 1) }, icon("plus"))) : null);
+          h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => onstep(p, 1) }, icon("plus")))
+          : h("div", { class: "pt-step add" },
+            h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => onstep(p, 1) }, icon("plus"))));
     }));
     if (!shown.length) grid.append(h("p", { class: "lines-empty wide" }, t(q && onnew ? "noMatchNew" : q ? "noMatch" : "noProducts")));
   };
@@ -667,24 +733,6 @@ function lineRow(ctx, p, onchange, onremove, init) {
   };
   row.refresh();
   return row;
-}
-
-// Depodakinden fazla çıkan ürünler: "Çay: depoda 4 koli, istenen 6 koli"
-// previous: düzenlenen kaydın satırları; o kayıt geri alınacağı için o miktarlar depoya döner.
-function shortages(lines, previous = []) {
-  const wanted = new Map();
-  for (const l of lines) wanted.set(l.product, roundQty((wanted.get(l.product) ?? 0) + l.qty));
-  const back = new Map();
-  for (const l of previous) back.set(l.product, roundQty((back.get(l.product) ?? 0) + l.qty));
-  const out = [];
-  for (const [id, qty] of wanted) {
-    const p = session.firm.products.get(id);
-    const stock = p ? roundQty(p.stock + (back.get(id) ?? 0)) : 0;
-    if (p && qty > stock) {
-      out.push(t("shortLine", { name: productLabel(p), stock: formatNumber(stock), qty: formatNumber(qty), unit: unitLabel(p.unit) }));
-    }
-  }
-  return out;
 }
 
 const PAID_NOW = { sale: "collection", purchase: "payment", saleReturn: "refund" };
@@ -903,8 +951,6 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       lines.push(line);
     }
     if (!lines.length) return t("addAtLeastOne");
-    const short = type === "sale" ? shortages(lines) : [];
-    if (short.length && !confirm(t("confirmShort", { list: short.join("\n") }))) return undefined;
     const partyId = walkIn?.id ?? WALK_IN;
     const base = { party: partyId, date: date.value, holder: holder?.el.value };
     const amount = sum(lines, (l) => lineTotal(l));
@@ -944,10 +990,6 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       }
       if (!lines.length) return t("addAtLeastOne");
       input.lines = lines;
-      if (type === "sale" || type === "consign") {
-        const short = shortages(lines, edit?.lines);
-        if (short.length && !confirm(t("confirmShort", { list: short.join("\n") }))) return undefined;
-      }
       if (paidNow?.value.trim()) {
         const paid = parseMoney(paidNow.value);
         if (!paid) return t("badNumber");
@@ -1443,10 +1485,7 @@ export function openDealSheet(dealId) {
   if (deal) {
     buttons.push(h("button", {
       type: "button", class: "block danger",
-      onclick: () => {
-        if (!confirm(t("confirmDeleteDeal", { name: deal.name }))) return;
-        saved(deleteDeal(dealId), t("deleted", { name: deal.name }));
-      },
+      onclick: () => removed(deleteDeal(dealId), t("deleted", { name: deal.name }), () => putDeal(dealId, deal)),
     }, t("delete")));
   }
   buttons.push(closeButton());
@@ -1534,10 +1573,7 @@ export function openGuestSheet(guestId) {
     saveButton(),
     h("button", {
       type: "button", class: "block danger", disabled: busy,
-      onclick: () => {
-        if (!confirm(t("confirmDelete", { name: guest.name }))) return;
-        saved(deleteGuest(guestId), t("deleted", { name: guest.name }));
-      },
+      onclick: () => removed(deleteGuest(guestId), t("deleted", { name: guest.name }), () => putGuest(guestId, guest)),
     }, t("delete")),
     busy && h("small", { class: "field-hint center" }, t("cantDeleteGuest")),
     closeButton(),
@@ -1667,13 +1703,16 @@ export function sendToChat(doc, phone) {
   return shareOnWhatsApp({ text: receiptMessage(doc, link), phone: phone || null });
 }
 
-// Ana düğme: doğrudan sohbete fiş bağlantısı; altında resim, (varsa) fatura bilgisi ve yazdır.
+// Ana düğme: fiş fotoğraf olarak WhatsApp'a (paylaşım ekranında WhatsApp ve kişi seçilir). Dosya
+// paylaşamayan cihazda (bilgisayar) doğrudan sohbete yazı + bağlantı. Altında: yazı + bağlantı
+// (kişinin sohbeti doğrudan açılır), (varsa) fatura bilgisi ve yazdır.
 function chatButtons({ doc, phone, label, image, invoice, print }) {
+  const photo = canShareFiles();
   return [
-    h("button", { type: "button", class: "block whatsapp", onclick: () => sendToChat(doc(), phone) }, icon("whatsapp"), label),
-    !phone && h("small", { class: "field-hint center" }, t("noPhoneChat")),
+    h("button", { type: "button", class: "block whatsapp", onclick: () => (photo ? image() : sendToChat(doc(), phone)) }, icon("whatsapp"), label),
+    h("small", { class: "field-hint center" }, t(photo ? "photoShareHint" : phone ? "textShareHint" : "noPhoneChat")),
     h("div", { class: invoice ? "row3" : "row2" },
-      h("button", { type: "button", class: "block", onclick: image }, icon("camera"), t("shareImage")),
+      h("button", { type: "button", class: "block", onclick: () => sendToChat(doc(), phone) }, icon("send"), t("sendAsText")),
       invoice && h("button", { type: "button", class: "block", onclick: invoice }, icon("receipt"), t("sendInvoice")),
       h("button", { type: "button", class: "block", onclick: print }, icon("printer"), t("print"))),
   ];
@@ -2005,7 +2044,6 @@ function editMove(move) {
 }
 
 function trashMove(move) {
-  if (!confirm(t("confirmTrash"))) return;
   sheet.close();
   voidMoves([move], t("trashedReason")).catch(failed);
   toast(t("movedToTrash"), () => restoreMove(move).done.then(() => toast(t("restored")), failed));

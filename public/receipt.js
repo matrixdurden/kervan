@@ -108,6 +108,15 @@ export function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
+// Bu cihaz resim dosyası paylaşabiliyor mu (telefonlarda evet, çoğu bilgisayarda hayır)?
+export function canShareFiles() {
+  try {
+    return Boolean(navigator.canShare?.({ files: [new File([""], "fis.png", { type: "image/png" })] }));
+  } catch {
+    return false;
+  }
+}
+
 // Dosya paylaşılabiliyorsa paylaşım menüsü; yoksa wa.me bağlantısı (+ PNG indirilir, elle eklensin).
 export async function shareOnWhatsApp({ blob, filename = "fis.png", text = "", phone = null } = {}) {
   if (blob) {

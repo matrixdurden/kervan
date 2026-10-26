@@ -18,16 +18,16 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods, sendToChat,
+  openMethodsSheet, paymentMethods, sendToChat, openProductCategories,
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
-import { productByBarcode, productLabel, recompute, restoreProduct, restoreParty } from "./data.js";
+import { productByBarcode, productLabel, recompute, restoreProduct, restoreParty, purgeTrash } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
 import { sharedAiReady } from "./ai.js";
 import { REPORT_TYPES, buildReport, salesSeries } from "./report.js";
 import { kpi, pct, salesChart, profitCard, reportTiles, reportDetail, NOW_REPORTS } from "./report-pages.js";
-import { receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
+import { receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
 
 const PAGE = 100;
 
@@ -100,6 +100,7 @@ export function rebuildFirm() {
 
 export function openPage(id, options = {}) {
   if (page) pageStack.push({ id: page, y: scrollY });
+  purge = null;
   page = id;
   if (options.kind) search[options.kind] = "";
   if (options.filter) productFilter = options.filter;
@@ -115,6 +116,7 @@ export function openPage(id, options = {}) {
 // Geri: alt sayfadan (ör. bir rapor) bir önceki sayfaya (Raporlar), en sonunda ana ekrana.
 export function closePage() {
   const prev = pageStack.pop();
+  purge = null;
   page = prev?.id ?? null;
   if (page) listenPageMoves();
   else stopPageMoves();
@@ -405,7 +407,9 @@ function productItems(items) {
 
 const productsPage = {
   fab: () => [t("newProduct"), () => openProductSheet()],
-  top: () => pageTop(t("page_products"), viewToggle()),
+  top: () => pageTop(t("page_products"), h("div", { class: "top-actions" },
+    h("button", { type: "button", class: "icon-btn", "aria-label": t("productCategories"), title: t("productCategories"), onclick: () => openProductCategories() }, icon("tag")),
+    viewToggle())),
   head: () => h("div", { class: "page-head" },
     segmented([["all", t("filterAll")], ["low", t("filterLow")]], productFilter, (v) => { productFilter = v; rerenderBody(); }, "tabs"),
     searchBox(t("searchProducts"), search.products, (v) => { search.products = v; rerenderBody(); }, canScan() ? scanProduct : null)),
@@ -693,10 +697,14 @@ const cashPage = {
           fact(t("netCapital"), formatMoney(acc.capital ?? 0)),
           fact(t("equity"), formatMoney(equity)))),
         h("div", { class: "statement-actions" },
-          h("button", { type: "button", class: "whatsapp", onclick: () => sendToChat(summary(), firm.guests?.[x.uid]?.phone) },
-            icon("whatsapp"), t("sendPartnerSummary")),
-          h("button", { type: "button", class: "small", "aria-label": t("shareImage"), title: t("shareImage"),
-            onclick: () => sendSummary(summary(), `ortak-${x.name}.png`, firm.guests?.[x.uid]?.phone || null) }, icon("camera")),
+          // Yeşil: fotoğraf olarak (dosya paylaşamayan cihazda yazı + bağlantı); yanındaki: doğrudan sohbete yazı + bağlantı.
+          h("button", {
+            type: "button", class: "whatsapp",
+            onclick: () => (canShareFiles() ? sendSummary(summary(), `ortak-${x.name}.png`, firm.guests?.[x.uid]?.phone || null)
+              : sendToChat(summary(), firm.guests?.[x.uid]?.phone)),
+          }, icon("whatsapp"), t("sendPartnerSummary")),
+          h("button", { type: "button", class: "small", "aria-label": t("sendAsText"), title: t("sendAsText"),
+            onclick: () => sendToChat(summary(), firm.guests?.[x.uid]?.phone) }, icon("send")),
           h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => printReceipt(summary(), receiptLabels()) },
             icon("printer"))));
       })),
@@ -794,7 +802,11 @@ const TRASH_GROUPS = [
 let trashCat = "";
 
 // Çöpteki ürün ya da cari: kim, ne zaman sildi; yanında "Geri yükle".
-function trashRecord(x, kind) {
+// Temizleme modunda kayıt seçimi: yuvarlak işaret (seçiliyse ✓).
+const pickMark = (on) => h("span", { class: `pick-check${on ? " on" : ""}`, "aria-hidden": "true" }, on ? icon("check") : null);
+
+// pick: temizleme modunda { on, toggle } — dokununca seçilir, "Geri yükle" görünmez.
+function trashRecord(x, kind, pick) {
   const firm = currentFirm();
   const at = millis(x.deleted?.at);
   const when = at ? new Intl.DateTimeFormat(dateLocale(), { day: "numeric", month: "short" }).format(at) : "";
@@ -808,26 +820,75 @@ function trashRecord(x, kind) {
       toast(t("saveFailed"));
     }
   };
-  return h("li", {}, h("div", { class: "card row trash-record" },
+  const parts = [
     kind === "product" ? productThumb(x) : partyAvatar(x),
     h("span", { class: "main" },
       h("span", { class: "title" }, h("bdi", {}, kind === "product" ? productLabel(x) : x.name)),
-      h("span", { class: "meta" }, [what, t("trashedBy", { name: person(firm, x.deleted?.by).name }), when].filter(Boolean).join(" · "))),
+      h("span", { class: "meta" }, [what, t("trashedBy", { name: person(firm, x.deleted?.by).name }), when].filter(Boolean).join(" · ")))];
+  if (pick) {
+    return h("li", {}, h("button", {
+      type: "button", class: `card row trash-record${pick.on ? " picked" : ""}`, "aria-pressed": String(pick.on), onclick: pick.toggle,
+    }, pickMark(pick.on), ...parts));
+  }
+  return h("li", {}, h("div", { class: "card row trash-record" }, ...parts,
     h("button", { type: "button", class: "small primary", onclick: restore }, icon("undo"), t("restore"))));
+}
+
+// Çöp kutusunu temizleme: "Temizle" seçim modunu açar; kayıtlar tek tek ya da "Hepsini seç" ile seçilip
+// kalıcı silinir. Kalıcı silme ilk dokunuşta "Emin misin?" olur, ikinci dokunuşta siler (açılır soru yok).
+let purge = null; // seçim modunda: seçilenlerin anahtarları ("m:id", "p:id", "c:id")
+let purgeArmed = null; // "Emin misin?" bekleme zamanlayıcısı
+
+function setPurge(on) {
+  purge = on ? new Set() : null;
+  clearTimeout(purgeArmed);
+  purgeArmed = null;
+  rendered = null; // başlıktaki düğme de değişir
+  render();
+}
+
+async function runPurge(keys) {
+  const ids = (prefix) => keys.filter((k) => k.startsWith(prefix)).map((k) => k.slice(2));
+  setPurge(false);
+  try {
+    await purgeTrash({ moves: ids("m:"), products: ids("p:"), parties: ids("c:") });
+    toast(t("purged", { n: keys.length }));
+  } catch (err) {
+    console.error(err);
+    toast(t("saveFailed"));
+  }
 }
 
 const trashPage = {
   trash: true,
-  top: () => pageTop(t("page_trash")),
+  top: () => pageTop(t("page_trash"), h("button", { type: "button", class: `small${purge ? "" : " danger"}`, onclick: () => setPurge(!purge) },
+    purge ? t("cancel") : [icon("trash"), t("trashClean")])),
   body() {
     if (!pageMoves) return [];
     const { products, parties } = session.firm.trash;
     const groupOf = (m) => TRASH_GROUPS.find(([, types]) => types?.includes(m.type))?.[0] ?? "cash";
+    // Seçim modunda dokunmak seçer; değilse ayrıntıyı açar (ürün/kişide "Geri yükle").
+    const pick = (key) => purge && {
+      on: purge.has(key),
+      toggle: () => { if (!purge.delete(key)) purge.add(key); rerenderBody(); },
+    };
+    const moveItem = (m) => {
+      const key = `m:${m.id}`;
+      const p = pick(key);
+      const li = moveRow(m, { onclick: p ? p.toggle : () => openMoveDetail(m) });
+      if (p) {
+        li.firstChild.classList.toggle("picked", p.on);
+        li.firstChild.setAttribute("aria-pressed", String(p.on));
+        li.firstChild.prepend(pickMark(p.on));
+      }
+      return li;
+    };
     const items = [
-      ...[...products.values()].map((p) => ({ group: "products", at: millis(p.deleted?.at), el: () => trashRecord(p, "product") })),
-      ...[...parties.values()].map((p) => ({ group: p.kind === "seller" ? "sellers" : "suppliers", at: millis(p.deleted?.at), el: () => trashRecord(p, "party") })),
-      ...pageMoves.filter((m) => !m.restored).map((m) => ({ group: groupOf(m), at: millis(m.voided?.at), el: () => moveRow(m, { onclick: () => openMoveDetail(m) }) })),
+      ...[...products.values()].map((p) => ({ key: `p:${p.id}`, group: "products", at: millis(p.deleted?.at), el: () => trashRecord(p, "product", pick(`p:${p.id}`)) })),
+      ...[...parties.values()].map((p) => ({ key: `c:${p.id}`, group: p.kind === "seller" ? "sellers" : "suppliers", at: millis(p.deleted?.at), el: () => trashRecord(p, "party", pick(`c:${p.id}`)) })),
+      ...pageMoves.filter((m) => !m.restored).map((m) => ({ key: `m:${m.id}`, group: groupOf(m), at: millis(m.voided?.at), el: () => moveItem(m) })),
     ].sort((a, b) => b.at - a.at);
+    $("#firm").classList.toggle("has-fab", Boolean(purge && items.length));
     if (!items.length) return [emptyState("🗑️", t("trashEmpty"))];
 
     const counts = new Map();
@@ -836,10 +897,26 @@ const trashPage = {
     const options = [["", t("filterAll"), items.length],
       ...TRASH_GROUPS.filter(([g]) => counts.has(g)).map(([g]) => [g, t(g === "cash" ? "trashCash" : `page_${g}`), counts.get(g)])];
     const shown = items.filter((it) => !trashCat || it.group === trashCat);
+    // Seçilmiş ama artık görünmeyen (başka bölümde ya da silinmiş) kayıtlar sayılmaz.
+    const chosen = purge ? shown.map((it) => it.key).filter((k) => purge.has(k)) : [];
+    const allOn = purge && chosen.length === shown.length;
     const out = [
       bubbleRow(options, trashCat, (v) => { trashCat = v; rerenderBody(); }, t("page_trash")),
-      h("p", { class: "field-hint trash-hint" }, t("trashHint")),
+      h("p", { class: "field-hint trash-hint" }, t(purge ? "purgeHint" : "trashHint")),
       h("ul", { class: "cards" }, shown.map((it) => it.el())),
+      purge && h("div", { class: "fab-bar purge-bar" },
+        h("button", {
+          type: "button", class: "block",
+          onclick: () => { for (const it of shown) (allOn ? purge.delete(it.key) : purge.add(it.key)); rerenderBody(); },
+        }, icon(allOn ? "x" : "listCheck"), t(allOn ? "selectNone" : "selectAll")),
+        h("button", {
+          type: "button", class: `block danger-fill${purgeArmed ? " armed" : ""}`, disabled: !chosen.length,
+          onclick: () => {
+            if (purgeArmed) return runPurge(chosen);
+            purgeArmed = setTimeout(() => { purgeArmed = null; rerenderBody(); }, 4000);
+            return rerenderBody();
+          },
+        }, icon("trash"), purgeArmed ? t("purgeConfirm") : t("purgeSelected", { n: chosen.length }))),
     ];
     if (pageMoves.length >= pageLimit) {
       out.push(h("button", { type: "button", class: "block more", onclick: () => { pageLimit += PAGE; listenPageMoves(); } }, t("olderMoves")));

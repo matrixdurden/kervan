@@ -7,8 +7,9 @@ import { doc, getDoc } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-
 import { db } from "./firebase.js";
 import { session } from "./session.js";
 
-const THUMB = 160; // px, ~8 KB
+const THUMB = 320; // px, ~20 KB: kutucuklarda büyük ve net görünsün
 const FULL = 720; // px, ~70 KB
+const THUMB_MAX = 38000; // karakter; veritabanı kuralı küçük resmi 40 000 karakterle sınırlar
 
 // Dosya seçtirir (telefonda kamera ya da galeri). Vazgeçilirse null.
 export function pickImage() {
@@ -39,7 +40,13 @@ async function shrink(bitmap, size, quality) {
 export async function preparePhoto(file) {
   const bitmap = await createImageBitmap(file);
   try {
-    return { thumb: await shrink(bitmap, THUMB, 0.7), full: await shrink(bitmap, FULL, 0.75) };
+    // Küçük resim sınırı aşarsa önce kalite, sonra boyut düşürülür.
+    let thumb = "";
+    for (const [size, quality] of [[THUMB, 0.72], [THUMB, 0.55], [256, 0.6], [200, 0.6], [160, 0.6]]) {
+      thumb = await shrink(bitmap, size, quality);
+      if (thumb.length <= THUMB_MAX) break;
+    }
+    return { thumb, full: await shrink(bitmap, FULL, 0.75) };
   } finally {
     bitmap.close?.();
   }
