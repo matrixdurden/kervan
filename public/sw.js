@@ -1,11 +1,11 @@
 // Uygulama dosyalarını önbelleğe alır ki internet yokken de açılsın.
 // İnternet varsa her zaman en güncel sürüm gelir.
 
-const CACHE = "kervan-v16";
+const CACHE = "kervan-v17";
 const SHELL = [
   "/", "/index.html", "/style.css", "/app.js", "/firm.js", "/party.js", "/forms.js", "/views.js", "/nav.js",
   "/data.js", "/ledger.js", "/money.js", "/rates.js", "/ui.js", "/session.js", "/firebase.js", "/firebase-config.js",
-  "/install.js", "/i18n.js", "/photos.js", "/scanner.js", "/contacts.js", "/receipt.js", "/invoice.js", "/importer.js", "/ai.js", "/report.js",
+  "/install.js", "/i18n.js", "/photos.js", "/scanner.js", "/contacts.js", "/receipt.js", "/invoice.js", "/importer.js", "/ai.js", "/report.js", "/report-pages.js",
   "/manifest.webmanifest", "/manifest-dark.webmanifest", "/icons/icon.svg",
 ];
 

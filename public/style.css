@@ -1114,6 +1114,18 @@ button.bar.on .bar-fill { background: var(--sale); }
 .pl-row strong.in { color: var(--in); }
 .report-products { margin-top: 10px; }
 
+/* Detaylı rapor kutucukları ve sayfaları */
+.report-tiles { margin-top: 0; }
+.report-tiles .tile-small { height: 96px; font-size: 14.5px; text-align: center; white-space: normal; line-height: 1.2; padding: 6px; }
+.month-pl { margin-bottom: 8px; }
+p.total-line, .pl-row.total-line { display: flex; justify-content: space-between; margin: 12px 6px; font-weight: 800; }
+.pl-row.total-line.in strong { color: var(--in); }
+.pl-row.total-line.out strong { color: var(--out); }
+.rank-list { padding: 0; }
+.rank { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 50%; font-weight: 800; color: var(--on-ink); background: var(--ink); }
+.rank-list li:nth-child(-n+3) .rank { background: var(--accent); color: #fff; }
+.balance-kpis { margin-top: 12px; }
+
 /* Azalanlarda sipariş çağrısı ve sipariş satırı */
 .order-cta {
   display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; padding: 14px;

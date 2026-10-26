@@ -3,9 +3,10 @@
 // İptal edilmiş (çöp kutusundaki) hareketler sayılmaz.
 
 import { lineTotal, roundQty } from "./ledger.js";
+import { invoiceTotals } from "./receipt.js";
 
 const SALES = ["sale", "consignSale"];
-export const REPORT_TYPES = [...SALES, "purchase", "expense", "collection", "payment"];
+export const REPORT_TYPES = [...SALES, "purchase", "expense", "collection", "payment", "return", "consign", "capitalIn", "withdraw", "transfer"];
 
 // Dövizli hareketin TL karşılığı.
 export const inLira = (m) => (m.currency && m.rate ? Math.round(m.total * m.rate) : m.total);
@@ -18,6 +19,8 @@ const bump = (map, key, init, fn) => {
 
 export function buildReport(moves) {
   const r = {
+    // Dönemin geçerli hareketleri, en yeni tarih üstte (detay raporlarının listeleri için).
+    moves: moves.filter((m) => !m.voided).sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0)),
     sales: 0, cogs: 0, salesCount: 0, purchases: 0, expenses: 0, collections: 0, payments: 0,
     days: new Map(), // "YYYY-MM-DD" → { sales, profit }
     customers: new Map(), // kişi → { name, sales, profit, count }
@@ -94,6 +97,27 @@ export function salesSeries(days, { from, to, today }) {
   for (let key = start; key <= end; key = nextMonth(key)) out.push({ key, unit: "month", ...(byMonth.get(key) ?? { sales: 0, profit: 0 }) });
   return out.slice(-12);
 }
+
+// Hareketleri bir anahtara göre toplar: anahtar → { name, total, count } (tutar TL'ye çevrilir).
+export function groupTotals(moves, keyOf, nameOf = () => "", valueOf = inLira) {
+  const out = new Map();
+  for (const m of moves) {
+    const key = keyOf(m);
+    bump(out, key, () => ({ name: nameOf(m) ?? "", total: 0, count: 0 }), (g) => { g.total += valueOf(m); g.count += 1; });
+  }
+  return out;
+}
+
+// Satışlardaki KDV: satış fiyatları KDV dahildir; oranı ürünün KDV oranı (rateOf(ürünId)).
+export function salesVat(moves, rateOf) {
+  const lines = moves.filter((m) => SALES.includes(m.type) && !m.voided)
+    .flatMap((m) => m.lines ?? []).map((l) => ({ qty: l.qty, price: l.price, vatRate: rateOf(l.product) }));
+  return invoiceTotals(lines);
+}
+
+// Dönemdeki aylar (yeni üstte): özeti olan aylar; from boşsa hepsi.
+export const monthsInRange = (months, from, to) =>
+  [...(months instanceof Map ? months.keys() : Object.keys(months))].filter((k) => (!from || k >= from) && k <= to).sort().reverse();
 
 // En büyükten küçüğe ilk n kayıt: [[id, değer], …]
 export const topBy = (map, field, n = 10) => [...map.entries()].sort((a, b) => b[1][field] - a[1][field]).slice(0, n);

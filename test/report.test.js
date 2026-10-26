@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildReport, salesSeries, topBy, inLira } from "../public/report.js";
+import { buildReport, salesSeries, topBy, inLira, groupTotals, salesVat, monthsInRange } from "../public/report.js";
 
 const sale = (date, party, partyName, lines, extra = {}) => ({
   type: "sale", date, party, partyName, lines,
@@ -69,4 +69,19 @@ test("salesSeries: tek ayda günler (bu ayda bugüne kadar), uzun dönemde aylar
   assert.deepEqual(all.map((x) => x.key), ["2026-10"]);
   const empty = salesSeries(new Map(), { from: "", to: "9999-99", today: "2026-10-26" });
   assert.deepEqual(empty.map((x) => x.key), ["2026-10"]);
+});
+
+test("groupTotals, salesVat, monthsInRange; hareket listesi en yeni üstte ve iptalsiz", () => {
+  const r = buildReport(MOVES);
+  assert.equal(r.moves.length, MOVES.length - 1);
+  assert.equal(r.moves[0].date, "2026-10-05");
+  const pays = groupTotals(r.moves.filter((m) => m.type === "payment"), (m) => m.party, (m) => m.partyName);
+  assert.deepEqual(pays.get("usd"), { name: "", total: 82000, count: 1 });
+  const vat = salesVat(MOVES, (id) => (id === "cay" ? 20 : 1));
+  assert.equal(vat.gross, 50000 + 54000 + 43000 + 9000);
+  assert.deepEqual(vat.byRate.map((x) => x.rate), [1, 20]);
+  assert.equal(vat.net + vat.vat, vat.gross);
+  const months = new Map([["2026-08", {}], ["2026-10", {}], ["2025-12", {}]]);
+  assert.deepEqual(monthsInRange(months, "2026-01", "2026-12"), ["2026-10", "2026-08"]);
+  assert.deepEqual(monthsInRange(months, "", "9999-99"), ["2026-10", "2026-08", "2025-12"]);
 });
