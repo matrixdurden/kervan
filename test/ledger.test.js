@@ -301,3 +301,18 @@ test("stok sayımı iptal edilince stok ve kâr eski haline döner", () => {
   assert.deepEqual(after.products.get("çay"), state.products.get("çay"));
   assert.deepEqual(after.months.get("2026-10"), state.months.get("2026-10"));
 });
+
+const fixCost = (product, stock, price) => ({ type: "costFix", party: "", date: D, by: "ali", lines: [{ product, qty: stock, price }] });
+
+test("maliyet düzeltme: depodaki malın değeri yeni maliyete çekilir, kâr değişmez; iptal geri alır", () => {
+  const state = run([buy("çay", 10, 10000)]);
+  const get = { product: (id) => state.products.get(id) };
+  const fix = recorded(fixCost("çay", 10, 12000), get);
+  const after = run([buy("çay", 10, 10000), fix]);
+  assert.deepEqual(after.products.get("çay"), { stock: 10, value: 120000, lastCost: 12000 });
+  assert.equal(after.months.get("2026-10"), undefined);
+  const sold = run([buy("çay", 10, 10000), fix, sell("çay", 2, 15000)]);
+  assert.equal(sold.results[2].lines[0].cost, 24000);
+  const undone = run([buy("çay", 10, 10000), fix, { revert: fix }]);
+  assert.deepEqual(undone.products.get("çay"), state.products.get("çay"));
+});

@@ -5,7 +5,7 @@
 import { $, h, icon, iconButton, toast, today } from "./ui.js";
 import { t, UNITS, unitLabel } from "./i18n.js";
 import { session, currentFirm } from "./session.js";
-import { parseMoney, parseQty, formatMoney, moneyInput, qtyInput } from "./money.js";
+import { parseMoney, parseQty, formatMoney, moneyInput, qtyInput, base } from "./money.js";
 import { lineTotal } from "./ledger.js";
 import { recordMoves, voidMoves, productLabel } from "./data.js";
 import { byName, productCategories } from "./views.js";
@@ -120,7 +120,7 @@ export function review(invoice) {
     if (!supplier.value) return t("chooseSupplier");
     if (rows.length > 100) return t("tooManyLines");
     const existing = session.firm.parties.get(supplier.value);
-    const supplierCurrency = existing ? existing.currency || "TRY" : currency;
+    const supplierCurrency = existing ? existing.currency || base() : currency;
     if (supplierCurrency !== currency) return t("currencyMismatch", { a: currency, b: supplierCurrency });
     const newProducts = {};
     const lines = [];
@@ -140,7 +140,7 @@ export function review(invoice) {
       type: "purchase", party: supplier.value === NEW ? "__supplier" : supplier.value, date: date.value || today(),
       note: t("fromInvoice"), invoiceNo: invoiceNo.value.trim(), lines,
     };
-    if (currency !== "TRY") {
+    if (currency !== base()) {
       const r = rate.value();
       if (!r) return t("enterRate");
       Object.assign(input, { currency, rate: r });

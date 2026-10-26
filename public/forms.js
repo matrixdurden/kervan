@@ -8,7 +8,7 @@ import { t, UNITS, unitLabel, lang } from "./i18n.js";
 import { session, currentFirm, person, partners, generalShares } from "./session.js";
 import {
   parseMoney, parseQty, parseRate, formatMoney, formatNumber, formatRate, moneyInput, qtyInput,
-  CURRENCIES, currencySymbol,
+  CURRENCIES, currencySymbol, currencyName, base,
 } from "./money.js";
 import { PARTY_KIND, hasLines, lineTotal, avgCost, roundQty } from "./ledger.js";
 import {
@@ -17,6 +17,7 @@ import {
 } from "./data.js";
 import {
   byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory, NO_CATEGORY,
+  unitCostOf, landedCost,
 } from "./views.js";
 import { RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
 import { pickGeminiModel } from "./invoice.js";
@@ -146,7 +147,6 @@ function missing(title, text, action, onclick) {
   ]);
 }
 
-const CURRENCY_NAMES = { TRY: "currency_TRY", USD: "currency_USD", EUR: "currency_EUR" };
 
 // --- Ürün -------------------------------------------------------------------
 
@@ -305,6 +305,28 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
   const variant = textInput({ maxlength: 40, value: product?.variant ?? "", placeholder: t("variantPlaceholder") });
   const unit = select(UNITS.map((u) => [u, unitLabel(u)]), base.unit ?? UNITS[0]);
   const price = numberInput({ value: moneyInput(base.price), placeholder: "0,00" });
+  // Maliyet satış fiyatının solunda ve düzenlenebilir. Kayıtlı üründe şu anki birim maliyet gelir;
+  // değiştirilirse kaydedince maliyet düzeltme kaydı girer (depodaki malın değeri de güncellenir).
+  const costNow = product ? Math.round(unitCostOf(product)) : base.cost ?? 0;
+  const costIn = numberInput({ value: moneyInput(costNow), placeholder: "0,00" });
+  // Birim başına yakıt gideri ve istenen kadar başka masraf: sadece kârı doğru göstermek için.
+  const fuel = numberInput({ value: moneyInput(base.fuel ?? 0), placeholder: "0,00" });
+  const extraList = h("div", { class: "cat-list" });
+  const extras = [];
+  const addExtra = (x) => {
+    const nameIn = textInput({ maxlength: 40, value: x?.name ?? "", placeholder: t("extraCostName") });
+    const amountIn = numberInput({ value: moneyInput(x?.amount ?? 0), placeholder: "0,00", class: "extra-amount" });
+    const row = { nameIn, amountIn };
+    const el = h("div", { class: "cat-row" }, nameIn, amountIn, iconButton("x", t("remove"), () => {
+      extras.splice(extras.indexOf(row), 1);
+      el.remove();
+      showMargin();
+    }));
+    amountIn.addEventListener("input", () => showMargin());
+    extras.push(row);
+    extraList.append(el);
+    return nameIn;
+  };
   const vat = numberInput({ value: String(base.vat ?? firm.defaultVat ?? 20).replace(".", ","), placeholder: "20" });
   const minStock = numberInput({ value: base.minStock ? qtyInput(base.minStock) : "", placeholder: t("minStockPlaceholder") });
   const barcode = barcodeField(product?.barcode ?? preset.barcode ?? "");
@@ -312,22 +334,25 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
 
   // Stok, birim ve fiyatın hemen altında: yeni üründe "Elinde şu an var mı?", kayıtlı üründe depo durumu.
   let qty;
-  let openingCost;
   let stockBlock;
 
-  // Kâr marjı canlı: satış fiyatı ile maliyetten. Kayıtlı üründe ortalama (ya da son) alış maliyeti,
-  // yeni üründe yazılan birim maliyet (fiyatı belirlerken yüzdeyi görmek için).
-  const cost = () => (product ? (product.stock > 0 ? avgCost(product) : product.lastCost) : parseMoney(openingCost?.value ?? "") ?? 0);
+  // Kâr marjı canlı: satış fiyatı ile toplam maliyetten (alış + yakıt + diğer masraflar).
+  const extraSum = () => (parseMoney(fuel.value) ?? 0) + sum(extras, (x) => parseMoney(x.amountIn.value) ?? 0);
+  const cost = () => (parseMoney(costIn.value) ?? 0) + extraSum();
   const margin = h("small", { class: "field-hint margin" });
   const showMargin = () => {
     const p = parseMoney(price.value);
     const c = cost();
     const m = marginPct(p, c);
-    margin.textContent = m == null ? (product ? "" : t("marginNeedsCost"))
-      : t("marginLine", { pct: formatNumber(m), amount: formatMoney(p - Math.round(c)), cost: formatMoney(Math.round(c)) });
+    const extra = extraSum();
+    const parts = [m == null ? t("marginNeedsCost")
+      : t("marginLine", { pct: formatNumber(m), amount: formatMoney(p - Math.round(c)), cost: formatMoney(Math.round(c)) })];
+    if (extra) parts.push(t("landedLine", { cost: formatMoney(parseMoney(costIn.value) ?? 0), extra: formatMoney(extra) }));
+    margin.textContent = parts.join(" · ");
     margin.classList.toggle("bad", m != null && m < 0);
   };
-  price.addEventListener("input", showMargin);
+  for (const el of [price, costIn, fuel]) el.addEventListener("input", showMargin);
+  for (const x of base.extras ?? []) addExtra(x);
   if (product) {
     stockBlock = [h("div", { class: "facts" },
       fact(t("inStock"), `${formatNumber(product.stock)} ${unitLabel(product.unit)}`),
@@ -336,12 +361,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
       fact(t("stockValue"), formatMoney(product.value)))];
   } else {
     qty = numberInput({ placeholder: "0" });
-    openingCost = numberInput({ placeholder: "0,00", oninput: showMargin });
-    stockBlock = [
-      h("p", { class: "label" }, t("openingStock")),
-      h("div", { class: "row2" }, field(t("qtyOnHand"), qty), field(t("unitCost"), openingCost)),
-      margin,
-      h("small", { class: "field-hint" }, t("openingStockHint"))];
+    stockBlock = [field(t("openingStock"), qty, t("openingStockHint"))];
   }
   showMargin();
 
@@ -350,10 +370,15 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     field(t("productName"), name),
     category.el,
     field(t("variant"), variant, t("variantHint")),
-    h("div", { class: "row2" }, field(t("unit"), unit), field(t("salePrice"), price)),
-    product ? margin : null, // yeni üründe marj birim maliyetin altında
+    h("div", { class: "row2" }, field(t("costPrice"), costIn), field(t("salePrice"), price)),
+    margin,
+    product && product.stock > 0 && h("small", { class: "field-hint" }, t("costFixHint")),
+    h("div", { class: "row2" }, field(t("vatRate"), vat), field(t("fuelCost"), fuel)),
+    extraList,
+    h("button", { type: "button", class: "small add-line", onclick: () => addExtra().focus() }, "+ ", t("addExtraCost")),
+    h("small", { class: "field-hint" }, t("extraCostsHint")),
     ...stockBlock,
-    h("div", { class: "row2" }, field(t("vatRate"), vat), field(t("minStock"), minStock)),
+    h("div", { class: "row2" }, field(t("unit"), unit), field(t("minStock"), minStock)),
     h("small", { class: "field-hint" }, t("minStockHint")),
     barcode.el,
   ];
@@ -414,25 +439,35 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     const code = barcode.input.value.trim();
     const twin = code && productByBarcode(code);
     if (twin && twin.id !== product?.id) return t("barcodeTaken", { name: productLabel(twin) });
+    const c = costIn.value.trim() ? parseMoney(costIn.value) : 0;
+    const f = fuel.value.trim() ? parseMoney(fuel.value) : 0;
+    if (c == null || f == null) return t("badNumber");
+    const extraCosts = [];
+    for (const x of extras) {
+      const a = x.amountIn.value.trim() ? parseMoney(x.amountIn.value) : 0;
+      if (a == null) return t("badNumber");
+      if (a || x.nameIn.value.trim()) extraCosts.push({ name: x.nameIn.value.trim() || t("extraCost"), amount: a });
+    }
     let opening;
-    // Miktar varsa açılış kaydı; sadece birim maliyet yazıldıysa ürünün son alış maliyeti olur
+    // Yeni üründe miktar varsa açılış kaydı; sadece maliyet yazıldıysa ürünün son alış maliyeti olur
     // (marj ve alışta önerilen fiyat için).
     let lastCost;
-    if (!product && (qty.value.trim() || openingCost.value.trim())) {
-      const c = openingCost.value.trim() ? parseMoney(openingCost.value) : 0;
-      if (c == null) return t("badNumber");
-      if (qty.value.trim()) {
-        const q = parseQty(qty.value);
-        if (!q) return t("badOpening");
-        opening = { qty: q, cost: c };
-      } else {
-        lastCost = c;
-      }
+    if (!product && qty.value.trim()) {
+      const q = parseQty(qty.value);
+      if (!q) return t("badOpening");
+      opening = { qty: q, cost: c };
+    } else if (!product && c) {
+      lastCost = c;
     }
     const data = {
       name: n, variant: variant.value.trim(), category: category.value(), unit: unit.value, price: p, barcode: code, vat: v, minStock: min,
-      groupId: product?.groupId ?? preset.groupId ?? "",
+      groupId: product?.groupId ?? preset.groupId ?? "", fuel: f, extras: extraCosts.slice(0, 10),
     };
+    // Kayıtlı ürünün maliyeti elle değiştirildiyse maliyet düzeltme kaydı (depodaki değer de güncellenir).
+    if (product && c !== costNow) {
+      recordMoves([{ type: "costFix", party: "", date: today(), note: "", lines: [{ product: product.id, qty: Math.max(product.stock, 0), price: c }] }])
+        .done.catch(failed);
+    }
     const nextDeal = deal && deal.value !== currentDeal ? deal.value : undefined;
     const done = saveProduct(product?.id, data, { opening, lastCost, photo: photo.value(), deal: nextDeal });
     if (inside) {
@@ -482,11 +517,11 @@ export function openPartySheet(kind, party) {
     }, icon("contact"), t("pickContact")));
   }
 
-  // Tedarikçiyle hangi parayla çalışıldığı: borç o parada tutulur.
+  // Tedarikçiyle hangi parayla çalışıldığı: borç o parada tutulur (boşsa ana para).
   let currency = null;
   if (kind === "supplier") {
     const locked = Boolean(party?.balance);
-    currency = select(CURRENCIES.map((c) => [c, t(CURRENCY_NAMES[c])]), party?.currency ?? "TRY", { disabled: locked });
+    currency = select(CURRENCIES.map((c) => [c, currencyName(c, lang)]), party?.currency ?? base(), { disabled: locked });
     fields.push(field(t("currency"), currency, locked ? t("currencyLocked") : t("currencyHint")));
   }
 
@@ -545,18 +580,18 @@ function rateField(onchange) {
   const input = numberInput({ placeholder: "0,0000", oninput: () => { input.dataset.touched = "1"; onchange(); } });
   const label = h("span", {});
   const wrap = h("label", { class: "field" }, label, input, h("small", { class: "field-hint" }, t("rateHint")));
-  let currency = "TRY";
+  let currency = base();
   return {
     el: wrap,
     get currency() { return currency; },
     set(next) {
       currency = next;
-      wrap.hidden = next === "TRY";
-      if (next === "TRY") {
+      wrap.hidden = next === base();
+      if (next === base()) {
         onchange();
         return;
       }
-      label.textContent = t("rateLabel", { c: currencySymbol(next) });
+      label.textContent = t("rateLabel", { c: currencySymbol(next), b: currencySymbol(base()) });
       if (!input.dataset.touched) {
         input.value = lastRate(next) ? formatRate(lastRate(next)) : "";
         fetchRate(next).then((rate) => {
@@ -568,7 +603,7 @@ function rateField(onchange) {
       }
       onchange();
     },
-    value: () => (currency === "TRY" ? 1 : parseRate(input.value)),
+    value: () => (currency === base() ? 1 : parseRate(input.value)),
     // Düzenlemede kayıttaki kur (günün kuru önerilmez).
     prefill(rate) {
       input.value = formatRate(rate);
@@ -683,7 +718,7 @@ function lineRow(ctx, p, onchange, onremove, init) {
   const showHint = () => {
     const parts = [t("inStockShort", { n: formatNumber(p.stock), unit: unitLabel(p.unit) })];
     if (ctx.margin) {
-      const m = marginPct(parseMoney(price.value), p.stock > 0 ? avgCost(p) : p.lastCost);
+      const m = marginPct(parseMoney(price.value), landedCost(p));
       if (m != null) parts.push(t("marginShort", { pct: formatNumber(m) }));
     }
     hint.textContent = parts.join(" · ");
@@ -771,7 +806,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   const total = h("strong", {});
   const totalTry = h("small", { class: "field-hint" });
   const party = () => session.firm.parties.get(partySelect.value);
-  const currency = () => (kind === "supplier" ? party()?.currency || "TRY" : "TRY");
+  const currency = () => (kind === "supplier" ? party()?.currency || base() : base());
   const rate = rateField(() => refresh());
   const fields = [h("div", { class: "row2" }, field(t(kind), partySelect), field(t("date"), date)), walkHint, rate.el];
 
@@ -788,13 +823,13 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
 
   let browser = null;
   const refresh = () => {
-    for (const el of symbolEls) el.textContent = currency() === "TRY" ? "" : ` (${currencySymbol(currency())})`;
+    for (const el of symbolEls) el.textContent = currency() === base() ? "" : ` (${currencySymbol(currency())})`;
     for (const r of rows) r.refresh();
     browser?.refresh();
     const value = hasLines(type) ? sum(rows, (r) => r.total()) : parseMoney(amount.value) ?? 0;
     total.textContent = formatMoney(value, currency());
     const r = rate.value();
-    totalTry.textContent = currency() !== "TRY" && r ? t("inLira", { amount: formatMoney(Math.round(value * r)) }) : "";
+    totalTry.textContent = currency() !== base() && r ? t("inLira", { amount: formatMoney(Math.round(value * r)) }) : "";
   };
 
   if (hasLines(type)) {
@@ -811,7 +846,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
         if (type === "sale" || type === "saleReturn") return ctx.specialFor(p) ?? p.price;
         if (type === "consign") return party()?.shelf?.[p.id]?.price || p.price;
         const r = rate.value();
-        return currency() === "TRY" ? p.lastCost : r ? Math.round(p.lastCost / r) : 0;
+        return currency() === base() ? p.lastCost : r ? Math.round(p.lastCost / r) : 0;
       },
       // Müşteriye özel fiyat hafızası (sadece yeni satışta; peşin müşteride hatırlanmaz).
       priceMemory: type === "sale" && !edit,
@@ -972,7 +1007,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     if (!date.value) return t("chooseDate");
     const input = { type, party: p.id, date: date.value, note: note.value.trim(), holder: holder?.el.value };
     const cur = currency();
-    if (cur !== "TRY") {
+    if (cur !== base()) {
       const r = rate.value();
       if (!r) return t("enterRate");
       input.currency = cur;
@@ -1620,7 +1655,7 @@ export function receiptDoc(move, kind, { paid = 0, balanceAfter = null } = {}) {
       number: receiptNumber(move),
       date: move.date,
       time: at ? new Date(at).toTimeString().slice(0, 5) : "",
-      currency: move.currency ?? "TRY",
+      currency: move.currency ?? base(), base: base(),
       rate: move.rate ?? null,
       firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
       party: party ? { name: party.name, phone: party.phone ?? "" } : null,
@@ -1634,7 +1669,7 @@ export function receiptDoc(move, kind, { paid = 0, balanceAfter = null } = {}) {
     number: receiptNumber(move),
     date: move.date,
     time: at ? new Date(at).toTimeString().slice(0, 5) : "",
-    currency: move.currency ?? "TRY",
+    currency: move.currency ?? base(), base: base(),
     firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
     party: party ? {
       name: party.name, title: party.name, taxOffice: party.taxOffice ?? "", taxNo: party.taxNo ?? "",
@@ -2005,7 +2040,7 @@ export function openMoveDetail(move, { balanceAfter = null } = {}) {
       && fact(t(move.partner ? `handler_${move.type}` : `holderOf_${move.type}`), person(firm, move.holder).name),
     move.type === "expense" && fact(t("expenseDeal"), firm.deals?.[move.deal]?.name ?? t("generalShares")),
     move.type === "transfer" && fact(t("transferFromTo"), `${person(firm, move.holder).name} → ${person(firm, move.to).name}`),
-    cur && fact(t("rate"), `1 ${cur} = ₺${formatRate(move.rate)}`),
+    cur && fact(t("rate"), `1 ${cur} = ${currencySymbol(base())}${formatRate(move.rate)}`),
     fact(t("enteredBy"), `${person(firm, move.by).name}${time ? ` · ${time}` : ""}`),
   ];
   const fields = [h("div", { class: "facts" }, facts.filter(Boolean))];
@@ -2020,7 +2055,7 @@ export function openMoveDetail(move, { balanceAfter = null } = {}) {
         h("strong", {}, formatMoney(lineTotal(l), cur))))));
   }
   const totals = [fact(t("total"), formatMoney(move.total, cur))];
-  if (cur) totals.push(fact(t("inLiraShort"), formatMoney(Math.round(move.total * move.rate))));
+  if (cur) totals.push(fact(t("inBaseShort", { c: currencySymbol(base()) }), formatMoney(Math.round(move.total * move.rate))));
   if (move.type === "sale" || move.type === "consignSale") {
     const cost = sum(move.lines, (l) => l.cost ?? 0);
     const margin = marginPct(move.total, cost);

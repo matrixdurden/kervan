@@ -9,11 +9,11 @@ import { db } from "./firebase.js";
 import { $, h, icon, store, toast, avatar, today, currentTheme, applyTheme, formatDay, formatMonth, millis, dateLocale } from "./ui.js";
 import { t, unitLabel, lang, setLang } from "./i18n.js";
 import { session, currentFirm, partners, person, sharePlan, resetFirm, myName } from "./session.js";
-import { formatMoney, formatNumber, parseQty, qtyInput } from "./money.js";
+import { formatMoney, formatNumber, parseQty, qtyInput, base, setBaseCurrency, CURRENCIES, currencyName } from "./money.js";
 import { avgCost, sumMonths, splitBuckets, lineTotal, roundQty } from "./ledger.js";
 import {
   moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, newestFirst, productThumb,
-  productCategories, categoryBubbles, inCategory, bubbleRow,
+  productCategories, categoryBubbles, inCategory, bubbleRow, landedCost,
 } from "./views.js";
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
@@ -22,7 +22,7 @@ import {
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
-import { productByBarcode, productLabel, recompute, restoreProduct, restoreParty, purgeTrash, recordMoves, voidMoves } from "./data.js";
+import { productByBarcode, productLabel, recompute, restoreProduct, restoreParty, purgeTrash, recordMoves, voidMoves, saveFirmSettings } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
 import { sharedAiReady } from "./ai.js";
 import { REPORT_TYPES, buildReport, salesSeries } from "./report.js";
@@ -86,6 +86,7 @@ export function closeFirm() {
 
 export function refreshFirm() {
   if (!currentFirm()) return;
+  setBaseCurrency(currentFirm().currency);
   render();
   refreshParty();
 }
@@ -187,7 +188,7 @@ const lowProducts = () => [...session.firm.products.values()].filter(isLow).sort
 
 // Satış fiyatına göre kâr marjı (%): (satış − maliyet) / satış.
 export function marginOf(p) {
-  const cost = p.stock > 0 ? avgCost(p) : p.lastCost;
+  const cost = landedCost(p);
   if (!p.price || !cost) return null;
   return Math.round(((p.price - cost) / p.price) * 1000) / 10;
 }
@@ -196,7 +197,7 @@ export function marginOf(p) {
 function payableText() {
   const byCurrency = new Map();
   for (const p of parties("supplier")) {
-    if (p.balance > 0) byCurrency.set(p.currency || "TRY", (byCurrency.get(p.currency || "TRY") ?? 0) + p.balance);
+    if (p.balance > 0) byCurrency.set(p.currency || base(), (byCurrency.get(p.currency || base()) ?? 0) + p.balance);
   }
   if (!byCurrency.size) return formatMoney(0);
   return h("span", { class: "amounts" }, [...byCurrency].map(([c, v]) => h("bdi", {}, formatMoney(v, c))));
@@ -934,7 +935,7 @@ const stockCountPage = {
 
 // --- Hareketler (defter) ---------------------------------------------------------------------
 
-const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount"];
+const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix"];
 
 const ledgerPage = {
   types: "all",
@@ -952,7 +953,7 @@ const ledgerPage = {
 // Çöp kutusu bölümleri: ürünler, müşteriler, tedarikçiler ve hareket türleri. Sadece içinde bir şey
 // olanların baloncuğu görünür.
 const TRASH_GROUPS = [
-  ["products"], ["sellers"], ["suppliers"],
+  ["products", ["costFix"]], ["sellers"], ["suppliers"],
   ["sales", ["sale", "consignSale"]], ["purchases", ["purchase"]], ["collections", ["collection"]],
   ["saleReturns", ["saleReturn", "refund"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
   ["stockCount", ["stockCount"]], ["cash", ["capitalIn", "withdraw", "transfer", "opening"]],
@@ -1111,6 +1112,12 @@ const settingsPage = {
       h("div", { class: "field" }, h("span", {}, t("theme")),
         segmented([["auto", t("theme_auto")], ["light", t("theme_light")], ["dark", t("theme_dark")]], currentTheme(), applyTheme),
         h("small", { class: "field-hint" }, t("themeHint"))),
+      // Ana para birimi: bütün tutarlar bu paradadır (değişince tutarlar çevrilmez, sadece işaret değişir).
+      h("label", { class: "field" }, h("span", {}, t("baseCurrency")),
+        h("select", {
+          onchange: (e) => saveFirmSettings({ currency: e.target.value }).then(() => toast(t("saved")), () => toast(t("saveFailed"))),
+        }, CURRENCIES.map((c) => h("option", { value: c, selected: c === base() }, currencyName(c, lang)))),
+        h("small", { class: "field-hint" }, t("baseCurrencyHint"))),
       h("div", { class: "field" }, h("span", {}, t("waApp")),
         segmented([["", t("waApp_auto")], ["w", "WhatsApp"], ["b", "WhatsApp Business"]], store.get("waApp") ?? "", (v) => store.set("waApp", v || null)),
         h("small", { class: "field-hint" }, t("waAppHint"))),

@@ -4,7 +4,7 @@
 import { h, icon, formatDay, formatMonth } from "./ui.js";
 import { t, unitLabel } from "./i18n.js";
 import { session, currentFirm, partners, person, sharePlan } from "./session.js";
-import { formatMoney, formatNumber } from "./money.js";
+import { formatMoney, formatNumber, base } from "./money.js";
 import { sumMonths, splitBuckets, lineTotal, roundQty } from "./ledger.js";
 import { moveRow, emptyState, bubbleRow, segmented, balanceText } from "./views.js";
 import { openMoveDetail } from "./forms.js";
@@ -325,12 +325,12 @@ const PAGES = {
     const cash = sum(firm.members, (uid) => accounts.get(uid)?.cash ?? 0);
     const payables = new Map();
     for (const x of all.filter((y) => y.kind === "supplier" && y.balance > 0)) {
-      const c = x.currency || "TRY";
+      const c = x.currency || base();
       payables.set(c, (payables.get(c) ?? 0) + x.balance);
     }
     let unknown = false;
     const payableTry = sum([...payables], ([c, v]) => {
-      if (c === "TRY") return v;
+      if (c === base()) return v;
       const rate = lastRate(c);
       if (!rate) unknown = true;
       return rate ? Math.round(v * rate) : 0;
@@ -358,7 +358,7 @@ const PAGES = {
     const list = [...session.firm.parties.values()].filter((x) => x.kind === balanceKind)
       .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
     const open = list.filter((x) => x.balance);
-    const totalOf = (sign) => sum(open.filter((x) => Math.sign(x.balance) === sign && (x.currency || "TRY") === "TRY"), (x) => Math.abs(x.balance));
+    const totalOf = (sign) => sum(open.filter((x) => Math.sign(x.balance) === sign && (x.currency || base()) === base()), (x) => Math.abs(x.balance));
     return [
       segmented([["seller", t("page_sellers")], ["supplier", t("page_suppliers")]], balanceKind, (v) => { balanceKind = v; rerender(); }, "tabs"),
       h("div", { class: "kpis balance-kpis" },

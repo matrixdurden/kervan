@@ -6,7 +6,7 @@
 // "12.5" de yazılır. Tek bir noktadan sonra tam 3 hane varsa binlik sayılır ("1.250"),
 // yoksa ondalık ("12.5", "0.500").
 export function parseNumber(input) {
-  const s = String(input ?? "").replace(/\s|₺|tl/gi, "");
+  const s = String(input ?? "").replace(/\s|₺|\$|€|£|tl|usd|eur/gi, "");
   if (!/^[0-9.,]+$/.test(s) || !/[0-9]/.test(s)) return null;
 
   const commas = s.split(",").length - 1;
@@ -46,8 +46,34 @@ export function parseRate(input) {
   return n > 0 ? n : null;
 }
 
-export const CURRENCIES = ["TRY", "USD", "EUR"];
-export const currencySymbol = (currency = "TRY") => ({ TRY: "₺", USD: "$", EUR: "€" })[currency] ?? currency;
+// İşletmenin ana para birimi (Ayarlar → Ana para birimi; varsayılan Türk lirası). Bütün tutarlar, stok
+// değeri, kasa ve kâr bu paradadır. Döviz hesabı olan tedarikçinin borcu kendi parasında tutulur ve
+// kayıttaki kurla ana paraya çevrilir. Ana para değişince tutarlar çevrilmez, sadece işaret değişir.
+let baseCurrency = "TRY";
+export const setBaseCurrency = (c) => { baseCurrency = /^[A-Z]{3}$/.test(c ?? "") ? c : "TRY"; };
+export const base = () => baseCurrency;
+
+// Seçilebilen para birimleri; adları cihazın dilinde Intl'den gelir.
+export const CURRENCIES = [
+  "TRY", "USD", "EUR", "GBP", "CHF", "SAR", "AED", "QAR", "KWD", "BHD", "OMR", "JOD", "IQD", "SYP", "LBP",
+  "EGP", "LYD", "TND", "DZD", "MAD", "SDG", "YER", "IRR", "AZN", "GEL", "AMD", "RUB", "UAH", "KZT", "UZS",
+  "TMT", "KGS", "TJS", "AFN", "PKR", "INR", "BDT", "CNY", "JPY", "KRW", "IDR", "MYR", "SGD", "THB", "PHP",
+  "CAD", "AUD", "NZD", "SEK", "NOK", "DKK", "PLN", "CZK", "HUF", "RON", "BGN", "RSD", "ALL", "MKD", "BAM",
+  "ILS", "BRL", "MXN", "ZAR", "NGN", "KES", "ETB",
+];
+const SYMBOLS = {
+  TRY: "₺", USD: "$", EUR: "€", GBP: "£", JPY: "¥", CNY: "¥", RUB: "₽", INR: "₹", KRW: "₩", UAH: "₴",
+  ILS: "₪", AZN: "₼", GEL: "₾", KZT: "₸", NGN: "₦", PHP: "₱", THB: "฿",
+};
+export const currencySymbol = (currency = baseCurrency) => SYMBOLS[currency] ?? currency;
+export function currencyName(code, lang = "tr") {
+  try {
+    const name = new Intl.DisplayNames([lang], { type: "currency" }).of(code);
+    return SYMBOLS[code] && SYMBOLS[code] !== code ? `${name} (${SYMBOLS[code]})` : `${name} (${code})`;
+  } catch {
+    return code;
+  }
+}
 
 const moneyFormats = new Map();
 const numberFormat = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 3 });
@@ -55,9 +81,13 @@ const rateFormat = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 4 });
 
 // 125050 → "₺1.250,50"; dövizde 125050, "USD" → "$1.250,50"
 // Arapça (sağdan sola) metnin içinde ₺ işareti kaymasın diye tutar soldan sağa yalıtılır (U+2066…U+2069).
-export function formatMoney(kurus, currency = "TRY") {
+// Tutarlar her parada kuruş (1/100) olarak tutulduğu için hep iki ondalık gösterilir.
+export function formatMoney(kurus, currency = baseCurrency) {
   if (!moneyFormats.has(currency)) {
-    moneyFormats.set(currency, new Intl.NumberFormat("tr-TR", { style: "currency", currency }));
+    moneyFormats.set(currency, new Intl.NumberFormat("tr-TR", {
+      style: "currency", currency, currencyDisplay: SYMBOLS[currency] ? "narrowSymbol" : "code",
+      minimumFractionDigits: 2, maximumFractionDigits: 2,
+    }));
   }
   return `⁦${moneyFormats.get(currency).format((kurus || 0) / 100)}⁩`;
 }

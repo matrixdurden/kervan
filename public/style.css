@@ -695,6 +695,7 @@ button.variant {
 .cat-list { display: flex; flex-direction: column; gap: 6px; }
 .cat-row { display: flex; gap: 6px; align-items: center; }
 .cat-row input { height: 44px; }
+.cat-row input.extra-amount { flex: 0 0 110px; width: 110px; }
 /* Gider kategorisinin resmi: satırın başındaki düğme ve altında açılan resim ızgarası */
 button.emoji-pick { flex: none; width: 48px; height: 44px; padding: 0; font-size: 24px; border-radius: 12px; }
 .emoji-grid {

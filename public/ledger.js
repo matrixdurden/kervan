@@ -19,6 +19,8 @@
 //   opening      açılış: eldeki stok (lines) ya da bir kişinin mevcut bakiyesi (amount, eksi olabilir)
 //   stockCount   stok sayımı: depoda sayılanla kayıttaki stok arasındaki fark (satır adedi + fazla, − eksik);
 //                eksik malın maliyeti kârdan düşer (satılan malın maliyetine eklenir), fazlası kâra döner
+//   costFix      maliyet düzeltme: ürünün birim maliyeti elle değiştirilir (satır fiyatı yeni maliyet,
+//                adedi o anki stok); depodaki malın değeri yeni maliyete çekilir, kâra dokunmaz
 //
 // Para kuruş (ya da cent) cinsinden tam sayıdır. Bakiye kişinin para birimindedir:
 // satıcıda + "bize borçlu", tedarikçide + "biz borçluyuz" demektir.
@@ -30,14 +32,14 @@
 
 export const MOVE_TYPES = [
   "purchase", "payment", "sale", "collection", "consign", "consignSale", "return", "saleReturn", "refund",
-  "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount",
+  "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix",
 ];
 export const PARTY_KIND = {
   purchase: "supplier", payment: "supplier",
   sale: "seller", collection: "seller", consign: "seller", consignSale: "seller", return: "seller",
   saleReturn: "seller", refund: "seller",
 };
-export const LINE_TYPES = ["purchase", "sale", "consign", "consignSale", "return", "saleReturn", "stockCount"];
+export const LINE_TYPES = ["purchase", "sale", "consign", "consignSale", "return", "saleReturn", "stockCount", "costFix"];
 export const hasLines = (type) => LINE_TYPES.includes(type);
 
 export const roundQty = (n) => Math.round(n * 1000) / 1000;
@@ -170,6 +172,7 @@ export function applyMove(move, get) {
   for (const line of move.lines ?? []) {
     const { product: id, qty } = line;
     let cost;
+    let prev; // maliyet düzeltmede eski son maliyet (iptalde geri gelir)
     if (move.type === "sale") {
       const out = stockOut(t.product(id), qty);
       t.setProduct(id, out.product);
@@ -188,6 +191,12 @@ export function applyMove(move, get) {
       t.setShelf(move.party, id, out.product);
       cost = out.cost;
       t.setProduct(id, stockIn(t.product(id), qty, unit(cost, qty)));
+    } else if (move.type === "costFix") {
+      const p = t.product(id);
+      const value = p.stock > 0 ? Math.round(p.stock * line.price) : 0;
+      cost = value - p.value; // stok değerindeki değişim
+      prev = p.lastCost ?? 0;
+      t.setProduct(id, { ...p, value, lastCost: line.price });
     } else if (move.type === "stockCount") {
       // Fazla çıkan mal ortalama maliyetle girer; eksik çıkan ortalama maliyetle düşer. cost işaretlidir.
       const p = t.product(id);
@@ -211,7 +220,7 @@ export function applyMove(move, get) {
       cost = Math.round(qty * line.price * rate);
       t.setProduct(id, { ...stockIn(t.product(id), qty, unit(cost, qty)), lastCost: Math.round(line.price * rate) });
     }
-    lines.push({ ...line, cost });
+    lines.push({ ...line, cost, ...(prev != null && { prev }) });
   }
   return { products: t.products, shelves: t.shelves, balance: balanceOf(move), lines, ...moneyEffects(move, lines, 1) };
 }
@@ -233,6 +242,9 @@ export function revertMove(move, get) {
     } else if (move.type === "return") {
       t.setProduct(id, removeExact(t.product(id), qty, cost));
       t.setShelf(move.party, id, stockIn(t.shelf(move.party, id), qty, unit(cost, qty)));
+    } else if (move.type === "costFix") {
+      const p = t.product(id);
+      t.setProduct(id, { ...p, value: Math.max(p.value - cost, 0), lastCost: line.prev ?? p.lastCost });
     } else if (move.type === "stockCount" && qty < 0) {
       t.setProduct(id, stockIn(t.product(id), -qty, unit(-cost, -qty)));
     } else {

@@ -8,6 +8,7 @@ import {
   arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
+import { base } from "./money.js";
 import { session, currentFirm } from "./session.js";
 import { applyMove, revertMove, replay, moveTotal, roundQty, shelfKey, addMonth } from "./ledger.js";
 import { millis, today, PALETTE } from "./ui.js";
@@ -127,11 +128,12 @@ function moveDoc(input, lines, find, seq) {
       price: l.price,
       cost: l.cost,
       ...(l.deal && { deal: l.deal }),
+      ...(l.prev != null && { prev: l.prev }),
     }));
   } else {
     move.amount = input.amount;
   }
-  if (input.currency && input.currency !== "TRY") {
+  if (input.currency && input.currency !== base()) {
     move.currency = input.currency;
     move.rate = input.rate;
   }

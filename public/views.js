@@ -3,13 +3,20 @@
 import { h, icon, formatDay, millis } from "./ui.js";
 import { t, unitLabel } from "./i18n.js";
 import { currentFirm, person } from "./session.js";
-import { formatMoney, formatNumber } from "./money.js";
+import { formatMoney, formatNumber, base, currencySymbol } from "./money.js";
+import { avgCost } from "./ledger.js";
 
 export const TYPE_ICON = {
   purchase: "in", sale: "out", payment: "coin", collection: "coin",
-  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin", stockCount: "clipboard",
+  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin", stockCount: "clipboard", costFix: "pencil",
   expense: "receipt", capitalIn: "plusCircle", withdraw: "minusCircle", transfer: "swap", opening: "flag",
 };
+
+// Ürünün birim maliyeti: depodaki malın ortalaması (stok yoksa son alış). Yakıt ve diğer birim başı
+// masraflar (ürün formundan) sadece kâr hesabı için üstüne eklenir; defterdeki stok değerine girmez.
+export const unitCostOf = (p) => (p.stock > 0 ? avgCost(p) : p.lastCost || 0);
+export const extraCostOf = (p) => (p.fuel || 0) + (p.extras ?? []).reduce((s, e) => s + (e.amount || 0), 0);
+export const landedCost = (p) => unitCostOf(p) + extraCostOf(p);
 
 // Doğal sıra: "Ürün 2", "Ürün 10"dan önce gelir.
 export const byName = (a, b) => a.name.localeCompare(b.name, "tr", { numeric: true });
@@ -29,7 +36,7 @@ export function linesSummary(lines, max = 2) {
 
 // Bakiyenin ne demek olduğu, kişinin türüne göre:
 // satıcıda + bize borçlu, tedarikçide + biz borçluyuz.
-export function balanceText(kind, balance, currency = "TRY") {
+export function balanceText(kind, balance, currency = base()) {
   if (!balance) return { label: t("settled"), amount: formatMoney(0, currency), tone: "zero" };
   const theyOwe = kind === "seller" ? balance > 0 : balance < 0;
   return {
@@ -55,7 +62,7 @@ export function moveRow(move, { onclick, after, kind, currency } = {}) {
   const title = kind ? typeLabel : moveTitle(move, firm);
   const meta = [kind ? null : typeLabel, formatDay(move.date), person(firm, move.by).name].filter(Boolean).join(" · ");
   let sub = move.lines && (kind || move.partyName) ? linesSummary(move.lines) : move.type === "expense" ? "" : move.note;
-  if (move.currency) sub = [sub, `1 ${move.currency} = ₺${move.rate}`].filter(Boolean).join(" · ");
+  if (move.currency) sub = [sub, `1 ${move.currency} = ${currencySymbol(base())}${move.rate}`].filter(Boolean).join(" · ");
   const balance = after != null && !move.voided ? balanceText(kind, after, currency) : null;
   return h("li", {},
     h("button", { type: "button", class: `card row move ${move.type}${move.voided ? " voided" : ""}`, onclick },

@@ -31,8 +31,14 @@ function money(kurus, currency = "TRY") {
 const qtyFormat = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 3 });
 const qty = (n) => qtyFormat.format(n || 0);
 const rateFormat = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 4 });
-// Dövizli makbuzda kur satırı: "1 USD = ₺49,738"
-const rateText = (doc) => (doc.rate && doc.currency && doc.currency !== "TRY" ? `1 ${doc.currency} = ₺${rateFormat.format(doc.rate)}` : "");
+// Kur satırı ana para cinsinden: "1 USD = ₺49,738" ya da işareti olmayan parada "1 TRY = 0,0241 USD".
+const BASE_SIGNS = { TRY: "₺", USD: "$", EUR: "€", GBP: "£" };
+const rateText = (doc) => {
+  const b = doc.base ?? "TRY";
+  if (!doc.rate || !doc.currency || doc.currency === b) return "";
+  const r = rateFormat.format(doc.rate);
+  return BASE_SIGNS[b] ? `1 ${doc.currency} = ${BASE_SIGNS[b]}${r}` : `1 ${doc.currency} = ${r} ${b}`;
+};
 // Makbuzda kişi satırı: ödemede "Ödeme yapılan", tahsilatta "Ödeyen".
 const moneyParty = (doc, L) => (doc.party?.name ? `${doc.kind === "collection" ? L.receivedFrom : L.paidTo}: ${doc.party.name}` : "");
 const pct = (rate, rtl) => (rtl ? `${qtyFormat.format(rate)}%` : `%${qtyFormat.format(rate)}`);

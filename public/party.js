@@ -8,7 +8,7 @@ import { $, h, icon, toast } from "./ui.js";
 import { t, unitLabel } from "./i18n.js";
 import { session } from "./session.js";
 import { balanceOf } from "./ledger.js";
-import { formatMoney, formatNumber } from "./money.js";
+import { formatMoney, formatNumber, base, currencySymbol } from "./money.js";
 import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary } from "./views.js";
 import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, sendToChat } from "./forms.js";
 import { show } from "./nav.js";
@@ -29,7 +29,7 @@ function statementDoc(party) {
     const after = running;
     const fx = balanceOf(m);
     running -= fx;
-    const detail = m.lines ? linesSummary(m.lines, 2) : m.currency ? `1 ${m.currency} = ₺${m.rate}` : m.note || "";
+    const detail = m.lines ? linesSummary(m.lines, 2) : m.currency ? `1 ${m.currency} = ${currencySymbol(base())}${m.rate}` : m.note || "";
     return { date: m.date, label: t(`type_${m.type}`), detail, amount: m.total, sign: fx > 0 ? "+" : fx < 0 ? "−" : "", balance: after };
   }).reverse();
   const shelf = Object.entries(party.shelf ?? {}).filter(([, s]) => s.stock > 0).map(([id, s]) => {
@@ -41,7 +41,7 @@ function statementDoc(party) {
     kind: "statement",
     date: today(),
     time: new Date().toTimeString().slice(0, 5),
-    currency: party.currency || "TRY",
+    currency: party.currency || base(),
     firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
     party: { name: party.name, phone: party.phone ?? "" },
     previous: truncated || running ? running : null,
@@ -179,7 +179,7 @@ function render() {
       party.thumb && h("img", { class: "thumb round lg", src: party.thumb, alt: "" }),
       h("span", { class: "tile-label" }, b.label),
       h("strong", {}, b.amount),
-      party.currency && party.currency !== "TRY" && h("span", { class: "badge" }, t("currencyAccount", { c: party.currency })),
+      party.currency && party.currency !== base() && h("span", { class: "badge" }, t("currencyAccount", { c: party.currency })),
       party.note && h("p", { class: "meta" }, h("bdi", {}, party.note)),
       h("div", { class: "contact-actions" },
         party.phone && h("a", { class: "pill", href: `tel:${party.phone.replace(/[^\d+]/g, "")}`, dir: "ltr" }, icon("phone"), party.phone)),
