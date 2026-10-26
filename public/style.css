@@ -1,14 +1,16 @@
-/* Kervan teması: kum rengi zemin, koyu deniz yeşili ve kehribar; yuvarlak hatlar. */
+/* Kervan teması: açık, net ve okunaklı. Beyaz kartlar, belirgin çerçeveler, koyu yazılar;
+   koyu deniz yeşili ana renk, her bölümün kendi rengi. */
 
 :root {
-  --bg: #F6F2EA;
+  --bg: #F3F1EC;
   --card: #FFFFFF;
-  --card-border: #E9E2D4;
+  --card-border: #E1DCD2;
   --field: #FFFFFF;
-  --text: #1E2B2A;
-  --text-2: #566664;
-  --text-3: #8A9694;
-  --border: #D9D1C1;
+  --text: #141C1B;
+  --text-2: #3F4B49;
+  --text-3: #66726F;
+  --border: #CEC7B9;
+  --radius: 14px;
   --primary: #1F6F68;
   --on-primary: #FFFFFF;
   --accent: #C8873A;
@@ -19,20 +21,20 @@
   --on-ink: #F6F2EA;
   --danger: #B4432F;
   --warn: #A86A12;
-  --shadow: 0 1px 3px rgb(30 43 42 / 0.06);
+  --shadow: 0 1px 2px rgb(20 28 27 / 0.06), 0 3px 10px rgb(20 28 27 / 0.05);
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #121A19;
-    --card: #1B2524;
-    --card-border: #273432;
-    --field: #1B2524;
-    --text: #EAF0EE;
-    --text-2: #A9B8B5;
-    --text-3: #74827F;
-    --border: #36453F;
+    --bg: #0F1716;
+    --card: #192322;
+    --card-border: #2B3937;
+    --field: #192322;
+    --text: #F0F4F3;
+    --text-2: #B9C6C3;
+    --text-3: #8F9D9A;
+    --border: #3D4D49;
     --primary: #4DB3A8;
     --on-primary: #0B1514;
     --accent: #E3A458;
@@ -75,17 +77,18 @@ bdi { unicode-bidi: isolate; }
 input, select {
   width: 100%;
   min-width: 0;
-  height: 48px;
-  padding: 0 18px;
+  height: 50px;
+  padding: 0 14px;
   font: inherit;
+  font-size: 16.5px;
   color: var(--text);
   background: var(--field);
   border: 1.5px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius);
   outline: none;
 }
-select { padding: 0 14px; }
-input:focus, select:focus { border-color: var(--primary); }
+select { padding: 0 12px; }
+input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
 input::placeholder { color: var(--text-3); }
 input[type="date"] { padding: 0 14px; }
 
@@ -97,7 +100,7 @@ button {
   color: var(--text);
   background: transparent;
   border: 1.5px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -120,8 +123,8 @@ button.link {
 }
 
 .field { display: block; min-width: 0; }
-.field > span { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin: 0 0 6px 6px; }
-.field-hint { display: block; font-size: 12px; color: var(--text-3); margin: 4px 8px 0; }
+.field > span { display: block; font-size: 14px; font-weight: 700; color: var(--text-2); margin: 0 0 6px 2px; }
+.field-hint { display: block; font-size: 12.5px; color: var(--text-3); margin: 5px 2px 0; line-height: 1.35; }
 .field-hint.center { text-align: center; margin-top: -4px; }
 
 .error { color: var(--danger); font-size: 14px; min-height: 20px; margin: 0; text-align: center; white-space: pre-line; }
@@ -194,30 +197,30 @@ button.google {
 
 .card {
   display: flex; align-items: center; gap: 12px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   background: var(--card);
   border: 1px solid var(--card-border);
-  border-radius: 20px;
+  border-radius: 18px;
   box-shadow: var(--shadow);
 }
 .card .main { flex: 1; min-width: 0; }
 
 button.card.row { width: 100%; height: auto; text-align: start; font-weight: 400; white-space: normal; }
-.row .main { display: flex; flex-direction: column; gap: 1px; }
-.row .title { font-weight: 800; overflow-wrap: anywhere; }
-.row .meta { font-size: 13px; color: var(--text-3); }
+.row .main { display: flex; flex-direction: column; gap: 2px; }
+.row .title { font-size: 16.5px; font-weight: 800; overflow-wrap: anywhere; }
+.row .meta { font-size: 13.5px; color: var(--text-3); }
 .row .meta.sub { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row .end { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; text-align: end; }
-.row .amount { font-weight: 800; font-variant-numeric: tabular-nums; }
-.row .after { font-size: 12px; color: var(--text-3); }
+.row .amount { font-size: 16.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.row .after { font-size: 12.5px; color: var(--text-3); }
 .end.in .amount { color: var(--in); }
 .end.out .amount { color: var(--out); }
 .end.zero .amount { color: var(--text-3); }
 
 .sec {
   display: flex; align-items: baseline; gap: 4px;
-  font-size: 14px; font-weight: 800; color: var(--text-3);
-  margin: 24px 6px 10px;
+  font-size: 16px; font-weight: 800; color: var(--text);
+  margin: 26px 2px 10px;
 }
 .sec .link { margin-inline-start: auto; }
 
@@ -702,3 +705,79 @@ details.danger-zone summary { color: var(--danger); }
 .new-product .field > span { margin-bottom: 4px; }
 label.check { display: flex; align-items: center; gap: 10px; font-weight: 700; }
 label.check input { width: 22px; height: 22px; accent-color: var(--primary); }
+
+/* --- Net tasarım ------------------------------------------------------------- */
+/* Büyük, okunaklı, yüksek kontrastlı. Her bölümün kendi rengi var (--c). */
+
+.top h1 { font-size: 24px; letter-spacing: -0.3px; }
+#firm.home .home-title h1 { font-size: 21px; }
+.home-title small { color: var(--text-2); }
+
+/* Özet rakamlar */
+/* Etiket üstte, tutar altta: etiket bir ya da iki satır olsa da tutarlar aynı hizada. */
+.stat { padding: 12px; border-radius: 16px; gap: 6px; justify-content: space-between; }
+.stat span { font-size: 12.5px; color: var(--text-2); }
+/* Tutar bölünmesin; dar ekranda yazı küçülür. */
+.stat strong { font-size: clamp(13.5px, 4.1vw, 18px); white-space: nowrap; overflow-wrap: normal; letter-spacing: -0.2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* Büyük işlem düğmeleri: ikon beyaz bir halkada */
+.tile-big { height: 108px; gap: 10px; font-size: 18px; border-radius: 22px; }
+.big-ic {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgb(255 255 255 / 0.2);
+}
+.big-ic svg { width: 26px; height: 26px; stroke-width: 2.5; }
+
+/* Bölümler: renkli ikon karesi + kalın etiket */
+.tiles-grid { gap: 10px; }
+.tile-small { --c: var(--primary); height: 104px; gap: 10px; border-radius: 20px; font-size: 15.5px; font-weight: 800; }
+.tile-ic {
+  width: 48px; height: 48px; border-radius: 14px;
+  display: grid; place-items: center;
+  color: var(--c); background: color-mix(in srgb, var(--c) 13%, var(--card));
+}
+.tile-ic svg { width: 26px; height: 26px; color: inherit; }
+.tile-small svg { color: inherit; }
+.tone-products { --c: #1F7A72; }
+.tone-sellers { --c: #23935A; }
+.tone-suppliers { --c: #C8742F; }
+.tone-consign { --c: #3A6EA5; }
+.tone-payments { --c: #C2413A; }
+.tone-cash { --c: #7B4FB5; }
+.tone-reports { --c: #3F51B5; }
+.tone-ledger { --c: #4A5A62; }
+.tone-invoice { --c: #B7791F; }
+.tone-settings { --c: #5F6B69; }
+@media (prefers-color-scheme: dark) {
+  .tile-ic { color: color-mix(in srgb, var(--c) 60%, white); background: color-mix(in srgb, var(--c) 28%, var(--card)); }
+}
+
+/* Listeler ve bölüm başlıkları */
+.sec .link { color: var(--primary); text-decoration: none; font-weight: 800; }
+.total-line { color: var(--text-2); font-size: 15px; }
+.total-line strong { font-size: 17px; }
+.thumb { border-radius: 12px; width: 48px; height: 48px; }
+.move-icon { width: 42px; height: 42px; border-radius: 13px; }
+.move-icon svg { width: 20px; height: 20px; }
+
+/* Seçenek düğmeleri, etiketler ve arama: köşeler diğerleriyle uyumlu */
+.seg { border-radius: 16px; padding: 4px; }
+.seg button { border-radius: 12px; height: 40px; font-size: 14.5px; font-weight: 800; }
+button.chip { border-radius: 999px; }
+.search input { height: 48px; }
+.toolbar .icon-btn, .toolbar .primary { height: 48px; }
+.toolbar .icon-btn { width: 48px; border-radius: var(--radius); background: var(--card); border-color: var(--border); }
+
+/* Formlar (pencereler) */
+dialog { border-radius: 24px; }
+dialog.sheet { padding: 22px 18px; }
+.menu { gap: 14px; }
+.menu h3 { font-size: 21px; }
+.menu .label { font-size: 14px; color: var(--text); margin: 8px 2px -4px; }
+.line { border-radius: 16px; padding: 12px; }
+.line input, .line select { height: 46px; }
+.fact { border-radius: 12px; }
+.fact span { font-size: 12.5px; color: var(--text-2); }
+.total { border-radius: 14px; padding: 14px 16px; }
+.big-action { border-radius: 16px; }

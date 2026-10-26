@@ -245,15 +245,16 @@ const HOME = {
         stat(t("cashTotal"), formatMoney(cash), "", () => openPage("cash")),
         stat(t("profitThisMonth"), formatMoney(profit), profit < 0 ? "out" : "in", () => openPage("reports"))),
       h("div", { class: "tiles-big" }, TILES.map(([id, ic, cls]) =>
-        h("button", { type: "button", class: `tile-big ${cls}`, onclick: () => openPage(id) }, icon(ic), h("span", {}, t(`page_${id}`))))),
+        h("button", { type: "button", class: `tile-big ${cls}`, onclick: () => openPage(id) },
+          h("span", { class: "big-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))))),
       low.length > 0 && h("button", { type: "button", class: "card low-banner", onclick: () => openPage("products", { filter: "low" }) },
         icon("alert"), h("span", { class: "main" },
           h("strong", {}, t("lowStockCount", { n: low.length })),
           h("small", {}, low.slice(0, 3).map(productLabel).join(", ") + (low.length > 3 ? "…" : ""))),
         icon("chevron")),
       h("div", { class: "tiles-grid" }, SECTIONS.map(([id, ic]) =>
-        h("button", { type: "button", class: "tile-small", onclick: () => (id === "invoice" ? openInvoiceImport() : openPage(id)) },
-          icon(ic), h("span", {}, t(`page_${id}`))))),
+        h("button", { type: "button", class: `tile-small tone-${id}`, onclick: () => (id === "invoice" ? openInvoiceImport() : openPage(id)) },
+          h("span", { class: "tile-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))))),
     ];
     if (!products.size || !parties("seller").length || !parties("supplier").length) out.push(startGuide());
     if (recent.length) {
