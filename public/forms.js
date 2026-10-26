@@ -485,7 +485,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
 // --- Satıcı / tedarikçi -------------------------------------------------------
 
 export function openPartySheet(kind, party) {
-  const name = textInput({ maxlength: 80, value: party?.name, placeholder: t(kind === "seller" ? "sellerNamePlaceholder" : "supplierNamePlaceholder") });
+  const name = textInput({ maxlength: 80, value: party?.name, placeholder: t(`namePlaceholder_${kind}`) });
   const phone = h("input", { type: "tel", maxlength: 24, value: party?.phone, dir: "ltr", autocomplete: "off", placeholder: "0555 555 55 55" });
   const note = textInput({ maxlength: 200, value: party?.note, placeholder: t("partyNotePlaceholder") });
   const photo = photoField(party?.thumb, { round: true, label: t("addLogo") });
@@ -517,9 +517,9 @@ export function openPartySheet(kind, party) {
     }, icon("contact"), t("pickContact")));
   }
 
-  // Tedarikçiyle hangi parayla çalışıldığı: borç o parada tutulur (boşsa ana para).
+  // Tedarikçiyle ve borç defterindeki kişiyle hangi parayla çalışıldığı: borç o parada tutulur.
   let currency = null;
-  if (kind === "supplier") {
+  if (kind === "supplier" || kind === "person") {
     const locked = Boolean(party?.balance);
     currency = select(CURRENCIES.map((c) => [c, currencyName(c, lang)]), party?.currency ?? base(), { disabled: locked });
     fields.push(field(t("currency"), currency, locked ? t("currencyLocked") : t("currencyHint")));
@@ -530,7 +530,7 @@ export function openPartySheet(kind, party) {
   if (!party) {
     amount = numberInput({ placeholder: "0,00" });
     // Bakiye işareti: satıcıda + bize borçlu, tedarikçide + biz borçluyuz.
-    const options = kind === "seller"
+    const options = kind !== "supplier"
       ? [["1", t("theyOweUs")], ["-1", t("weOweThem")]]
       : [["1", t("weOweThem")], ["-1", t("theyOweUs")]];
     direction = select(options, "1");
@@ -551,7 +551,7 @@ export function openPartySheet(kind, party) {
   }
   buttons.push(closeButton());
 
-  const title = party ? t("editParty") : t(kind === "seller" ? "newSeller" : "newSupplier");
+  const title = party ? t("editParty") : t(`new_${kind}`);
   open(title, fields, buttons, () => {
     const n = name.value.trim();
     if (!n) return t("enterName");
@@ -784,8 +784,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   const walkInOption = (type === "sale" || type === "saleReturn") && !edit;
   const walkIn = parties.find((p) => p.walkIn);
   if (!parties.length && !walkInOption) {
-    return missing(title, t(kind === "seller" ? "needSeller" : "needSupplier"),
-      `+ ${t(kind === "seller" ? "newSeller" : "newSupplier")}`, () => openPartySheet(kind));
+    return missing(title, t(`need_${kind}`), `+ ${t(`new_${kind}`)}`, () => openPartySheet(kind));
   }
 
   // Satış ve emanette ürün yoksa önce ürün eklenir (alışta yeni ürün formun içinden açılır).
@@ -806,7 +805,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   const total = h("strong", {});
   const totalTry = h("small", { class: "field-hint" });
   const party = () => session.firm.parties.get(partySelect.value);
-  const currency = () => (kind === "supplier" ? party()?.currency || base() : base());
+  const currency = () => (kind === "supplier" || kind === "person" ? party()?.currency || base() : base());
   const rate = rateField(() => refresh());
   const fields = [h("div", { class: "row2" }, field(t(kind), partySelect), field(t("date"), date)), walkHint, rate.el];
 
@@ -946,7 +945,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     fields.push(h("label", { class: "field" }, h("span", {}, t("amount"), symbol()), amount, balanceHint));
   }
   if (type !== "consign") {
-    holder = partnerField(t(type === "sale" || type === "collection" ? "holderIn" : "holderOut"), edit?.holder);
+    holder = partnerField(t(["sale", "collection", "debtIn"].includes(type) ? "holderIn" : "holderOut"), edit?.holder);
     fields.push(holder.field);
   }
   fields.push(noteField(note));
@@ -1003,7 +1002,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   open(title, fields, [footBar(summary, saveButton())], () => {
     if (isWalkIn()) return saveDirect();
     const p = party();
-    if (!p) return t(kind === "seller" ? "chooseSeller" : "chooseSupplier");
+    if (!p) return t(`choose_${kind}`);
     if (!date.value) return t("chooseDate");
     const input = { type, party: p.id, date: date.value, note: note.value.trim(), holder: holder?.el.value };
     const cur = currency();
@@ -2107,7 +2106,7 @@ export function openMoveDetail(move, { balanceAfter = null } = {}) {
 
 // Düzenlenebilen kayıtlar: formu olanlar. Sayım/iade raftaki o anki duruma bağlı olduğu için
 // silinip yeniden girilir; açılış kaydı ürün/kişi formundan gelir.
-const EDITABLE = ["sale", "saleReturn", "purchase", "consign", "payment", "collection", "refund", "expense", "capitalIn", "withdraw", "transfer"];
+const EDITABLE = ["sale", "saleReturn", "purchase", "consign", "payment", "collection", "refund", "debtOut", "debtIn", "expense", "capitalIn", "withdraw", "transfer"];
 
 function editMove(move) {
   if (["expense", "capitalIn", "withdraw", "transfer"].includes(move.type)) openCashSheet(move.type, { edit: move });

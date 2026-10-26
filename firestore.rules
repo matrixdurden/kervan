@@ -77,7 +77,7 @@ service cloud.firestore {
     }
 
     function validParty(d) {
-      return d.kind in ['supplier', 'seller']
+      return d.kind in ['supplier', 'seller', 'person']
         && name(d.name)
         && text(d.phone, 24)
         && text(d.note, 200)
@@ -104,7 +104,7 @@ service cloud.firestore {
 
     function validMove(firmId, d) {
       return d.type in ['purchase', 'payment', 'sale', 'collection', 'consign', 'consignSale', 'return',
-          'saleReturn', 'refund', 'expense', 'capitalIn', 'withdraw', 'transfer', 'opening', 'stockCount', 'costFix']
+          'saleReturn', 'refund', 'expense', 'capitalIn', 'withdraw', 'transfer', 'opening', 'stockCount', 'costFix', 'debtOut', 'debtIn']
         && text(d.party, 40) && text(d.partyName, 80)
         && (d.type in ['opening', 'expense', 'capitalIn', 'withdraw', 'transfer', 'stockCount', 'costFix'] || d.party.size() > 0)
         && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
@@ -120,7 +120,7 @@ service cloud.firestore {
         && (!('method' in d) || (d.type == 'expense' && text(d.method, 40) && text(d.get('methodName', ''), 40)))
         && text(d.get('invoiceNo', ''), 40)
         && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return', 'saleReturn', 'stockCount', 'costFix'] && validLines(d))
-          || (d.type in ['payment', 'collection', 'refund', 'expense', 'capitalIn', 'withdraw'] && d.amount is int && d.amount > 0)
+          || (d.type in ['payment', 'collection', 'refund', 'expense', 'capitalIn', 'withdraw', 'debtOut', 'debtIn'] && d.amount is int && d.amount > 0)
           || (d.type == 'transfer' && d.amount is int && d.amount > 0 && memberUid(firmId, d.to) && d.to != d.holder)
           || (d.type == 'opening' && (validLines(d) || d.amount is int)));
     }

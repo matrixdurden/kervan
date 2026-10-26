@@ -316,3 +316,14 @@ test("maliyet düzeltme: depodaki malın değeri yeni maliyete çekilir, kâr de
   const undone = run([buy("çay", 10, 10000), fix, { revert: fix }]);
   assert.deepEqual(undone.products.get("çay"), state.products.get("çay"));
 });
+
+test("borç defteri: verilen para kasadan çıkar ve kişi bize borçlanır; alınan para tersini yapar; döviz kurla çevrilir", () => {
+  const { balances, cash } = run([
+    money("debtOut", 50000, { party: "ahmet", holder: "ali" }),
+    money("debtIn", 20000, { party: "ahmet", holder: "ali" }),
+    money("debtIn", 10000, { party: "usd", holder: "ali", currency: "USD", rate: 40 }),
+  ]);
+  assert.equal(balances.get("ahmet"), 30000);
+  assert.equal(balances.get("usd"), -10000);
+  assert.equal(cash.get("ali"), -50000 + 20000 + 400000);
+});

@@ -791,6 +791,7 @@ label.check input { width: 22px; height: 22px; accent-color: var(--primary); }
 .tone-expenses { --c: #B4562F; }
 .tone-saleReturns { --c: #8A5A9E; }
 .tone-stockCount { --c: #2E7D6B; }
+.tone-debts { --c: #4F46E5; }
 button.bubble.add svg { width: 15px; height: 15px; }
 .tile-dark { background: var(--spend); }
 @media (prefers-color-scheme: dark) {

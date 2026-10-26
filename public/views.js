@@ -8,7 +8,7 @@ import { avgCost } from "./ledger.js";
 
 export const TYPE_ICON = {
   purchase: "in", sale: "out", payment: "coin", collection: "coin",
-  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin", stockCount: "clipboard", costFix: "pencil",
+  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin", stockCount: "clipboard", costFix: "pencil", debtOut: "out", debtIn: "in",
   expense: "receipt", capitalIn: "plusCircle", withdraw: "minusCircle", transfer: "swap", opening: "flag",
 };
 
@@ -35,10 +35,10 @@ export function linesSummary(lines, max = 2) {
 }
 
 // Bakiyenin ne demek olduğu, kişinin türüne göre:
-// satıcıda + bize borçlu, tedarikçide + biz borçluyuz.
+// satıcıda ve borç defterindeki kişide + bize borçlu, tedarikçide + biz borçluyuz.
 export function balanceText(kind, balance, currency = base()) {
   if (!balance) return { label: t("settled"), amount: formatMoney(0, currency), tone: "zero" };
-  const theyOwe = kind === "seller" ? balance > 0 : balance < 0;
+  const theyOwe = kind === "seller" || kind === "person" ? balance > 0 : balance < 0;
   return {
     label: t(theyOwe ? "theyOweUs" : "weOweThem"),
     amount: formatMoney(Math.abs(balance), currency),

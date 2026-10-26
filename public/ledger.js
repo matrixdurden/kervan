@@ -19,6 +19,9 @@
 //   opening      açılış: eldeki stok (lines) ya da bir kişinin mevcut bakiyesi (amount, eksi olabilir)
 //   stockCount   stok sayımı: depoda sayılanla kayıttaki stok arasındaki fark (satır adedi + fazla, − eksik);
 //                eksik malın maliyeti kârdan düşer (satılan malın maliyetine eklenir), fazlası kâra döner
+//   debtOut      borç defteri: kişiye para verildi (borç verildi ya da borç geri ödendi); kasadan çıkar,
+//                kişinin bakiyesi artar (+ bize borçlu). Kişinin parası dövizse kurla ana paraya çevrilir.
+//   debtIn       borç defteri: kişiden para alındı (borç alındı ya da verilen borç tahsil edildi)
 //   costFix      maliyet düzeltme: ürünün birim maliyeti elle değiştirilir (satır fiyatı yeni maliyet,
 //                adedi o anki stok); depodaki malın değeri yeni maliyete çekilir, kâra dokunmaz
 //
@@ -32,12 +35,13 @@
 
 export const MOVE_TYPES = [
   "purchase", "payment", "sale", "collection", "consign", "consignSale", "return", "saleReturn", "refund",
-  "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix",
+  "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix", "debtOut", "debtIn",
 ];
 export const PARTY_KIND = {
   purchase: "supplier", payment: "supplier",
   sale: "seller", collection: "seller", consign: "seller", consignSale: "seller", return: "seller",
   saleReturn: "seller", refund: "seller",
+  debtOut: "person", debtIn: "person",
 };
 export const LINE_TYPES = ["purchase", "sale", "consign", "consignSale", "return", "saleReturn", "stockCount", "costFix"];
 export const hasLines = (type) => LINE_TYPES.includes(type);
@@ -104,7 +108,8 @@ export function balanceOf(move) {
     case "purchase": case "sale": case "consignSale": return moveTotal(move);
     case "payment": case "collection": return -move.amount;
     case "saleReturn": return -moveTotal(move);
-    case "refund": return move.amount;
+    case "refund": case "debtOut": return move.amount;
+    case "debtIn": return -move.amount;
     default: return 0;
   }
 }
@@ -125,6 +130,8 @@ function moneyEffects(move, lines, sign) {
     case "payment": add(cash, holder, -Math.round(move.amount * (move.rate || 1))); break;
     case "expense": add(cash, holder, -move.amount); break;
     case "refund": add(cash, holder, -move.amount); break;
+    case "debtOut": add(cash, holder, -Math.round(move.amount * (move.rate || 1))); break;
+    case "debtIn": add(cash, holder, Math.round(move.amount * (move.rate || 1))); break;
     case "capitalIn": add(cash, holder, move.amount); add(capital, owner, move.amount); break;
     case "withdraw": add(cash, holder, -move.amount); add(capital, owner, -move.amount); break;
     case "transfer": add(cash, holder, -move.amount); add(cash, move.to, move.amount); break;

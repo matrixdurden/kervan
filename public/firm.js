@@ -253,9 +253,9 @@ const SECTIONS = [
   ["products", "box"], ["stockCount", "clipboard"],
   ["invoice", "fileScan"], ["expenses", "receipt"],
   ["consign", "send"], ["saleReturns", "undo"],
-  ["cash", "wallet"], ["ledger", "book"],
-  ["reports", "chart"], ["trash", "trash"],
-  ["settings", "gear"],
+  ["cash", "wallet"], ["debts", "scale"],
+  ["ledger", "book"], ["reports", "chart"],
+  ["trash", "trash"], ["settings", "gear"],
 ];
 
 const HOME = {
@@ -507,18 +507,33 @@ export function partyAvatar(p) {
     : h("span", { class: "thumb blank round", "aria-hidden": "true" }, p.name.charAt(0).toLocaleUpperCase("tr"));
 }
 
+// Müşteriler, tedarikçiler ve borç defteri (kişiler): arama, toplam ve liste.
+const PARTY_PAGE = {
+  seller: { page: "page_sellers", search: "searchSellers", empty: "noSellers", emoji: "🏪" },
+  supplier: { page: "page_suppliers", search: "searchSuppliers", empty: "noSuppliers", emoji: "🚚" },
+  person: { page: "page_debts", search: "searchPeople", empty: "noPeople", emoji: "🤝" },
+};
+// Borç defterinde toplamlar ana para birimindeki kişilerden (dövizliler kendi satırında görünür).
+const personTotals = (all) => {
+  const same = all.filter((p) => (p.currency || base()) === base());
+  return [sum(same, (p) => Math.max(p.balance, 0)), sum(same, (p) => Math.max(-p.balance, 0))];
+};
 const partiesPage = (kind) => ({
-  fab: () => [t(kind === "seller" ? "newSeller" : "newSupplier"), () => openPartySheet(kind)],
-  top: () => pageTop(t(kind === "seller" ? "page_sellers" : "page_suppliers")),
+  fab: () => [t(`new_${kind}`), () => openPartySheet(kind)],
+  top: () => pageTop(t(PARTY_PAGE[kind].page)),
   head: () => h("div", { class: "page-head" },
-    searchBox(t(kind === "seller" ? "searchSellers" : "searchSuppliers"), search[kind], (v) => { search[kind] = v; rerenderBody(); })),
+    searchBox(t(PARTY_PAGE[kind].search), search[kind] ?? "", (v) => { search[kind] = v; rerenderBody(); })),
   body() {
     const all = parties(kind).sort(byName);
-    if (!all.length) return [emptyState(kind === "seller" ? "🏪" : "🚚", t(kind === "seller" ? "noSellers" : "noSuppliers"))];
-    const q = search[kind];
+    if (!all.length) return [emptyState(PARTY_PAGE[kind].emoji, t(PARTY_PAGE[kind].empty))];
+    const q = search[kind] ?? "";
     const list = all.filter((p) => matches(p.name, q) || matches(p.phone, q));
+    const [theyOwe, weOwe] = personTotals(all);
     return [
-      h("p", { class: "total-line" },
+      kind === "person" ? h("div", { class: "kpis" },
+        h("div", { class: "kpi green" }, h("span", {}, t("theyOweUs")), h("strong", {}, formatMoney(theyOwe))),
+        h("div", { class: "kpi red" }, h("span", {}, t("weOweThem")), h("strong", {}, formatMoney(weOwe))))
+      : h("p", { class: "total-line" },
         h("span", {}, t(kind === "seller" ? "totalReceivable" : "totalPayable")),
         h("strong", {}, kind === "seller" ? formatMoney(sum(all, (p) => Math.max(p.balance, 0))) : payableText())),
       list.length ? h("ul", { class: "cards" }, list.map(partyRow)) : emptyState("🔍", t("noMatch")),
@@ -935,7 +950,7 @@ const stockCountPage = {
 
 // --- Hareketler (defter) ---------------------------------------------------------------------
 
-const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix"];
+const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix", "debtOut", "debtIn"];
 
 const ledgerPage = {
   types: "all",
@@ -956,7 +971,7 @@ const TRASH_GROUPS = [
   ["products", ["costFix"]], ["sellers"], ["suppliers"],
   ["sales", ["sale", "consignSale"]], ["purchases", ["purchase"]], ["collections", ["collection"]],
   ["saleReturns", ["saleReturn", "refund"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
-  ["stockCount", ["stockCount"]], ["cash", ["capitalIn", "withdraw", "transfer", "opening"]],
+  ["stockCount", ["stockCount"]], ["debts", ["debtOut", "debtIn"]], ["cash", ["capitalIn", "withdraw", "transfer", "opening"]],
 ];
 let trashCat = "";
 
@@ -1044,7 +1059,7 @@ const trashPage = {
     };
     const items = [
       ...[...products.values()].map((p) => ({ key: `p:${p.id}`, group: "products", at: millis(p.deleted?.at), el: () => trashRecord(p, "product", pick(`p:${p.id}`)) })),
-      ...[...parties.values()].map((p) => ({ key: `c:${p.id}`, group: p.kind === "seller" ? "sellers" : "suppliers", at: millis(p.deleted?.at), el: () => trashRecord(p, "party", pick(`c:${p.id}`)) })),
+      ...[...parties.values()].map((p) => ({ key: `c:${p.id}`, group: { seller: "sellers", supplier: "suppliers", person: "debts" }[p.kind], at: millis(p.deleted?.at), el: () => trashRecord(p, "party", pick(`c:${p.id}`)) })),
       ...pageMoves.filter((m) => !m.restored).map((m) => ({ key: `m:${m.id}`, group: groupOf(m), at: millis(m.voided?.at), el: () => moveItem(m) })),
     ].sort((a, b) => b.at - a.at);
     $("#firm").classList.toggle("has-fab", Boolean(purge && items.length));
@@ -1174,6 +1189,7 @@ const PAGES = {
   stockCount: stockCountPage,
   sellers: partiesPage("seller"),
   suppliers: partiesPage("supplier"),
+  debts: partiesPage("person"),
   cash: cashPage,
   reports: reportsPage,
   report: reportPage,

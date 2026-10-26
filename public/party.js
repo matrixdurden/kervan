@@ -212,6 +212,12 @@ function render() {
         actionButton("return", t("quick_return"), () => openShelfSheet("return", partyId), !hasShelf)),
       shelfCard(party),
       pricesCard(party));
+  } else if (party.kind === "person") {
+    // Borç defteri: kişiye para verildi / kişiden para alındı (borç ya da geri ödeme).
+    out.push(h("div", { class: "quicks two" },
+      actionButton("debtOut", t("quick_debtOut"), open("debtOut")),
+      actionButton("debtIn", t("quick_debtIn"), open("debtIn"))),
+    h("small", { class: "field-hint" }, t("debtHint")));
   } else {
     out.push(h("div", { class: "quicks two" },
       actionButton("purchase", t("quick_purchase"), open("purchase")),

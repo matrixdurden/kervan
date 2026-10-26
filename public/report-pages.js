@@ -104,7 +104,7 @@ const holderName = (m) => person(currentFirm(), m.holder).name;
 const ALL_GROUPS = [
   ["sales", ["sale", "consignSale"]], ["saleReturns", ["saleReturn", "refund"]], ["purchases", ["purchase"]],
   ["collections", ["collection"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
-  ["stockCount", ["stockCount"]], ["cash", ["capitalIn", "withdraw", "transfer"]],
+  ["stockCount", ["stockCount"]], ["debts", ["debtOut", "debtIn"]], ["cash", ["capitalIn", "withdraw", "transfer"]],
 ];
 let allGroup = "";
 let productSort = "qty";
@@ -150,8 +150,8 @@ const PAGES = {
   cash(r) {
     const firm = currentFirm();
     const { accounts } = session.firm;
-    const inTypes = ["collection", "capitalIn"];
-    const outTypes = ["payment", "refund", "expense", "withdraw"];
+    const inTypes = ["collection", "capitalIn", "debtIn"];
+    const outTypes = ["payment", "refund", "expense", "withdraw", "debtOut"];
     const moneyIn = sum(ofType(r, ...inTypes), inLira);
     const moneyOut = sum(ofType(r, ...outTypes), inLira);
     const cashNow = sum(firm.members, (uid) => accounts.get(uid)?.cash ?? 0);
@@ -322,20 +322,25 @@ const PAGES = {
     const stock = sum([...products.values()], (x) => Math.max(x.value ?? 0, 0));
     const shelf = sum(all.filter((x) => x.kind === "seller"), (x) => sum(Object.values(x.shelf ?? {}), (s) => (s.stock > 0 ? s.value ?? 0 : 0)));
     const receivable = sum(all.filter((x) => x.kind === "seller"), (x) => Math.max(x.balance, 0));
+    // Borç defteri: kişilerden alacak varlık, kişilere borç yükümlülük (dövizliler son kurla).
+    let unknown = false;
+    const toBase = (v, c) => {
+      if (c === base()) return v;
+      const rate = lastRate(c);
+      if (!rate) unknown = true;
+      return rate ? Math.round(v * rate) : 0;
+    };
+    const people = all.filter((x) => x.kind === "person");
+    const lent = sum(people, (x) => toBase(Math.max(x.balance, 0), x.currency || base()));
+    const borrowed = sum(people, (x) => toBase(Math.max(-x.balance, 0), x.currency || base()));
     const cash = sum(firm.members, (uid) => accounts.get(uid)?.cash ?? 0);
     const payables = new Map();
     for (const x of all.filter((y) => y.kind === "supplier" && y.balance > 0)) {
       const c = x.currency || base();
       payables.set(c, (payables.get(c) ?? 0) + x.balance);
     }
-    let unknown = false;
-    const payableTry = sum([...payables], ([c, v]) => {
-      if (c === base()) return v;
-      const rate = lastRate(c);
-      if (!rate) unknown = true;
-      return rate ? Math.round(v * rate) : 0;
-    });
-    const assets = stock + shelf + receivable + cash;
+    const payableTry = sum([...payables], ([c, v]) => toBase(v, c)) + borrowed;
+    const assets = stock + shelf + receivable + cash + lent;
     return [
       h("div", { class: "kpis" },
         kpi(t("rp_assets"), formatMoney(assets), null, "green"),
@@ -345,9 +350,12 @@ const PAGES = {
         plRow(t("rp_stockValue"), formatMoney(stock)),
         plRow(t("shelfValue"), formatMoney(shelf)),
         plRow(t("receivable"), formatMoney(receivable)),
+        lent ? plRow(t("rp_lent"), formatMoney(lent)) : null,
         plRow(t("cashTotal"), formatMoney(cash))]),
       sec(t("rp_liabilities")),
-      breakdown([...payables].map(([c, v]) => plRow(t("rp_payableIn", { c }), formatMoney(v, c)))) ?? emptyState("✅", t("rp_noDebt")),
+      (payables.size || borrowed) ? breakdown([
+        ...[...payables].map(([c, v]) => plRow(t("rp_payableIn", { c }), formatMoney(v, c))),
+        borrowed ? plRow(t("rp_borrowed"), formatMoney(borrowed)) : null]) : emptyState("✅", t("rp_noDebt")),
       plRow(t("rp_netWorth"), formatMoney(assets - payableTry), `total-line ${assets - payableTry < 0 ? "out" : "in"}`),
       h("p", { class: "field-hint" }, t(unknown ? "rp_netWorthNoRate" : "rp_netWorthHint")),
     ];
@@ -360,10 +368,10 @@ const PAGES = {
     const open = list.filter((x) => x.balance);
     const totalOf = (sign) => sum(open.filter((x) => Math.sign(x.balance) === sign && (x.currency || base()) === base()), (x) => Math.abs(x.balance));
     return [
-      segmented([["seller", t("page_sellers")], ["supplier", t("page_suppliers")]], balanceKind, (v) => { balanceKind = v; rerender(); }, "tabs"),
+      segmented([["seller", t("page_sellers")], ["supplier", t("page_suppliers")], ["person", t("page_debts")]], balanceKind, (v) => { balanceKind = v; rerender(); }, "tabs"),
       h("div", { class: "kpis balance-kpis" },
-        kpi(balanceText(balanceKind, 1).label, formatMoney(totalOf(1)), null, balanceKind === "seller" ? "green" : "red"),
-        kpi(balanceText(balanceKind, -1).label, formatMoney(totalOf(-1)), null, balanceKind === "seller" ? "red" : "green")),
+        kpi(balanceText(balanceKind, 1).label, formatMoney(totalOf(1)), null, balanceKind === "supplier" ? "red" : "green"),
+        kpi(balanceText(balanceKind, -1).label, formatMoney(totalOf(-1)), null, balanceKind === "supplier" ? "green" : "red")),
       list.length ? h("ul", { class: "cards" }, list.map((x) => {
         const b = balanceText(x.kind, x.balance, x.currency);
         return h("li", {}, h("button", { type: "button", class: "card row", onclick: () => openParty(x.id) },

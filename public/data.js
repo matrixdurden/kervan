@@ -14,7 +14,7 @@ import { applyMove, revertMove, replay, moveTotal, roundQty, shelfKey, addMonth 
 import { millis, today, PALETTE } from "./ui.js";
 
 const EMPTY = { stock: 0, value: 0, lastCost: 0 };
-const MONEY_TYPES = ["payment", "collection", "refund", "expense", "capitalIn", "withdraw", "transfer"];
+const MONEY_TYPES = ["payment", "collection", "refund", "debtOut", "debtIn", "expense", "capitalIn", "withdraw", "transfer"];
 const firmRef = () => doc(db, "firms", session.firm.id);
 const ref = (name, id) => doc(db, "firms", session.firm.id, name, id);
 const newRef = (name) => doc(collection(db, "firms", session.firm.id, name));
