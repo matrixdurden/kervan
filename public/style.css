@@ -285,7 +285,6 @@ button.me { height: auto; padding: 4px; border: 0; gap: 12px; text-align: start;
 
 /* --- İşletme ekranı ------------------------------------------------------ */
 
-#firm { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 
 .top { display: flex; align-items: center; gap: 6px; margin-bottom: 16px; }
 .top h1 { flex: 1; min-width: 0; margin: 0; font-size: 22px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -293,22 +292,6 @@ button.back { color: var(--text); margin-inline-start: -8px; }
 button.back svg { width: 22px; height: 22px; }
 button.avatars { height: auto; padding: 4px; border: 0; }
 
-.tabs {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
-  display: grid; grid-template-columns: repeat(5, 1fr);
-  padding: 0 max(0px, calc((100% - 560px) / 2)) env(safe-area-inset-bottom);
-  background: var(--card);
-  border-top: 1px solid var(--card-border);
-}
-.tabs button {
-  height: 62px; padding: 0 2px;
-  flex-direction: column; gap: 3px;
-  border: 0; border-radius: 0;
-  font-size: 11px; font-weight: 700; color: var(--text-3);
-}
-.tabs button svg { width: 22px; height: 22px; }
-.tabs button[aria-current="page"] { color: var(--primary); }
-.tabs button:active { transform: none; }
 
 /* Özet */
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -569,3 +552,153 @@ button.card.partner { width: 100%; height: auto; font-weight: 400; text-align: s
 /* Bildirim: popover olarak açılır (açık formların da üstünde görünsün). */
 .toast[popover] { inset: auto; margin: 0; border: 0; overflow: visible; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom)); }
 .toast:not(:popover-open) { display: none; }
+
+/* --- Ana ekran -------------------------------------------------------------- */
+/* Büyük renkli işlem düğmeleri ve altında bölüm ızgarası. */
+
+:root { --sale: #23935A; --purchase: #D4483B; --collect: #2F6FB5; --spend: #2E3F5C; }
+@media (prefers-color-scheme: dark) {
+  :root { --sale: #2FA866; --purchase: #DE5A4D; --collect: #3B7FC8; --spend: #3C5070; }
+}
+
+img.firm-mark { object-fit: cover; background: var(--card); }
+.firm-mark.lg { width: 56px; height: 56px; border-radius: 16px; font-size: 26px; }
+#firm.home .top { gap: 10px; }
+.home-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.home-title h1 { font-size: 20px; }
+.home-title small { color: var(--text-3); font-weight: 600; }
+.top .icon-btn { width: 44px; height: 44px; padding: 0; flex: none; border-color: var(--card-border); background: var(--card); color: var(--text-2); position: relative; }
+.icon-btn svg { width: 22px; height: 22px; }
+.icon-btn .dot {
+  position: absolute; top: -4px; inset-inline-end: -4px;
+  min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
+  background: var(--danger); color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center;
+}
+
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.stat {
+  height: auto; padding: 10px; flex-direction: column; align-items: flex-start; gap: 2px;
+  background: var(--card); border: 1px solid var(--card-border); border-radius: 16px; box-shadow: var(--shadow);
+  text-align: start; white-space: normal;
+}
+.stat span { font-size: 11.5px; font-weight: 700; color: var(--text-3); line-height: 1.2; }
+.stat strong { font-size: 16px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.stat.in strong { color: var(--in); }
+.stat.out strong { color: var(--out); }
+
+.tiles-big { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile-big {
+  height: 92px; flex-direction: column; gap: 8px; border: 0; border-radius: 20px;
+  color: #fff; font-size: 17px; font-weight: 800; box-shadow: 0 2px 6px rgb(0 0 0 / 0.12);
+}
+.tile-big svg { width: 30px; height: 30px; stroke-width: 2.4; }
+.tile-sale { background: var(--sale); }
+.tile-purchase { background: var(--purchase); }
+.tile-collection { background: var(--collect); }
+.tile-expense { background: var(--spend); }
+
+.tiles-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.tile-small {
+  height: 84px; flex-direction: column; gap: 6px;
+  background: var(--card); border: 1px solid var(--card-border); border-radius: 18px; box-shadow: var(--shadow);
+  font-size: 15px; font-weight: 700; color: var(--text);
+}
+.tile-small svg { width: 26px; height: 26px; color: var(--primary); }
+
+button.low-banner {
+  width: 100%; height: auto; margin-top: 12px; text-align: start; font-weight: 400; white-space: normal;
+  background: color-mix(in srgb, var(--warn) 12%, var(--card)); border-color: color-mix(in srgb, var(--warn) 35%, var(--card));
+}
+.low-banner > svg:first-child { color: var(--warn); width: 24px; height: 24px; }
+.low-banner .main { display: flex; flex-direction: column; }
+.low-banner strong { color: var(--warn); }
+.low-banner small { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Bölüm sayfaları ---------------------------------------------------------- */
+
+.page-head { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.page-head .toolbar { margin-bottom: 0; }
+#view > .page-actions { margin-bottom: 12px; }
+.page-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.page-actions > :first-child { grid-column: 1 / -1; }
+.big-action {
+  height: 54px; border-radius: 16px; font-size: 16px;
+  background: var(--card); border-color: var(--card-border); box-shadow: var(--shadow);
+}
+.big-action.primary { background: var(--primary); color: var(--on-primary); border-color: transparent; font-size: 17px; height: 58px; }
+.big-action svg { width: 22px; height: 22px; }
+.page-actions .big-action:not(.primary) { font-size: 14px; }
+
+.thumb.round { border-radius: 50%; }
+.thumb.lg { width: 72px; height: 72px; }
+.balance img.thumb { margin-bottom: 6px; }
+.contact-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+a.pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px;
+  border: 1.5px solid var(--border); border-radius: 999px; color: var(--text); font-weight: 700; text-decoration: none;
+}
+a.pill.whatsapp, button.whatsapp { background: #25D366; border-color: transparent; color: #08301a; }
+button.whatsapp { font-size: 16px; height: 52px; }
+
+/* Çeşitli ürün kartı */
+.group { flex-direction: column; align-items: stretch; gap: 8px; }
+.group-head { display: flex; align-items: center; gap: 12px; }
+.group-head .main { display: flex; flex-direction: column; }
+.group-head .title { font-weight: 800; }
+.group-head .meta { font-size: 13px; color: var(--text-3); }
+.variants { display: flex; flex-direction: column; gap: 6px; }
+button.variant {
+  height: auto; min-height: 44px; padding: 6px 12px; border-radius: 12px;
+  display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: center;
+  font-weight: 600; text-align: start; background: var(--bg);
+}
+.v-stock { color: var(--text-3); font-size: 13px; }
+.v-price { font-variant-numeric: tabular-nums; }
+.chip.add { border-style: dashed; color: var(--primary); }
+
+/* Ayarlar */
+.setting { gap: 12px; }
+.setting > svg:last-child, .low-banner > svg:last-child { color: var(--text-3); }
+.setting-icon { width: 40px; height: 40px; flex: none; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--primary) 12%, var(--card)); color: var(--primary); }
+.setting-icon svg { width: 22px; height: 22px; }
+#view .field { margin: 16px 0; }
+.cat-list { display: flex; flex-direction: column; gap: 6px; }
+.cat-row { display: flex; gap: 6px; align-items: center; }
+.cat-row input { height: 44px; }
+ol.how { margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 4px; color: var(--text-2); }
+a.block-link {
+  display: flex; align-items: center; justify-content: center; height: 46px; border-radius: 999px;
+  background: var(--ink); color: var(--on-ink); font-weight: 800; text-decoration: none;
+}
+
+/* Gider ve rapor dökümleri */
+.breakdown { flex-direction: column; align-items: stretch; gap: 6px; margin-bottom: 12px; padding: 14px 16px; }
+.pl-row.muted { color: var(--text-3); font-size: 14px; }
+
+/* Açılır bölümler (fatura bilgileri, iptal) */
+details.more { border: 1px solid var(--card-border); border-radius: 16px; padding: 10px 14px; background: var(--card); }
+details.more[open] { display: flex; flex-direction: column; gap: 10px; }
+details.more summary { cursor: pointer; font-weight: 800; color: var(--text-2); list-style-position: inside; }
+details.danger-zone summary { color: var(--danger); }
+
+/* Fotoğraf alanının küçük, yuvarlak hali (logo, kişi) */
+.photo-field.small button.photo { width: 120px; height: 120px; border-radius: 50%; }
+.photo-field.small .photo-empty span { font-size: 12px; text-align: center; }
+.field-hint.margin { margin-top: -6px; font-weight: 700; color: var(--in); }
+.field-hint.margin.bad, .line .field-hint.bad { color: var(--danger); }
+
+/* Satış sonrası */
+.done-summary { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0 4px; }
+.done-check { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: var(--sale); color: #fff; }
+.done-check svg { width: 30px; height: 30px; stroke-width: 3; }
+.done-summary strong { font-size: 28px; font-variant-numeric: tabular-nums; }
+
+/* Faturadan alış */
+.reading { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px 0; text-align: center; }
+.spinner { width: 40px; height: 40px; border-radius: 50%; border: 4px solid var(--card-border); border-top-color: var(--primary); animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.invoice-head { flex-direction: column; align-items: flex-start; gap: 2px; }
+.invoice-line .invoice-name { font-weight: 800; }
+.new-product .field > span { margin-bottom: 4px; }
+label.check { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+label.check input { width: 22px; height: 22px; accent-color: var(--primary); }

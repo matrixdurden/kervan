@@ -75,15 +75,10 @@
     </div>
   </main>
 
-  <!-- İşletme: sekmeler -->
+  <!-- İşletme: ana ekran ve bölüm sayfaları (firm.js çizer) -->
   <main id="firm" hidden>
-    <header class="top">
-      <button id="firm-back" class="icon back" type="button" data-i18n-label="back"><svg viewBox="0 0 24 24" class="flip"><path d="M15 5l-7 7 7 7"/></svg></button>
-      <h1 id="firm-title"></h1>
-      <button id="firm-menu-open" class="avatars" type="button" data-i18n-label="firmSettings"></button>
-    </header>
+    <header class="top" id="firm-top"></header>
     <div id="view"></div>
-    <nav id="tabs" class="tabs"></nav>
   </main>
 
   <!-- Satıcı / tedarikçi hesabı -->
@@ -135,8 +130,6 @@
       <button id="invite" class="primary block" type="button" data-i18n="invite"></button>
       <p class="label" data-i18n="partners"></p>
       <ul id="member-list" class="member-list"></ul>
-      <button id="recompute" class="block" type="button" data-i18n="recompute"></button>
-      <p class="muted center small-text" data-i18n="recomputeHint"></p>
       <button id="leave-firm" class="block danger" type="button" data-i18n="leaveFirm"></button>
       <button class="block ghost" value="close" data-i18n="close"></button>
     </form>

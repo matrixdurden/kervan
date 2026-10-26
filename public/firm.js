@@ -1,41 +1,45 @@
-// İşletme ekranı: ürünler, cariler, ortak kasaları, aylık kâr ve son hareketler canlı dinlenir;
-// sekmeler (Özet, Ürünler, Cariler, Kasa, Defter) bunlardan çizilir.
+// İşletme ekranı: ana ekran (özet, büyük işlem düğmeleri, bölümler) ve bölüm sayfaları.
+// Ürünler, cariler, ortak kasaları ve aylık kâr canlı dinlenir; sayfadaki hareket listesi
+// sadece o sayfanın hareket türleri için dinlenir.
 
 import {
-  collection, query, orderBy, limit, onSnapshot,
+  collection, query, where, orderBy, limit, onSnapshot, getDocs,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
-import { $, h, icon, store, toast, avatar, avatarStack, today } from "./ui.js";
-import { t, unitLabel } from "./i18n.js";
-import { session, currentFirm, members, partners, person, sharePlan, resetFirm } from "./session.js";
+import { $, h, icon, store, toast, avatar, today } from "./ui.js";
+import { t, unitLabel, lang, setLang } from "./i18n.js";
+import { session, currentFirm, partners, person, sharePlan, resetFirm, myName } from "./session.js";
 import { formatMoney, formatNumber } from "./money.js";
-import { avgCost, sumMonths, splitBuckets } from "./ledger.js";
+import { avgCost, sumMonths, splitBuckets, lineTotal, roundQty } from "./ledger.js";
 import {
-  moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, actionButton, newestFirst,
+  moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, newestFirst,
 } from "./views.js";
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
-  openDealSheet, openGuestSheet, openGuestAddSheet,
+  openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet,
 } from "./forms.js";
+import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
-import { productByBarcode } from "./data.js";
+import { productByBarcode, productLabel, recompute } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
 
-const TABS = [["summary", "home"], ["products", "box"], ["people", "users"], ["cash", "wallet"], ["ledger", "book"]];
 const PAGE = 100;
 
 let unsubs = [];
-let unsubMoves = null;
-let moves = [];
-let movesLimit = PAGE;
-let movesReady = false;
-let tab = TABS.some(([id]) => id === store.get("tab")) ? store.get("tab") : "summary";
-let peopleKind = store.get("people") === "supplier" ? "supplier" : "seller";
+let page = null; // null: ana ekran
+let pageUnsub = null;
+let pageMoves = null;
+let pageLimit = PAGE;
+let recent = [];
+let recentUnsub = null;
 let period = "month";
 let ledgerFilter = "";
+let productFilter = "all";
+let report = null; // { key, sales, expenses } dönem raporu için okunan hareketler
 const search = { products: "", seller: "", supplier: "" };
 
 export const currentFirmId = () => session.firm.id;
+export const currentPage = () => page;
 
 export function openFirm(id) {
   closeFirm();
@@ -47,87 +51,123 @@ export function openFirm(id) {
     refreshFirm();
   }, failed);
   unsubs = [listen("products", "products"), listen("parties", "parties"), listen("accounts", "accounts"), listen("months", "months")];
-  movesLimit = PAGE;
-  listenMoves();
-  renderedTab = null;
+  // Ana ekrandaki "son işlemler".
+  recentUnsub = onSnapshot(query(collection(db, "firms", id, "moves"), orderBy("at", "desc"), limit(6)), (snap) => {
+    recent = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) })).sort(newestFirst);
+    if (!page) refreshFirm();
+  }, failed);
+  page = null;
+  rendered = null;
   refreshFirm();
-}
-
-function listenMoves() {
-  unsubMoves?.();
-  const q = query(collection(db, "firms", session.firm.id, "moves"), orderBy("at", "desc"), limit(movesLimit));
-  unsubMoves = onSnapshot(q, (snap) => {
-    moves = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) })).sort(newestFirst);
-    movesReady = true;
-    refreshFirm();
-  }, (err) => { console.error(err); toast(t("readFailed")); });
 }
 
 export function closeFirm() {
   for (const unsub of unsubs) unsub();
-  unsubMoves?.();
   unsubs = [];
-  unsubMoves = null;
-  moves = [];
-  movesReady = false;
+  recentUnsub?.();
+  recentUnsub = null;
+  stopPageMoves();
+  page = null;
+  recent = [];
   resetFirm(null);
 }
 
 export function refreshFirm() {
-  const firm = currentFirm();
-  if (!firm) return;
-  $("#firm-title").textContent = firm.name;
-  $("#firm-menu-open").replaceChildren(avatarStack(members(firm)));
-  renderTabs();
+  if (!currentFirm()) return;
   render();
   refreshParty();
 }
 
-// Dil değişince sekmenin üst kısmı da yeniden kurulsun.
+// Dil değişince sayfanın üst kısmı da yeniden kurulsun.
 export function rebuildFirm() {
-  renderedTab = null;
+  rendered = null;
   refreshFirm();
 }
 
-function setTab(next, options = {}) {
-  tab = next;
-  store.set("tab", next);
-  if (options.kind) {
-    peopleKind = options.kind;
-    store.set("people", options.kind);
-  }
-  renderedTab = null;
+// --- Sayfalar arası geçiş (Android geri tuşu da çalışsın diye history kullanılır) ---
+
+export function openPage(id, options = {}) {
+  page = id;
+  if (options.kind) search[options.kind] = "";
+  if (options.filter) productFilter = options.filter;
+  if (options.ledgerFilter !== undefined) ledgerFilter = options.ledgerFilter;
+  history.pushState({ page: id }, "");
+  listenPageMoves();
+  rendered = null;
   render();
-  renderTabs();
   scrollTo(0, 0);
 }
 
-function renderTabs() {
-  $("#tabs").replaceChildren(...TABS.map(([id, ic]) => h("button", {
-    type: "button", "aria-current": id === tab ? "page" : null, onclick: () => setTab(id),
-  }, icon(ic), h("span", {}, t(`tab_${id}`)))));
+export function closePage() {
+  page = null;
+  stopPageMoves();
+  rendered = null;
+  render();
+  scrollTo(0, 0);
 }
 
-// Sekmenin üst kısmı (arama kutusu gibi) sadece sekme değişince kurulur ki yazarken odak kaybolmasın;
-// liste kısmı her veri değişiminde yeniden çizilir.
-let renderedTab = null;
+const back = () => history.back();
+
+function stopPageMoves() {
+  pageUnsub?.();
+  pageUnsub = null;
+  pageMoves = null;
+  pageLimit = PAGE;
+}
+
+// Sayfanın hareket türleri için canlı liste.
+function listenPageMoves() {
+  stopPageMoves();
+  const types = PAGES[page]?.types;
+  if (!types) return;
+  const col = collection(db, "firms", session.firm.id, "moves");
+  const q = types === "all"
+    ? query(col, orderBy("at", "desc"), limit(pageLimit))
+    : query(col, where("type", "in", types), orderBy("at", "desc"), limit(pageLimit));
+  pageUnsub = onSnapshot(q, (snap) => {
+    pageMoves = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) })).sort(newestFirst);
+    refreshFirm();
+  }, (err) => { console.error(err); toast(t("readFailed")); });
+}
+
+// --- Çizim -----------------------------------------------------------------------
+// Sayfanın üst kısmı (başlık, arama kutusu) sadece sayfa değişince kurulur ki yazarken odak kaybolmasın;
+// içerik her veri değişiminde yeniden çizilir.
+
+let rendered = null;
 let body = null;
 
 function render() {
-  const view = VIEWS[tab];
-  if (renderedTab !== tab) {
-    renderedTab = tab;
+  const key = page ?? "home";
+  const view = page ? PAGES[page] : HOME;
+  if (rendered !== key) {
+    rendered = key;
     body = h("div", { class: "view-body" });
+    $("#firm-top").replaceChildren(...view.top().filter(Boolean));
     $("#view").replaceChildren(...[view.head?.(), body].filter(Boolean));
+    $("#firm").classList.toggle("home", !page);
+  } else if (!page) {
+    $("#firm-top").replaceChildren(...view.top().filter(Boolean)); // zil sayısı değişebilir
   }
   body.replaceChildren(...view.body().filter(Boolean));
 }
 
-const rerenderBody = () => body?.replaceChildren(...VIEWS[tab].body().filter(Boolean));
+const rerenderBody = () => body?.replaceChildren(...(page ? PAGES[page] : HOME).body().filter(Boolean));
 
 const sum = (list, fn) => list.reduce((s, x) => s + fn(x), 0);
 const parties = (kind) => [...session.firm.parties.values()].filter((p) => p.kind === kind);
 const shelfItems = (party) => Object.entries(party.shelf ?? {}).filter(([, s]) => s.stock > 0);
+const fact = (label, value) => h("div", { class: "fact" }, h("span", {}, label), h("strong", {}, value));
+
+export const isLow = (p) => p.minStock > 0 && p.stock <= p.minStock;
+const lowProducts = () => [...session.firm.products.values()].filter(isLow).sort(byName);
+
+// Satış fiyatına göre kâr marjı (%): (satış − maliyet) / satış.
+export function marginOf(p) {
+  const cost = p.stock > 0 ? avgCost(p) : p.lastCost;
+  if (!p.price || !cost) return null;
+  return Math.round(((p.price - cost) / p.price) * 1000) / 10;
+}
 
 // Tedarikçi borçları para birimine göre, her biri kendi satırında: ₺12.000 / $1.500
 function payableText() {
@@ -139,54 +179,97 @@ function payableText() {
   return h("span", { class: "amounts" }, [...byCurrency].map(([c, v]) => h("bdi", {}, formatMoney(v, c))));
 }
 
-// --- Özet -------------------------------------------------------------------
-
-function summaryBody() {
-  const { products, accounts, months } = session.firm;
-  const month = today().slice(0, 7);
-  const profit = sumMonths(months, month, month).profit;
-  const receivable = sum(parties("seller"), (p) => Math.max(p.balance, 0));
-  const stockValue = sum([...products.values()], (p) => Math.max(p.value, 0));
-  const shelfValue = sum(parties("seller"), (p) => sum(shelfItems(p), ([, s]) => s.value));
-  const cash = sum([...accounts.values()], (a) => a.cash || 0);
-
-  const tile = (label, amount, tone, onclick) =>
-    h("button", { type: "button", class: `tile ${tone}`, onclick },
-      h("span", { class: "tile-label" }, label), h("strong", {}, amount));
-
-  const out = [
-    h("div", { class: "tiles" },
-      tile(t("receivable"), formatMoney(receivable), "in", () => setTab("people", { kind: "seller" })),
-      tile(t("payable"), payableText(), "out", () => setTab("people", { kind: "supplier" })),
-      tile(t("stockValue"), formatMoney(stockValue), "", () => setTab("products")),
-      tile(t("shelfValue"), formatMoney(shelfValue), "", () => setTab("people", { kind: "seller" })),
-      tile(t("profitThisMonth"), formatMoney(profit), profit < 0 ? "out" : "in", () => setTab("cash")),
-      tile(t("cashTotal"), formatMoney(cash), "", () => setTab("cash"))),
-    h("div", { class: "quicks" },
-      actionButton("sale", t("quick_sale"), () => openMoveSheet("sale")),
-      actionButton("collection", t("quick_collection"), () => openMoveSheet("collection")),
-      actionButton("purchase", t("quick_purchase"), () => openMoveSheet("purchase")),
-      actionButton("payment", t("quick_payment"), () => openMoveSheet("payment")),
-      actionButton("consign", t("quick_consign"), () => openMoveSheet("consign")),
-      actionButton("consignSale", t("quick_count"), () => openShelfSheet("count")),
-      actionButton("return", t("quick_return"), () => openShelfSheet("return")),
-      actionButton("expense", t("quick_expense"), () => openCashSheet("expense"))),
-  ];
-
-  if (!products.size || !parties("seller").length || !parties("supplier").length) out.push(startGuide());
-
-  if (moves.length) {
-    out.push(
-      h("h2", { class: "sec" }, h("span", {}, t("recentMoves")),
-        h("button", { type: "button", class: "link", onclick: () => setTab("ledger") }, t("allMoves"))),
-      h("ul", { class: "cards" }, moves.slice(0, 8).map((m) => moveRow(m, { onclick: () => openMoveDetail(m) }))));
-  }
-  return out;
+// İşletme logosu ya da adının baş harfi.
+export function firmMark(firm, size = "") {
+  return firm.logo
+    ? h("img", { class: `firm-mark ${size}`, src: firm.logo, alt: "" })
+    : h("span", { class: `firm-mark ${size}`, "aria-hidden": "true" }, firm.name.charAt(0).toLocaleUpperCase("tr"));
 }
+
+// Sayfa başlığı: geri, başlık, (varsa) sağda bir düğme.
+function pageTop(title, extra) {
+  return [
+    h("button", { type: "button", class: "icon back", "aria-label": t("back"), onclick: back }, icon("back")),
+    h("h1", {}, title),
+    extra ?? null,
+  ].filter(Boolean);
+}
+
+// Sayfanın en üstündeki büyük işlem düğmeleri.
+function bigActions(...actions) {
+  return h("div", { class: "page-actions" }, actions.filter(Boolean).map(([label, ic, onclick, cls = ""]) =>
+    h("button", { type: "button", class: `big-action ${cls}`, onclick }, icon(ic), h("span", {}, label))));
+}
+
+// --- Ana ekran ------------------------------------------------------------------
+
+const TILES = [
+  ["sales", "out", "tile-sale"], ["purchases", "in", "tile-purchase"],
+  ["collections", "coin", "tile-collection"], ["expenses", "receipt", "tile-expense"],
+];
+const SECTIONS = [
+  ["products", "box"], ["sellers", "store"], ["suppliers", "truck"], ["consign", "send"],
+  ["payments", "coin"], ["cash", "wallet"], ["reports", "chart"], ["ledger", "book"],
+  ["invoice", "fileScan"], ["settings", "gear"],
+];
+
+const HOME = {
+  top() {
+    const firm = currentFirm();
+    const low = lowProducts().length;
+    return [
+      session.firms.size > 1 && h("button", { type: "button", class: "icon back", "aria-label": t("back"), onclick: back }, icon("back")),
+      firmMark(firm),
+      h("div", { class: "home-title" }, h("h1", {}, h("bdi", {}, firm.name)), h("small", {}, `${t("hello")}, ${myName()}`)),
+      h("button", {
+        type: "button", class: "icon-btn bell", "aria-label": t("lowStockTitle"),
+        onclick: () => openPage("products", { filter: "low" }),
+      }, icon("bell"), low ? h("span", { class: "dot" }, String(low)) : null),
+      h("button", { type: "button", class: "icon-btn", "aria-label": t("page_settings"), onclick: () => openPage("settings") }, icon("gear")),
+    ];
+  },
+  body() {
+    const { products, accounts, months } = session.firm;
+    const firm = currentFirm();
+    const month = today().slice(0, 7);
+    const profit = sumMonths(months, month, month).profit;
+    const receivable = sum(parties("seller"), (p) => Math.max(p.balance, 0));
+    const cash = sum(firm.members, (uid) => accounts.get(uid)?.cash ?? 0);
+    const low = lowProducts();
+
+    const stat = (label, value, tone, onclick) => h("button", { type: "button", class: `stat ${tone}`, onclick },
+      h("span", {}, label), h("strong", {}, value));
+    const out = [
+      h("div", { class: "stats" },
+        stat(t("receivable"), formatMoney(receivable), "in", () => openPage("sellers")),
+        stat(t("cashTotal"), formatMoney(cash), "", () => openPage("cash")),
+        stat(t("profitThisMonth"), formatMoney(profit), profit < 0 ? "out" : "in", () => openPage("reports"))),
+      h("div", { class: "tiles-big" }, TILES.map(([id, ic, cls]) =>
+        h("button", { type: "button", class: `tile-big ${cls}`, onclick: () => openPage(id) }, icon(ic), h("span", {}, t(`page_${id}`))))),
+      low.length > 0 && h("button", { type: "button", class: "card low-banner", onclick: () => openPage("products", { filter: "low" }) },
+        icon("alert"), h("span", { class: "main" },
+          h("strong", {}, t("lowStockCount", { n: low.length })),
+          h("small", {}, low.slice(0, 3).map(productLabel).join(", ") + (low.length > 3 ? "…" : ""))),
+        icon("chevron")),
+      h("div", { class: "tiles-grid" }, SECTIONS.map(([id, ic]) =>
+        h("button", { type: "button", class: "tile-small", onclick: () => (id === "invoice" ? openInvoiceImport() : openPage(id)) },
+          icon(ic), h("span", {}, t(`page_${id}`))))),
+    ];
+    if (!products.size || !parties("seller").length || !parties("supplier").length) out.push(startGuide());
+    if (recent.length) {
+      out.push(
+        h("h2", { class: "sec" }, h("span", {}, t("recentMoves")),
+          h("button", { type: "button", class: "link", onclick: () => openPage("ledger") }, t("allMoves"))),
+        h("ul", { class: "cards" }, recent.slice(0, 5).map((m) => moveRow(m, { onclick: () => openMoveDetail(m) }))));
+    }
+    return out;
+  },
+};
 
 // İlk kurulumda ne yapılacağını adım adım gösterir.
 function startGuide() {
   const { products } = session.firm;
+  const firm = currentFirm();
   const step = (done, text, onclick) =>
     h("li", { class: done ? "done" : "" },
       h("span", { class: "step-dot" }, done ? icon("check") : null),
@@ -195,15 +278,43 @@ function startGuide() {
   return h("div", { class: "card guide" },
     h("p", { class: "guide-title" }, t("guideTitle")),
     h("ol", {},
+      step(Boolean(firm.logo || firm.info?.title), t("guideBusiness"), () => openBusinessSheet()),
       step(products.size > 0, t("guideProducts"), () => openProductSheet()),
       step(parties("seller").length > 0, t("guideSellers"), () => openPartySheet("seller")),
       step(parties("supplier").length > 0, t("guideSuppliers"), () => openPartySheet("supplier"))),
     h("p", { class: "field-hint" }, t("guideHint")));
 }
 
-// --- Ürünler ----------------------------------------------------------------
+// --- Hareket listesi sayfaları (Satışlar, Alışlar, Tahsilatlar, Ödemeler, Giderler, Emanet, Defter) ---
 
-// Barkod okutunca ürün varsa açılır, yoksa o barkodla yeni ürün formu gelir.
+function movesList({ emptyText = t("noMoves"), filter } = {}) {
+  if (!pageMoves) return [];
+  const list = filter ? pageMoves.filter(filter) : pageMoves;
+  const out = [list.length
+    ? h("ul", { class: "cards" }, list.map((m) => moveRow(m, { onclick: () => openMoveDetail(m) })))
+    : emptyState("📒", emptyText)];
+  if (pageMoves.length >= pageLimit) {
+    out.push(h("button", { type: "button", class: "block more", onclick: () => { pageLimit += PAGE; listenPageMoves(); } }, t("olderMoves")));
+  }
+  return out;
+}
+
+// Bu ayın toplamı (listedeki iptal edilmemiş hareketlerden).
+function monthTotal(types) {
+  const month = today().slice(0, 7);
+  const total = sum((pageMoves ?? []).filter((m) => types.includes(m.type) && !m.voided && m.date.startsWith(month)), (m) => m.total);
+  return h("p", { class: "total-line" }, h("span", {}, t("thisMonthTotal")), h("strong", {}, formatMoney(total)));
+}
+
+const movesPage = ({ types, actions, empty, summary }) => ({
+  types,
+  top: () => pageTop(t(`page_${page}`)),
+  head: () => bigActions(...actions()),
+  body: () => [summary?.() ?? monthTotal(types), ...movesList({ emptyText: t(empty) })],
+});
+
+// --- Ürünler --------------------------------------------------------------------------
+
 async function scanProduct() {
   const code = await scanBarcode();
   if (!code) return;
@@ -212,77 +323,111 @@ async function scanProduct() {
   else openProductSheet(null, { barcode: code });
 }
 
-function productsHead() {
-  return h("div", { class: "toolbar" },
-    searchBox(t("searchProducts"), search.products, (v) => { search.products = v; rerenderBody(); }),
-    canScan() && h("button", { type: "button", class: "icon-btn", "aria-label": t("scanBarcode"), title: t("scanBarcode"), onclick: scanProduct }, icon("barcode")),
-    h("button", { type: "button", class: "primary small", onclick: () => openProductSheet() }, "+ ", t("product")));
+// Ürünün küçük fotoğrafı; yoksa adının baş harfi.
+export function productThumb(p, size = "") {
+  return p.thumb
+    ? h("img", { class: `thumb ${size}`, src: p.thumb, alt: "", loading: "lazy" })
+    : h("span", { class: `thumb blank ${size}`, "aria-hidden": "true" }, p.name.charAt(0).toLocaleUpperCase("tr"));
 }
 
-function productsBody() {
-  const all = [...session.firm.products.values()].sort(byName);
-  if (!all.length) return [emptyState("📦", t("noProducts"))];
-  const q = search.products.trim();
-  const list = all.filter((p) => matches(p.name, q) || (q && p.barcode === q));
-  if (!list.length) return [emptyState("🔍", t("noMatch"))];
-  return [h("ul", { class: "cards" }, list.map(productRow))];
+const productsPage = {
+  top: () => pageTop(t("page_products")),
+  head: () => h("div", { class: "page-head" },
+    bigActions([t("newProduct"), "plus", () => openProductSheet(), "primary"]),
+    h("div", { class: "toolbar" },
+      searchBox(t("searchProducts"), search.products, (v) => { search.products = v; rerenderBody(); }),
+      canScan() && h("button", { type: "button", class: "icon-btn", "aria-label": t("scanBarcode"), title: t("scanBarcode"), onclick: scanProduct }, icon("barcode"))),
+    segmented([["all", t("filterAll")], ["low", t("filterLow")]], productFilter, (v) => { productFilter = v; rerenderBody(); })),
+  body() {
+    const all = [...session.firm.products.values()];
+    if (!all.length) return [emptyState("📦", t("noProducts"))];
+    const q = search.products.trim();
+    const list = all
+      .filter((p) => matches(productLabel(p), q) || (q && p.barcode === q))
+      .filter((p) => productFilter !== "low" || isLow(p));
+    if (!list.length) return [emptyState(productFilter === "low" ? "✅" : "🔍", t(productFilter === "low" ? "noLowStock" : "noMatch"))];
+    // Çeşitler (renk, beden…) aynı grupta tek kartta gösterilir.
+    const groups = new Map();
+    for (const p of list.sort(byName)) {
+      const key = p.groupId || p.id;
+      groups.set(key, [...(groups.get(key) ?? []), p]);
+    }
+    return [h("ul", { class: "cards" }, [...groups.values()].map((items) => (items.length === 1 && !items[0].variant ? productRow(items[0]) : groupCard(items))))];
+  },
+};
+
+function productMeta(p) {
+  const unit = unitLabel(p.unit);
+  const meta = [t("inWarehouse", { n: formatNumber(p.stock), unit })];
+  if (p.consigned > 0) meta.push(t("atSellers", { n: formatNumber(p.consigned) }));
+  const margin = marginOf(p);
+  if (margin != null) meta.push(t("marginShort", { pct: formatNumber(margin) }));
+  return meta.join(" · ");
+}
+
+function stockBadge(p) {
+  if (p.stock < 0) return h("span", { class: "badge warn" }, t("negativeStock"));
+  if (p.stock === 0) return h("span", { class: "badge warn" }, t("outOfStock"));
+  if (isLow(p)) return h("span", { class: "badge warn" }, t("lowStock"));
+  return null;
 }
 
 function productRow(p) {
-  const unit = unitLabel(p.unit);
-  const badge = p.stock < 0 ? t("negativeStock") : p.stock === 0 ? t("outOfStock") : null;
-  const meta = [t("inWarehouse", { n: formatNumber(p.stock), unit })];
-  if (p.consigned > 0) meta.push(t("atSellers", { n: formatNumber(p.consigned) }));
-  if (p.stock > 0) meta.push(`${t("avgCostShort")} ${formatMoney(avgCost(p))}`);
   return h("li", {},
     h("button", { type: "button", class: "card row", onclick: () => openProductSheet(p) },
       productThumb(p),
       h("span", { class: "main" },
-        h("span", { class: "title" }, h("bdi", {}, p.name)),
-        h("span", { class: "meta" }, meta.join(" · "))),
+        h("span", { class: "title" }, h("bdi", {}, productLabel(p))),
+        h("span", { class: "meta" }, productMeta(p))),
       h("span", { class: "end" },
         p.price ? h("span", { class: "amount" }, formatMoney(p.price)) : null,
-        badge ? h("span", { class: "badge warn" }, badge) : h("span", { class: "after" }, t("perUnit", { unit })))));
+        stockBadge(p) ?? h("span", { class: "after" }, t("perUnit", { unit: unitLabel(p.unit) })))));
 }
 
-// Ürünün küçük fotoğrafı; yoksa adının baş harfi.
-function productThumb(p) {
+// Çeşitli ürün: üstte ortak ad ve toplam stok, altında her çeşit kendi satırında.
+function groupCard(items) {
+  const first = items.find((p) => p.thumb) ?? items[0];
+  const total = roundQty(sum(items, (p) => p.stock));
+  return h("li", { class: "card group" },
+    h("div", { class: "group-head" },
+      productThumb(first),
+      h("span", { class: "main" },
+        h("span", { class: "title" }, h("bdi", {}, items[0].name)),
+        h("span", { class: "meta" }, t("variantCount", { n: items.length, stock: formatNumber(total), unit: unitLabel(items[0].unit) })))),
+    h("div", { class: "variants" }, items.map((p) => h("button", { type: "button", class: "variant", onclick: () => openProductSheet(p) },
+      h("bdi", { class: "v-name" }, p.variant || t("variantDefault")),
+      h("span", { class: "v-stock" }, `${formatNumber(p.stock)} ${unitLabel(p.unit)}`),
+      p.price ? h("span", { class: "v-price" }, formatMoney(p.price)) : null,
+      stockBadge(p)))));
+}
+
+// --- Satıcılar ve tedarikçiler -----------------------------------------------------------
+
+export function partyAvatar(p) {
   return p.thumb
-    ? h("img", { class: "thumb", src: p.thumb, alt: "", loading: "lazy" })
-    : h("span", { class: "thumb blank", "aria-hidden": "true" }, p.name.charAt(0).toLocaleUpperCase("tr"));
+    ? h("img", { class: "thumb round", src: p.thumb, alt: "", loading: "lazy" })
+    : h("span", { class: "thumb blank round", "aria-hidden": "true" }, p.name.charAt(0).toLocaleUpperCase("tr"));
 }
 
-// --- Cariler (satıcılar ve tedarikçiler) -------------------------------------------
-
-function peopleHead() {
-  return h("div", { class: "people-head" },
-    segmented([["seller", t("tab_sellers")], ["supplier", t("tab_suppliers")]], peopleKind, (v) => {
-      peopleKind = v;
-      store.set("people", v);
-      renderedTab = null;
-      render();
-    }),
+const partiesPage = (kind) => ({
+  top: () => pageTop(t(kind === "seller" ? "page_sellers" : "page_suppliers")),
+  head: () => h("div", { class: "page-head" },
+    bigActions([t(kind === "seller" ? "newSeller" : "newSupplier"), "plus", () => openPartySheet(kind), "primary"]),
     h("div", { class: "toolbar" },
-      searchBox(t(peopleKind === "seller" ? "searchSellers" : "searchSuppliers"), search[peopleKind], (v) => {
-        search[peopleKind] = v;
-        rerenderBody();
-      }),
-      h("button", { type: "button", class: "primary small", onclick: () => openPartySheet(peopleKind) }, "+ ", t(peopleKind))));
-}
-
-function peopleBody() {
-  const kind = peopleKind;
-  const all = parties(kind).sort(byName);
-  if (!all.length) return [emptyState(kind === "seller" ? "🏪" : "🚚", t(kind === "seller" ? "noSellers" : "noSuppliers"))];
-  const q = search[kind];
-  const list = all.filter((p) => matches(p.name, q) || matches(p.phone, q));
-  return [
-    h("p", { class: "total-line" },
-      h("span", {}, t(kind === "seller" ? "totalReceivable" : "totalPayable")),
-      h("strong", {}, kind === "seller" ? formatMoney(sum(all, (p) => Math.max(p.balance, 0))) : payableText())),
-    list.length ? h("ul", { class: "cards" }, list.map(partyRow)) : emptyState("🔍", t("noMatch")),
-  ];
-}
+      searchBox(t(kind === "seller" ? "searchSellers" : "searchSuppliers"), search[kind], (v) => { search[kind] = v; rerenderBody(); }))),
+  body() {
+    const all = parties(kind).sort(byName);
+    if (!all.length) return [emptyState(kind === "seller" ? "🏪" : "🚚", t(kind === "seller" ? "noSellers" : "noSuppliers"))];
+    const q = search[kind];
+    const list = all.filter((p) => matches(p.name, q) || matches(p.phone, q));
+    return [
+      h("p", { class: "total-line" },
+        h("span", {}, t(kind === "seller" ? "totalReceivable" : "totalPayable")),
+        h("strong", {}, kind === "seller" ? formatMoney(sum(all, (p) => Math.max(p.balance, 0))) : payableText())),
+      list.length ? h("ul", { class: "cards" }, list.map(partyRow)) : emptyState("🔍", t("noMatch")),
+    ];
+  },
+});
 
 function partyRow(p) {
   const b = balanceText(p.kind, p.balance, p.currency);
@@ -290,6 +435,7 @@ function partyRow(p) {
   const meta = [p.phone || p.note, items.length ? t("onShelfCount", { n: items.length }) : null].filter(Boolean);
   return h("li", {},
     h("button", { type: "button", class: "card row", onclick: () => openParty(p.id) },
+      partyAvatar(p),
       h("span", { class: "main" },
         h("span", { class: "title" }, h("bdi", {}, p.name)),
         meta.length > 0 && h("span", { class: "meta" }, h("bdi", {}, meta.join(" · ")))),
@@ -298,7 +444,60 @@ function partyRow(p) {
         h("span", { class: "after" }, b.label))));
 }
 
-// --- Kasa: kâr, ortaklar ve paraları ---------------------------------------------
+// --- Emanet: satıcılardaki mal ------------------------------------------------------------
+
+const consignPage = {
+  types: ["consign", "consignSale", "return"],
+  top: () => pageTop(t("page_consign")),
+  head: () => bigActions(
+    [t("quick_consign"), "send", () => openMoveSheet("consign"), "primary"],
+    [t("quick_count"), "clipboard", () => openShelfSheet("count")],
+    [t("quick_return"), "undo", () => openShelfSheet("return")]),
+  body() {
+    const sellers = parties("seller").filter((p) => shelfItems(p).length).sort(byName);
+    const out = [h("p", { class: "field-hint" }, t("consignIntro"))];
+    if (sellers.length) {
+      out.push(h("h2", { class: "sec" }, t("sellersWithShelf")), h("ul", { class: "cards" }, sellers.map((p) => {
+        const items = shelfItems(p);
+        const value = sum(items, ([, s]) => Math.round(s.stock * s.price));
+        return h("li", {}, h("button", { type: "button", class: "card row", onclick: () => openParty(p.id) },
+          partyAvatar(p),
+          h("span", { class: "main" },
+            h("span", { class: "title" }, h("bdi", {}, p.name)),
+            h("span", { class: "meta" }, t("onShelfCount", { n: items.length }))),
+          h("span", { class: "end" }, h("span", { class: "amount" }, formatMoney(value)))));
+      })));
+    }
+    out.push(h("h2", { class: "sec" }, t("recentMoves")), ...movesList({ emptyText: t("noConsignMoves") }));
+    return out;
+  },
+};
+
+// --- Giderler --------------------------------------------------------------------------
+
+const expensesPage = {
+  types: ["expense"],
+  top: () => pageTop(t("page_expenses")),
+  head: () => bigActions([t("new_expense"), "plus", () => openCashSheet("expense"), "primary"],
+    [t("expenseCategories"), "tag", () => openCategoriesSheet()]),
+  body() {
+    // Bu ayın giderleri kategoriye göre.
+    const month = today().slice(0, 7);
+    const byCat = new Map();
+    for (const m of (pageMoves ?? []).filter((x) => !x.voided && x.date.startsWith(month))) {
+      const key = m.categoryName || t("uncategorized");
+      byCat.set(key, (byCat.get(key) ?? 0) + m.total);
+    }
+    const out = [monthTotal(["expense"])];
+    if (byCat.size) {
+      out.push(h("div", { class: "card breakdown" }, [...byCat].sort((a, b) => b[1] - a[1]).map(([name, v]) =>
+        h("div", { class: "pl-row" }, h("span", {}, h("bdi", {}, name)), h("strong", {}, formatMoney(v))))));
+    }
+    return [...out, ...movesList({ emptyText: t("noExpenses") })];
+  },
+};
+
+// --- Kasa: kâr, ortaklıklar, ortaklar ve paraları ---------------------------------------------
 
 function periodRange() {
   const now = today();
@@ -311,123 +510,252 @@ function periodRange() {
   return ["", "9999-99"];
 }
 
-function cashHead() {
-  return segmented([
-    ["month", t("period_month")], ["lastMonth", t("period_lastMonth")], ["year", t("period_year")], ["all", t("period_all")],
-  ], period, (v) => { period = v; rerenderBody(); });
-}
+const periodSeg = (onchange) => segmented([
+  ["month", t("period_month")], ["lastMonth", t("period_lastMonth")], ["year", t("period_year")], ["all", t("period_all")],
+], period, (v) => { period = v; onchange(); });
 
-function cashBody() {
-  const firm = currentFirm();
-  const { accounts, months, products } = session.firm;
-  const [from, to] = periodRange();
-  const period = sumMonths(months, from, to);
-  const allTime = sumMonths(months);
-  const plan = sharePlan(firm);
-  const periodShare = splitBuckets(period.by, plan);
-  const allShare = splitBuckets(allTime.by, plan);
-  const people = partners(firm);
-  const cashTotal = sum(firm.members, (uid) => accounts.get(uid)?.cash ?? 0);
-  const deals = Object.entries(firm.deals ?? {});
-
+function profitCard(p) {
   const row = (label, value, cls = "") => h("div", { class: `pl-row ${cls}` }, h("span", {}, label), h("strong", {}, value));
-  // "Ali %50 · Kuzen %50"
-  const sharesText = ({ ids, shares }) => ids.map((id) => {
-    const pct = shares[id] ?? Math.round((100 / ids.length) * 10) / 10;
-    return `${person(firm, id).name} %${formatNumber(pct)}`;
-  }).join(" · ");
-  const bucketProfit = (bucket) => period.by[bucket]?.profit ?? 0;
-
-  const out = [
-    h("div", { class: "card pl" },
-      row(t("plRevenue"), formatMoney(period.revenue)),
-      row(t("plCogs"), `−${formatMoney(period.cogs)}`),
-      row(t("plExpenses"), `−${formatMoney(period.expenses)}`),
-      row(t("plProfit"), formatMoney(period.profit), `total ${period.profit < 0 ? "out" : "in"}`)),
-    h("div", { class: "quicks" },
-      actionButton("expense", t("quick_expense"), () => openCashSheet("expense")),
-      actionButton("capitalIn", t("quick_capitalIn"), () => openCashSheet("capitalIn")),
-      actionButton("withdraw", t("quick_withdraw"), () => openCashSheet("withdraw")),
-      actionButton("transfer", t("quick_transfer"), () => openCashSheet("transfer"), firm.members.length < 2)),
-  ];
-
-  // Ortaklıklar: genel paylar ve ürün ortaklıkları, her birinin bu dönemki kârıyla.
-  const dealCard = (title, sub, shares, profit, onclick) =>
-    h("li", {}, h("button", { type: "button", class: "card row deal", onclick },
-      h("span", { class: "main" },
-        h("span", { class: "title" }, h("bdi", {}, title)),
-        sub && h("span", { class: "meta sub" }, h("bdi", {}, sub)),
-        h("span", { class: "meta" }, h("bdi", {}, shares))),
-      h("span", { class: `end ${profit < 0 ? "out" : "in"}` },
-        h("span", { class: "amount" }, formatMoney(profit)),
-        h("span", { class: "after" }, t("plProfit")))));
-  out.push(
-    h("h2", { class: "sec" }, h("span", {}, t("deals")),
-      h("button", { type: "button", class: "link", onclick: () => openDealSheet() }, `+ ${t("newDeal")}`)),
-    h("ul", { class: "cards" },
-      dealCard(t("generalShares"), deals.length ? t("generalSharesSub") : null, sharesText(plan("general")), bucketProfit("general"), () => openSharesSheet()),
-      deals.map(([id, d]) => dealCard(
-        d.name,
-        (d.products ?? []).map((pid) => products.get(pid)?.name).filter(Boolean).join(", ") || t("noDealProducts"),
-        sharesText(plan(id)), bucketProfit(id), () => openDealSheet(id)))),
-    !deals.length && h("p", { class: "field-hint" }, t("dealsIntro")));
-
-  // Ortaklar: uygulamadakiler ve uygulamasız olanlar.
-  out.push(h("h2", { class: "sec" }, h("span", {}, t("partners")),
-    h("button", { type: "button", class: "link", onclick: () => openGuestAddSheet() }, `+ ${t("addGuest")}`)));
-  out.push(h("ul", { class: "cards" }, people.map((p) => {
-    const acc = accounts.get(p.uid) ?? {};
-    const equity = (acc.capital ?? 0) + (allShare.get(p.uid) ?? 0);
-    return h("li", {}, h(p.guest ? "button" : "div", {
-      type: p.guest ? "button" : null, class: "card partner", onclick: p.guest ? () => openGuestSheet(p.uid) : null,
-    },
-    h("div", { class: "partner-head" },
-      avatar(p),
-      h("strong", { class: "main" }, h("bdi", {}, p.name), p.uid === session.uid ? ` (${t("you")})` : ""),
-      p.guest && h("span", { class: "badge" }, t("guest"))),
-    h("div", { class: "facts" },
-      fact(t("profitShare"), formatMoney(periodShare.get(p.uid) ?? 0)),
-      p.guest ? null : fact(t("cashInHand"), formatMoney(acc.cash ?? 0)),
-      fact(t("netCapital"), formatMoney(acc.capital ?? 0)),
-      fact(t("equity"), formatMoney(equity)))));
-  })));
-  out.push(
-    h("p", { class: "total-line" }, h("span", {}, t("cashTotal")), h("strong", {}, formatMoney(cashTotal))),
-    h("p", { class: "field-hint" }, t("equityHint")));
-  return out;
+  return h("div", { class: "card pl" },
+    row(t("plRevenue"), formatMoney(p.revenue)),
+    row(t("plCogs"), `−${formatMoney(p.cogs)}`),
+    row(t("plExpenses"), `−${formatMoney(p.expenses)}`),
+    row(t("plProfit"), formatMoney(p.profit), `total ${p.profit < 0 ? "out" : "in"}`),
+    p.revenue > 0 && row(t("plMargin"), `%${formatNumber(Math.round(((p.revenue - p.cogs) / p.revenue) * 1000) / 10)}`, "muted"));
 }
 
-const fact = (label, value) => h("div", { class: "fact" }, h("span", {}, label), h("strong", {}, value));
+const cashPage = {
+  top: () => pageTop(t("page_cash")),
+  head: () => h("div", { class: "page-head" },
+    bigActions(
+      [t("quick_capitalIn"), "plusCircle", () => openCashSheet("capitalIn")],
+      [t("quick_withdraw"), "minusCircle", () => openCashSheet("withdraw")],
+      currentFirm().members.length > 1 && [t("quick_transfer"), "swap", () => openCashSheet("transfer")]),
+    periodSeg(rerenderBody)),
+  body() {
+    const firm = currentFirm();
+    const { accounts, months, products } = session.firm;
+    const [from, to] = periodRange();
+    const p = sumMonths(months, from, to);
+    const allTime = sumMonths(months);
+    const plan = sharePlan(firm);
+    const periodShare = splitBuckets(p.by, plan);
+    const allShare = splitBuckets(allTime.by, plan);
+    const deals = Object.entries(firm.deals ?? {});
+    // "Ali %50 · Kuzen %50"
+    const sharesText = ({ ids, shares }) => ids.map((id) => {
+      const pct = shares[id] ?? Math.round((100 / ids.length) * 10) / 10;
+      return `${person(firm, id).name} %${formatNumber(pct)}`;
+    }).join(" · ");
+    const bucketProfit = (bucket) => p.by[bucket]?.profit ?? 0;
+    const dealCard = (title, sub, shares, profit, onclick) =>
+      h("li", {}, h("button", { type: "button", class: "card row deal", onclick },
+        h("span", { class: "main" },
+          h("span", { class: "title" }, h("bdi", {}, title)),
+          sub && h("span", { class: "meta sub" }, h("bdi", {}, sub)),
+          h("span", { class: "meta" }, h("bdi", {}, shares))),
+        h("span", { class: `end ${profit < 0 ? "out" : "in"}` },
+          h("span", { class: "amount" }, formatMoney(profit)),
+          h("span", { class: "after" }, t("plProfit")))));
 
-// --- Defter -------------------------------------------------------------------
+    return [
+      profitCard(p),
+      h("h2", { class: "sec" }, h("span", {}, t("deals")),
+        h("button", { type: "button", class: "link", onclick: () => openDealSheet() }, `+ ${t("newDeal")}`)),
+      h("ul", { class: "cards" },
+        dealCard(t("generalShares"), deals.length ? t("generalSharesSub") : null, sharesText(plan("general")), bucketProfit("general"), () => openSharesSheet()),
+        deals.map(([id, d]) => dealCard(
+          d.name,
+          (d.products ?? []).map((pid) => productLabel(products.get(pid))).filter(Boolean).join(", ") || t("noDealProducts"),
+          sharesText(plan(id)), bucketProfit(id), () => openDealSheet(id)))),
+      !deals.length && h("p", { class: "field-hint" }, t("dealsIntro")),
+      h("h2", { class: "sec" }, h("span", {}, t("partners")),
+        h("button", { type: "button", class: "link", onclick: () => openGuestAddSheet() }, `+ ${t("addGuest")}`)),
+      h("ul", { class: "cards" }, partners(firm).map((x) => {
+        const acc = accounts.get(x.uid) ?? {};
+        const equity = (acc.capital ?? 0) + (allShare.get(x.uid) ?? 0);
+        return h("li", {}, h(x.guest ? "button" : "div", {
+          type: x.guest ? "button" : null, class: "card partner", onclick: x.guest ? () => openGuestSheet(x.uid) : null,
+        },
+        h("div", { class: "partner-head" },
+          avatar(x),
+          h("strong", { class: "main" }, h("bdi", {}, x.name), x.uid === session.uid ? ` (${t("you")})` : ""),
+          x.guest && h("span", { class: "badge" }, t("guest"))),
+        h("div", { class: "facts" },
+          fact(t("profitShare"), formatMoney(periodShare.get(x.uid) ?? 0)),
+          x.guest ? null : fact(t("cashInHand"), formatMoney(acc.cash ?? 0)),
+          fact(t("netCapital"), formatMoney(acc.capital ?? 0)),
+          fact(t("equity"), formatMoney(equity)))));
+      })),
+      h("p", { class: "total-line" }, h("span", {}, t("cashTotal")),
+        h("strong", {}, formatMoney(sum(firm.members, (uid) => accounts.get(uid)?.cash ?? 0)))),
+      h("p", { class: "field-hint" }, t("equityHint")),
+    ];
+  },
+};
+
+// --- Raporlar -------------------------------------------------------------------------
+
+// Dönemin satış ve gider hareketlerini bir kez okur (ürün ve kategori dökümü için).
+async function loadReport() {
+  const [from, to] = periodRange();
+  const key = `${from}|${to}`;
+  if (report?.key === key) return;
+  report = { key, loading: true };
+  try {
+    const col = collection(db, "firms", session.firm.id, "moves");
+    const snap = await getDocs(query(col,
+      where("type", "in", ["sale", "consignSale", "expense"]),
+      where("date", ">=", from ? `${from}-01` : ""), where("date", "<=", `${to}-31`)));
+    const moves = snap.docs.map((d) => d.data()).filter((m) => !m.voided);
+    report = { key, moves };
+  } catch (err) {
+    console.error(err);
+    report = { key, moves: [], failed: true };
+  }
+  if (page === "reports") rerenderBody();
+}
+
+const reportsPage = {
+  top: () => pageTop(t("page_reports")),
+  head: () => periodSeg(() => { report = null; rerenderBody(); }),
+  body() {
+    const { months } = session.firm;
+    const [from, to] = periodRange();
+    loadReport();
+    const out = [profitCard(sumMonths(months, from, to))];
+
+    // En çok kâr getiren ürünler
+    const byProduct = new Map();
+    const byCat = new Map();
+    for (const m of report?.moves ?? []) {
+      if (m.type === "expense") {
+        const k = m.categoryName || t("uncategorized");
+        byCat.set(k, (byCat.get(k) ?? 0) + m.total);
+        continue;
+      }
+      for (const l of m.lines ?? []) {
+        const cur = byProduct.get(l.product) ?? { name: l.name, unit: l.unit, qty: 0, revenue: 0, profit: 0 };
+        cur.qty = roundQty(cur.qty + l.qty);
+        cur.revenue += lineTotal(l);
+        cur.profit += lineTotal(l) - (l.cost ?? 0);
+        byProduct.set(l.product, cur);
+      }
+    }
+    const top = [...byProduct.values()].sort((a, b) => b.profit - a.profit).slice(0, 10);
+    out.push(h("h2", { class: "sec" }, t("topProducts")));
+    if (report?.loading) out.push(h("p", { class: "muted center" }, "…"));
+    else if (!top.length) out.push(h("p", { class: "field-hint" }, t("noSalesInPeriod")));
+    else {
+      out.push(h("ul", { class: "cards" }, top.map((x) => h("li", { class: "card row" },
+        h("span", { class: "main" },
+          h("span", { class: "title" }, h("bdi", {}, x.name)),
+          h("span", { class: "meta" }, `${formatNumber(x.qty)} ${unitLabel(x.unit)} · ${formatMoney(x.revenue)}`
+            + (x.revenue ? ` · ${t("marginShort", { pct: formatNumber(Math.round((x.profit / x.revenue) * 1000) / 10) })}` : ""))),
+        h("span", { class: `end ${x.profit < 0 ? "out" : "in"}` },
+          h("span", { class: "amount" }, formatMoney(x.profit)), h("span", { class: "after" }, t("grossProfit")))))));
+    }
+
+    if (byCat.size) {
+      out.push(h("h2", { class: "sec" }, t("expensesByCategory")),
+        h("div", { class: "card breakdown" }, [...byCat].sort((a, b) => b[1] - a[1]).map(([name, v]) =>
+          h("div", { class: "pl-row" }, h("span", {}, h("bdi", {}, name)), h("strong", {}, formatMoney(v))))));
+    }
+
+    // En çok borcu olan satıcılar
+    const debtors = parties("seller").filter((p) => p.balance > 0).sort((a, b) => b.balance - a.balance).slice(0, 5);
+    if (debtors.length) out.push(h("h2", { class: "sec" }, t("topDebtors")), h("ul", { class: "cards" }, debtors.map(partyRow)));
+
+    const low = lowProducts();
+    if (low.length) out.push(h("h2", { class: "sec" }, t("lowStockTitle")), h("ul", { class: "cards" }, low.map(productRow)));
+    return out;
+  },
+};
+
+// --- Hareketler (defter) ---------------------------------------------------------------------
 
 const FILTERS = ["sale", "collection", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening"];
 
-function ledgerHead() {
-  const select = h("select", { "aria-label": t("filter"), onchange: (e) => { ledgerFilter = e.target.value; rerenderBody(); } },
-    h("option", { value: "" }, t("allTypes")),
-    FILTERS.map((type) => h("option", { value: type, selected: type === ledgerFilter }, t(`type_${type}`))));
-  return h("div", { class: "toolbar" }, select);
-}
+const ledgerPage = {
+  types: "all",
+  top: () => pageTop(t("page_ledger")),
+  head: () => h("div", { class: "toolbar" },
+    h("select", { "aria-label": t("filter"), onchange: (e) => { ledgerFilter = e.target.value; rerenderBody(); } },
+      h("option", { value: "" }, t("allTypes")),
+      FILTERS.map((type) => h("option", { value: type, selected: type === ledgerFilter }, t(`type_${type}`))))),
+  body: () => movesList({ filter: ledgerFilter ? (m) => m.type === ledgerFilter : null }),
+};
 
-function ledgerBody() {
-  if (!moves.length) return [movesReady ? emptyState("📒", t("noMoves")) : null];
-  const list = ledgerFilter ? moves.filter((m) => m.type === ledgerFilter) : moves;
-  const out = [list.length
-    ? h("ul", { class: "cards" }, list.map((m) => moveRow(m, { onclick: () => openMoveDetail(m) })))
-    : emptyState("🔍", t("noMatch"))];
-  if (moves.length >= movesLimit) {
-    out.push(h("button", {
-      type: "button", class: "block more", onclick: () => { movesLimit += PAGE; listenMoves(); },
-    }, t("olderMoves")));
-  }
-  return out;
-}
+// --- Ayarlar ----------------------------------------------------------------------------
 
-const VIEWS = {
-  summary: { body: summaryBody },
-  products: { head: productsHead, body: productsBody },
-  people: { head: peopleHead, body: peopleBody },
-  cash: { head: cashHead, body: cashBody },
-  ledger: { head: ledgerHead, body: ledgerBody },
+const settingsPage = {
+  top: () => pageTop(t("page_settings")),
+  body() {
+    const firm = currentFirm();
+    const item = (ic, title, sub, onclick, cls = "") => h("li", {},
+      h("button", { type: "button", class: `card row setting ${cls}`, onclick },
+        h("span", { class: "setting-icon" }, icon(ic)),
+        h("span", { class: "main" }, h("span", { class: "title" }, title), sub && h("span", { class: "meta" }, h("bdi", {}, sub))),
+        icon("chevron")));
+    const cats = firm.expenseCategories;
+    return [
+      h("ul", { class: "cards" },
+        h("li", {}, h("button", { type: "button", class: "card row setting business", onclick: () => openBusinessSheet() },
+          firmMark(firm, "lg"),
+          h("span", { class: "main" },
+            h("span", { class: "title" }, h("bdi", {}, firm.name)),
+            h("span", { class: "meta" }, firm.info?.title || t("businessInfoHint"))),
+          icon("chevron"))),
+        item("users", t("partnersAndInvite"), t("partnersAndInviteHint"), () => document.dispatchEvent(new Event("kervan:firm-menu"))),
+        item("tag", t("expenseCategories"), cats?.length ? cats.map((c) => c.name).join(", ") : t("defaultCategoriesHint"), () => openCategoriesSheet()),
+        item("fileScan", t("aiSettings"), firm.ai?.key ? t("aiReady") : t("aiNotSet"), () => openAiSheet()),
+        item("wallet", t("page_cash"), t("cashSettingsHint"), () => openPage("cash"))),
+      h("div", { class: "field" }, h("span", {}, t("language")),
+        segmented([["tr", "Türkçe"], ["ar", "العربية"]], lang, (v) => {
+          setLang(v);
+          document.dispatchEvent(new Event("kervan:lang"));
+          rebuildFirm();
+        })),
+      h("ul", { class: "cards" },
+        item("refresh", t("recompute"), t("recomputeHintShort"), async () => {
+          try {
+            const n = await recompute();
+            toast(n ? t("recomputed", { n }) : t("recomputeClean"));
+          } catch (err) {
+            console.error(err);
+            toast(t("genericError"));
+          }
+        }),
+        item("contact", t("account"), session.user?.email ?? "", () => document.dispatchEvent(new Event("kervan:account"))),
+        item("home", t("switchFirm"), t("switchFirmHint"), () => document.dispatchEvent(new Event("kervan:firms")))),
+    ];
+  },
+};
+
+const PAGES = {
+  sales: movesPage({
+    types: ["sale", "consignSale"], empty: "noSales",
+    actions: () => [[t("new_sale"), "plus", () => openMoveSheet("sale"), "primary"], [t("page_consign"), "send", () => openPage("consign")]],
+  }),
+  purchases: movesPage({
+    types: ["purchase"], empty: "noPurchases",
+    actions: () => [[t("new_purchase"), "plus", () => openMoveSheet("purchase"), "primary"], [t("page_invoice"), "fileScan", () => openInvoiceImport()]],
+  }),
+  collections: movesPage({
+    types: ["collection"], empty: "noCollections",
+    actions: () => [[t("new_collection"), "plus", () => openMoveSheet("collection"), "primary"]],
+  }),
+  payments: movesPage({
+    types: ["payment"], empty: "noPayments",
+    actions: () => [[t("new_payment"), "plus", () => openMoveSheet("payment"), "primary"]],
+  }),
+  expenses: expensesPage,
+  consign: consignPage,
+  products: productsPage,
+  sellers: partiesPage("seller"),
+  suppliers: partiesPage("supplier"),
+  cash: cashPage,
+  reports: reportsPage,
+  ledger: ledgerPage,
+  settings: settingsPage,
 };

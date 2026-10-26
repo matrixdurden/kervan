@@ -12,6 +12,25 @@ import { formatMoney, formatNumber } from "./money.js";
 import { moveRow, balanceText, emptyState, actionButton, newestFirst } from "./views.js";
 import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet } from "./forms.js";
 import { show } from "./nav.js";
+import { whatsappUrl } from "./receipt.js";
+import { currentFirm } from "./session.js";
+import { productLabel } from "./data.js";
+
+// WhatsApp'a gidecek hesap özeti: bakiye ve (satıcıda) emanetteki mal.
+function statementText(party) {
+  const plain = (s) => s.replace(/[⁦⁩]/g, "");
+  const b = balanceText(party.kind, party.balance, party.currency);
+  const lines = [t("statementHello", { name: party.name, firm: currentFirm().name }), `${b.label}: ${plain(b.amount)}`];
+  const items = Object.entries(party.shelf ?? {}).filter(([, s]) => s.stock > 0);
+  if (items.length) {
+    lines.push("", `${t("onShelf")}:`);
+    for (const [id, s] of items) {
+      const p = session.firm.products.get(id);
+      lines.push(`• ${productLabel(p) || "?"}: ${formatNumber(s.stock)} ${unitLabel(p?.unit)}`);
+    }
+  }
+  return lines.join("\n");
+}
 
 let partyId = null;
 let unsub = null;
@@ -66,7 +85,7 @@ function shelfCard(party) {
       const p = session.firm.products.get(id);
       return h("li", {},
         h("span", { class: "main" },
-          h("span", { class: "title" }, h("bdi", {}, p?.name ?? "?")),
+          h("span", { class: "title" }, h("bdi", {}, productLabel(p) || "?")),
           h("span", { class: "meta" }, `${formatNumber(s.stock)} ${unitLabel(p?.unit)} × ${formatMoney(s.price)}`)),
         h("strong", {}, formatMoney(Math.round(s.stock * s.price))));
     })),
@@ -84,11 +103,15 @@ function render() {
 
   const out = [
     h("div", { class: `card balance ${b.tone}` },
+      party.thumb && h("img", { class: "thumb round lg", src: party.thumb, alt: "" }),
       h("span", { class: "tile-label" }, b.label),
       h("strong", {}, b.amount),
       party.currency && party.currency !== "TRY" && h("span", { class: "badge" }, t("currencyAccount", { c: party.currency })),
-      party.phone && h("a", { class: "phone", href: `tel:${party.phone.replace(/[^\d+]/g, "")}`, dir: "ltr" }, icon("phone"), party.phone),
-      party.note && h("p", { class: "meta" }, h("bdi", {}, party.note))),
+      party.note && h("p", { class: "meta" }, h("bdi", {}, party.note)),
+      h("div", { class: "contact-actions" },
+        party.phone && h("a", { class: "pill", href: `tel:${party.phone.replace(/[^\d+]/g, "")}`, dir: "ltr" }, icon("phone"), party.phone),
+        h("a", { class: "pill whatsapp", href: whatsappUrl(party.phone, statementText(party)), target: "_blank", rel: "noopener" },
+          icon("whatsapp"), t("sendStatement")))),
   ];
 
   if (seller) {

@@ -14,9 +14,10 @@ import {
 } from "./ui.js";
 import { session, currentFirm, myName, myColor, members } from "./session.js";
 import { show } from "./nav.js";
-import { openFirm, closeFirm, refreshFirm, rebuildFirm, currentFirmId } from "./firm.js";
+import {
+  openFirm, closeFirm, refreshFirm, rebuildFirm, currentFirmId, currentPage, closePage, firmMark,
+} from "./firm.js";
 import { closeParty, currentPartyId } from "./party.js";
-import { recompute } from "./data.js";
 import { lang, setLang, t, applyStatic } from "./i18n.js";
 import "./install.js";
 
@@ -154,7 +155,7 @@ function renderFirms() {
   const firms = [...session.firms.values()].sort((a, b) => a.name.localeCompare(b.name, "tr"));
   $("#firm-list").replaceChildren(...firms.map((firm) => h("li", {},
     h("button", { type: "button", class: "card row firm-card", onclick: () => goFirm(firm.id) },
-      h("span", { class: "firm-mark", "aria-hidden": "true" }, firm.name.charAt(0).toLocaleUpperCase("tr")),
+      firmMark(firm),
       h("span", { class: "main" },
         h("span", { class: "title" }, h("bdi", {}, firm.name)),
         avatarStack(members(firm)))))));
@@ -177,15 +178,23 @@ function goFirms() {
   show(session.uid ? "firms" : "login");
 }
 
-$("#firm-back").addEventListener("click", () => history.back());
+// Geri: önce kişi hesabı, sonra bölüm sayfası, sonra işletme kapanır.
 addEventListener("popstate", () => {
   if (currentPartyId()) {
     closeParty();
     show("firm");
+  } else if (currentPage()) {
+    closePage();
   } else if (currentFirmId()) {
     goFirms();
   }
 });
+
+// Ayarlar sayfasından gelen istekler.
+document.addEventListener("kervan:firm-menu", () => openFirmMenu());
+document.addEventListener("kervan:account", () => $("#account-open").click());
+document.addEventListener("kervan:firms", () => goFirms());
+document.addEventListener("kervan:lang", () => { if (session.uid) renderFirms(); });
 
 // --- Yeni işletme -------------------------------------------------------------
 
@@ -291,11 +300,11 @@ $("#join-form").addEventListener("submit", async (e) => {
   }
 });
 
-// --- İşletme menüsü (üst sağdaki ortak avatarları) ------------------------------
+// --- Ortaklar ve davet (Ayarlar sayfasından açılır) ---------------------------------
 
 const firmMenu = $("#firm-menu");
 
-$("#firm-menu-open").addEventListener("click", () => {
+function openFirmMenu() {
   const firm = currentFirm();
   if (!firm) return;
   $("#firm-menu-title").textContent = firm.name;
@@ -306,7 +315,7 @@ $("#firm-menu-open").addEventListener("click", () => {
     return h("li", {}, avatar({ name: p.name, color: p.color || PALETTE[0] }), h("bdi", {}, label));
   }));
   firmMenu.showModal();
-});
+}
 
 $("#invite").addEventListener("click", async () => {
   const firm = currentFirm();
@@ -323,20 +332,6 @@ $("#invite").addEventListener("click", async () => {
   } catch { /* paylaşım iptal edildi */ }
 });
 
-$("#recompute").addEventListener("click", async (e) => {
-  const button = e.currentTarget;
-  button.disabled = true;
-  try {
-    const n = await recompute();
-    toast(n ? t("recomputed", { n }) : t("recomputeClean"));
-  } catch (err) {
-    console.error(err);
-    toast(t("genericError"));
-  } finally {
-    button.disabled = false;
-  }
-});
-
 $("#leave-firm").addEventListener("click", async () => {
   const firm = currentFirm();
   if (!firm || !confirm(t("confirmLeaveFirm", { firm: firm.name }))) return;
@@ -346,7 +341,7 @@ $("#leave-firm").addEventListener("click", async () => {
       members: arrayRemove(session.uid),
       [`people.${session.uid}`]: deleteField(),
     });
-    history.back();
+    goFirms();
   } catch (err) {
     console.error(err);
     toast(t("saveFailed"));

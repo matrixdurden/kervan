@@ -42,7 +42,13 @@ service cloud.firestore {
         && d.people is map
         && d.get('shares', {}) is map
         && d.get('deals', {}) is map && d.get('deals', {}).size() <= 100
-        && d.get('guests', {}) is map && d.get('guests', {}).size() <= 50;
+        && d.get('guests', {}) is map && d.get('guests', {}).size() <= 50
+        // Ayarlar: logo (küçük JPEG), fatura bilgileri, gider kategorileri, yapay zekâ anahtarı.
+        && text(d.get('logo', ''), 40000)
+        && d.get('info', {}) is map
+        && d.get('expenseCategories', []) is list && d.get('expenseCategories', []).size() <= 50
+        && d.get('ai', {}) is map
+        && d.get('defaultVat', 0) is number;
     }
 
     function optNumber(d, key) {
@@ -56,7 +62,11 @@ service cloud.firestore {
         && d.stock is number && d.value is number && d.lastCost is number
         && optNumber(d, 'consigned')
         && text(d.get('barcode', ''), 64)
-        && text(d.get('thumb', ''), 40000);
+        && text(d.get('thumb', ''), 40000)
+        && text(d.get('variant', ''), 40)
+        && text(d.get('groupId', ''), 40)
+        && optNumber(d, 'minStock')
+        && optNumber(d, 'vat');
     }
 
     function validParty(d) {
@@ -66,11 +76,16 @@ service cloud.firestore {
         && text(d.note, 200)
         && d.balance is number
         && (!('currency' in d) || d.currency in ['TRY', 'USD', 'EUR'])
-        && (!('shelf' in d) || d.shelf is map);
+        && (!('shelf' in d) || d.shelf is map)
+        && text(d.get('thumb', ''), 40000)
+        && text(d.get('taxNo', ''), 20)
+        && text(d.get('taxOffice', ''), 60)
+        && text(d.get('address', ''), 300);
     }
 
+    // Faturadan okunan alışlar uzun olabilir.
     function validLines(d) {
-      return d.lines is list && d.lines.size() > 0 && d.lines.size() <= 40;
+      return d.lines is list && d.lines.size() > 0 && d.lines.size() <= 100;
     }
 
     function validMove(firmId, d) {
@@ -87,6 +102,8 @@ service cloud.firestore {
         && (!('holder' in d) || memberUid(firmId, d.holder))
         && (!('partner' in d) || (d.type in ['capitalIn', 'withdraw'] && partnerId(firmId, d.partner)))
         && (!('deal' in d) || (d.type == 'expense' && text(d.deal, 40)))
+        && (!('category' in d) || (d.type == 'expense' && text(d.category, 40) && text(d.get('categoryName', ''), 60)))
+        && text(d.get('invoiceNo', ''), 40)
         && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return'] && validLines(d))
           || (d.type in ['payment', 'collection', 'expense', 'capitalIn', 'withdraw'] && d.amount is int && d.amount > 0)
           || (d.type == 'transfer' && d.amount is int && d.amount > 0 && memberUid(firmId, d.to) && d.to != d.holder)

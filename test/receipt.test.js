@@ -1,0 +1,100 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { invoiceTotals, waPhone, whatsappUrl, receiptHtml, RECEIPT_LABEL_KEYS } from "../public/receipt.js";
+
+const labels = {
+  dir: "ltr", receiptTitle: "Satış Fişi", invoiceTitle: "Fatura Bilgisi", number: "No", date: "Tarih",
+  customer: "Müşteri", taxOffice: "Vergi Dairesi", taxNo: "Vergi No", phone: "Telefon", address: "Adres",
+  product: "Ürün", qty: "Miktar", unitPrice: "Birim fiyat", unitPriceNet: "Birim fiyat (KDV hariç)", vat: "KDV",
+  lineTotal: "Tutar", net: "Net", vatTotal: "Toplam KDV", total: "Toplam", paid: "Ödenen",
+  balanceOwed: "Kalan borç", balanceCredit: "Alacak", note: "Not", thanks: "Teşekkürler",
+  disclaimer: "Bu belge e-Fatura / e-Arşiv fatura yerine geçmez.",
+};
+
+const doc = (kind, lines) => ({
+  kind, number: "S-12", date: "2026-10-25", time: "14:05", currency: "TRY",
+  firm: { name: "Kervan Toptan", title: "Kervan Gıda Ltd. Şti.", taxOffice: "Kadıköy", taxNo: "1234567890", address: "İstanbul", phone: "0532 000 00 00", logo: "" },
+  party: { name: "Ayşe", title: "", taxOffice: "", taxNo: "", address: "", phone: "" },
+  lines, paid: 5000, balanceAfter: 12000, note: "",
+});
+
+test("invoiceTotals: karışık oranlarda satır başına net + KDV = brüt", () => {
+  const r = invoiceTotals([
+    { name: "Çay", qty: 3, unit: "adet", price: 1999, vatRate: 20 },
+    { name: "Un", qty: 2.5, unit: "kg", price: 333, vatRate: 10 },
+    { name: "Kitap", qty: 1, unit: "adet", price: 10000, vatRate: 0 },
+    { name: "Şeker", qty: 1, unit: "kg", price: 101, vatRate: 20 },
+  ]);
+  assert.deepEqual(r.lines.map((l) => [l.gross, l.net, l.vat]), [
+    [5997, 4998, 999], // 5997 / 1,2 = 4997,5 → 4998
+    [833, 757, 76], // 2,5 × 333 = 832,5 → 833; 833 / 1,1 = 757,27
+    [10000, 10000, 0],
+    [101, 84, 17],
+  ]);
+  for (const l of r.lines) assert.equal(l.net + l.vat, l.gross);
+  assert.deepEqual(r.byRate, [
+    { rate: 0, net: 10000, vat: 0, gross: 10000 },
+    { rate: 10, net: 757, vat: 76, gross: 833 },
+    { rate: 20, net: 5082, vat: 1016, gross: 6098 },
+  ]);
+  assert.equal(r.gross, 5997 + 833 + 10000 + 101);
+  assert.equal(r.net + r.vat, r.gross);
+  assert.equal(r.byRate.reduce((a, b) => a + b.gross, 0), r.gross);
+  assert.equal(r.lines[0].name, "Çay");
+});
+
+test("invoiceTotals: boş liste sıfır döner", () => {
+  assert.deepEqual(invoiceTotals([]), { lines: [], byRate: [], net: 0, vat: 0, gross: 0 });
+});
+
+test("waPhone: Türkiye biçimleri", () => {
+  for (const s of ["+90 532 123 45 67", "0090 532 123 45 67", "0532 123 45 67", "(0532) 123-45-67",
+    "532 123 45 67", "905321234567", "+90 (0532) 123 45 67"]) {
+    assert.equal(waPhone(s), "905321234567", s);
+  }
+});
+
+test("waPhone: yabancı numara ve bozuk girdi", () => {
+  assert.equal(waPhone("+49 151 2345 6789"), "4915123456789");
+  assert.equal(waPhone("0049 151 2345 6789"), "4915123456789");
+  for (const s of ["", null, undefined, "abc", "12345", "0532 123", "+90 532 12"]) assert.equal(waPhone(s), null, String(s));
+});
+
+test("whatsappUrl: Türkçe metin ve satır sonu kodlanır", () => {
+  const text = "Merhaba Ayşe\nToplam: ₺1.250,50";
+  const enc = "Merhaba%20Ay%C5%9Fe%0AToplam%3A%20%E2%82%BA1.250%2C50";
+  assert.equal(whatsappUrl("0532 123 45 67", text), `https://wa.me/905321234567?text=${enc}`);
+  assert.equal(whatsappUrl(null, text), `https://wa.me/?text=${enc}`);
+});
+
+test("RECEIPT_LABEL_KEYS tam liste", () => {
+  assert.deepEqual([...RECEIPT_LABEL_KEYS].sort(), Object.keys(labels).sort());
+  assert.equal(new Set(RECEIPT_LABEL_KEYS).size, 25);
+});
+
+test("receiptHtml: ürün adı kaçırılır, uyarı yalnız faturada", () => {
+  const lines = [{ name: "<script>alert(1)</script>", qty: 2, unit: "adet", price: 1500, vatRate: 20 }];
+  const fis = receiptHtml(doc("receipt", lines), labels);
+  const fatura = receiptHtml(doc("invoice", lines), labels);
+  for (const html of [fis, fatura]) {
+    assert.ok(html.startsWith("<!doctype html>"));
+    assert.ok(!html.includes("<script>"));
+    assert.ok(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
+  }
+  assert.ok(fatura.includes(labels.disclaimer));
+  assert.ok(!fis.includes(labels.disclaimer));
+  assert.ok(fis.includes("size:80mm auto"));
+  assert.ok(fatura.includes("size:A4"));
+  assert.ok(fis.includes("₺30,00") && fis.includes("Kalan borç") && fis.includes("Teşekkürler"));
+  assert.ok(fatura.includes("₺25,00") && fatura.includes("₺5,00")); // net + KDV %20
+});
+
+test("receiptHtml: sağdan sola ve logo süzgeci", () => {
+  const d = doc("receipt", []);
+  d.firm.logo = "javascript:alert(1)";
+  const html = receiptHtml(d, { ...labels, dir: "rtl" });
+  assert.ok(html.includes('dir="rtl"'));
+  assert.ok(!html.includes("javascript:"));
+  d.firm.logo = "data:image/png;base64,iVBORw0KGgo=";
+  assert.ok(receiptHtml(d, labels).includes('src="data:image/png;base64,iVBORw0KGgo="'));
+});

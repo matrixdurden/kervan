@@ -3,9 +3,22 @@
 Tedarikçiden mal alıp satıcılara veren küçük işletmeler için alış, satış, emanet, stok, cari hesap ve
 ortak kasası uygulaması. Ortaklar aynı işletmeye davet koduyla katılır ve her şeyi birlikte görür.
 
-- **Ürünler:** fotoğraf, barkod, depodaki ve satıcılardaki (emanet) miktar, ağırlıklı ortalama maliyet, satış fiyatı.
-  Barkod telefon kamerasıyla okutulur: ürün listesinde okutunca ürün açılır (yoksa o barkodla yeni ürün formu gelir),
-  alış/satış/emanet formunda okutunca ürün satıra eklenir, tekrar okutunca miktarı artar.
+- **Ana ekran:** üstte alacak, kasa ve bu ayın kârı; büyük renkli düğmeler (Satışlar, Alışlar, Tahsilatlar,
+  Giderler) ve altında bölümler. Her bölüm kendi sayfasında, en üstte büyük bir "+ Yeni …" düğmesiyle açılır.
+- **Ürünler:** fotoğraf, barkod, **çeşitler** (renk, beden… her biri ayrı stokla, listede tek kartta), KDV oranı,
+  **kâr marjı %** (satış fiyatı ile ortalama maliyetten), **azalınca uyar** sınırı (ana ekranda zil ve uyarı bandı),
+  depodaki ve satıcılardaki (emanet) miktar. Barkod telefon kamerasıyla okutulur: ürün listesinde okutunca ürün açılır
+  (yoksa o barkodla yeni ürün formu gelir), alış/satış/emanet formunda okutunca ürün satıra eklenir, tekrar okutunca
+  miktarı artar.
+- **Fiş ve fatura bilgisi:** satış kaydedilince satış fişi ya da KDV dökümlü fatura bilgisi (proforma) tek dokunuşla
+  WhatsApp'tan gönderilir ya da yazdırılır. Fatura bilgisi e-Fatura / e-Arşiv yerine geçmez; resmi e-belge için GİB'e
+  bağlı bir özel entegratör gerekir.
+- **Faturadan alış:** tedarikçinin faturası seçilir, ürünler, miktarlar ve fiyatlar okunup alış olarak hazırlanır;
+  onay ekranında ürün eşleşmeleri düzeltilir, yeni ürünler ve yeni tedarikçi aynı anda oluşturulur. e-Fatura XML
+  yapay zekâsız ve kesin okunur; PDF ve fotoğraf Google Gemini ile (işletmenin kendi ücretsiz anahtarıyla) okunur.
+- **Giderler:** Ayarlar'dan düzenlenen kategorilerle (kira, yakıt, vergi…); raporlarda kategoriye göre toplam.
+- **Raporlar:** dönem kârı ve marjı, en çok kâr getiren ürünler, kategoriye göre giderler, en çok borcu olanlar,
+  azalan ürünler.
 - **Tedarikçiler:** TL, dolar ya da euro ile alış ve ödeme. Dövizli alışta maliyet o günün kuruyla TL'ye çevrilir;
   kur günün Avrupa Merkez Bankası kurundan önerilir.
 - **Satıcılar:** veresiye satış ve tahsilat; **emanet** mal verme, rafta **sayım** (kalanı yaz, satılanı uygulama
@@ -33,7 +46,10 @@ public/              Yayınlanan site (build adımı yok)
   index.html         Ekranlar
   style.css          Görünüm (açık/koyu tema)
   app.js             Giriş, işletmeler, davet, menüler, dil
-  firm.js            İşletme ekranı: Özet, Ürünler, Cariler, Kasa, Defter
+  firm.js            Ana ekran ve bölüm sayfaları (satışlar, alışlar, ürünler, cariler, kasa, raporlar, ayarlar…)
+  importer.js        Faturadan alış: dosya seçme, okuma, onay ekranı
+  invoice.js         e-Fatura (UBL-TR) XML okuyucu, Gemini ile PDF/fotoğraf okuma, ürün/tedarikçi eşleştirme
+  receipt.js         Satış fişi ve fatura bilgisi (resim, yazdırma), WhatsApp paylaşımı
   party.js           Bir satıcının/tedarikçinin hesabı, emanetteki malı ve ekstresi
   forms.js           Bütün formlar (ürün, cari, alış/satış/emanet, sayım/iade, kasa, paylar, iptal)
   views.js           Ortak liste parçaları

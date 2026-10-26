@@ -4,7 +4,7 @@
 // kur son kullanılan, parayı alan/veren ortak kişinin kendisi.
 
 import { $, h, icon, iconButton, toast, today, formatDay, millis, avatar, dateLocale } from "./ui.js";
-import { t, UNITS, unitLabel } from "./i18n.js";
+import { t, UNITS, unitLabel, lang } from "./i18n.js";
 import { session, currentFirm, person, partners, generalShares } from "./session.js";
 import {
   parseMoney, parseQty, parseRate, formatMoney, formatNumber, formatRate, moneyInput, qtyInput,
@@ -13,9 +13,11 @@ import {
 import { PARTY_KIND, hasLines, lineTotal, avgCost, roundQty } from "./ledger.js";
 import {
   recordMoves, voidMoves, saveProduct, saveParty, deleteProduct, deleteParty, saveShares,
-  saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode,
+  saveDeal, deleteDeal, saveGuest, deleteGuest, dealOf, productByBarcode, productLabel, saveFirmSettings,
 } from "./data.js";
-import { byName, matches, searchBox } from "./views.js";
+import { byName, matches, searchBox, balanceText } from "./views.js";
+import { RECEIPT_LABEL_KEYS, receiptBlob, printReceipt, shareOnWhatsApp } from "./receipt.js";
+import { pickGeminiModel } from "./invoice.js";
 import { lastRate, rememberRate, fetchRate } from "./rates.js";
 import { pickImage, preparePhoto, loadFullPhoto } from "./photos.js";
 import { canScan, scanBarcode } from "./scanner.js";
@@ -58,11 +60,16 @@ function saved(promise, message) {
 }
 
 // Hareket kaydı: bildirimdeki "Geri al" kaydı iptal eder (defterde iz kalır).
+// Satışta bildirim yerine fiş gönderme penceresi açılır.
 function record(inputs, message = t("savedMove")) {
+  // Satıcının kayıttan önceki bakiyesi: canlı liste yeni bakiyeyi biraz sonra getirir.
+  const before = session.firm.parties.get(inputs[0]?.party)?.balance ?? 0;
   const { moves, done } = recordMoves(inputs);
+  done.catch(failed);
+  if (moves.some((m) => RECEIPT_TYPES.includes(m.type))) return saleDone(moves, before);
   sheet.close();
   toast(message, () => voidMoves(moves, t("undoReason")).then(() => toast(t("undone")), failed));
-  done.catch(failed);
+  return undefined;
 }
 
 const field = (label, control, hint) =>
@@ -97,12 +104,12 @@ const CURRENCY_NAMES = { TRY: "currency_TRY", USD: "currency_USD", EUR: "currenc
 // --- Ürün -------------------------------------------------------------------
 
 // Fotoğraf alanı: dokununca kamera/galeri açılır. Sonuç: undefined (değişmedi), null (kaldırıldı)
-// ya da { thumb, full } (yeni).
-function photoField(product) {
+// ya da { thumb, full } (yeni). loadFull verilirse büyük hal sonradan yüklenir.
+function photoField(current, { loadFull, round = false, label = t("addPhoto") } = {}) {
   let result;
   const img = h("img", { alt: "" });
-  const empty = h("span", { class: "photo-empty" }, icon("camera"), h("span", {}, t("addPhoto")));
-  const box = h("button", { type: "button", class: "photo", "aria-label": t("addPhoto") }, img, empty);
+  const empty = h("span", { class: "photo-empty" }, icon("camera"), h("span", {}, label));
+  const box = h("button", { type: "button", class: `photo${round ? " round" : ""}`, "aria-label": label }, img, empty);
   const remove = h("button", { type: "button", class: "link", hidden: true }, t("removePhoto"));
   const show = (src) => {
     img.src = src || "";
@@ -110,9 +117,8 @@ function photoField(product) {
     empty.hidden = Boolean(src);
     remove.hidden = !src;
   };
-  show(product?.thumb);
-  // Büyük hali sonradan gelir.
-  if (product?.thumb) loadFullPhoto(product.id).then((full) => { if (full && result === undefined) img.src = full; });
+  show(current);
+  if (current && loadFull) loadFull().then((full) => { if (full && result === undefined) img.src = full; });
 
   box.addEventListener("click", async () => {
     const file = await pickImage();
@@ -129,7 +135,7 @@ function photoField(product) {
     result = null;
     show("");
   });
-  return { el: h("div", { class: "photo-field" }, box, remove), value: () => result };
+  return { el: h("div", { class: `photo-field${round ? " small" : ""}` }, box, remove), value: () => result };
 }
 
 // Barkod alanı: yazılabilir ya da kamerayla okutulur.
@@ -145,17 +151,44 @@ function barcodeField(value) {
   return { input, el: field(t("barcode"), h("div", { class: "with-button" }, input, scan)) };
 }
 
+// Satış fiyatına göre kâr marjı: (satış − maliyet) / satış.
+const marginPct = (price, cost) => (price > 0 && cost > 0 ? Math.round(((price - cost) / price) * 1000) / 10 : null);
+const isLow = (p) => p.minStock > 0 && p.stock <= p.minStock;
+
+// preset: yeni ürün formunu doldurmak için (barkod okutulduğunda ya da çeşit eklerken).
 export function openProductSheet(product, preset = {}) {
   const firm = currentFirm();
-  const photo = photoField(product);
-  const name = textInput({ maxlength: 80, value: product?.name ?? preset.name, placeholder: t("productNamePlaceholder") });
-  const unit = select(UNITS.map((u) => [u, unitLabel(u)]), product?.unit ?? UNITS[0]);
-  const price = numberInput({ value: moneyInput(product?.price), placeholder: "0,00" });
+  const base = product ?? preset;
+  const photo = photoField(product?.thumb, { loadFull: product ? () => loadFullPhoto(product.id) : null });
+  const name = textInput({ maxlength: 80, value: base.name, placeholder: t("productNamePlaceholder") });
+  const variant = textInput({ maxlength: 40, value: product?.variant ?? "", placeholder: t("variantPlaceholder") });
+  const unit = select(UNITS.map((u) => [u, unitLabel(u)]), base.unit ?? UNITS[0]);
+  const price = numberInput({ value: moneyInput(base.price), placeholder: "0,00" });
+  const vat = numberInput({ value: String(base.vat ?? firm.defaultVat ?? 20).replace(".", ","), placeholder: "20" });
+  const minStock = numberInput({ value: base.minStock ? qtyInput(base.minStock) : "", placeholder: t("minStockPlaceholder") });
   const barcode = barcodeField(product?.barcode ?? preset.barcode ?? "");
+
+  // Kâr marjı canlı: satış fiyatı ile ortalama (ya da son) alış maliyetinden.
+  const cost = product ? (product.stock > 0 ? avgCost(product) : product.lastCost) : 0;
+  const margin = h("small", { class: "field-hint margin" });
+  const showMargin = () => {
+    const p = parseMoney(price.value);
+    const m = marginPct(p, cost);
+    margin.textContent = m == null ? (product ? "" : t("marginAfterPurchase"))
+      : t("marginLine", { pct: formatNumber(m), amount: formatMoney(p - Math.round(cost)), cost: formatMoney(Math.round(cost)) });
+    margin.classList.toggle("bad", m != null && m < 0);
+  };
+  price.addEventListener("input", showMargin);
+  showMargin();
+
   const fields = [
     photo.el,
     field(t("productName"), name),
+    field(t("variant"), variant, t("variantHint")),
     h("div", { class: "row2" }, field(t("unit"), unit), field(t("salePrice"), price)),
+    margin,
+    h("div", { class: "row2" }, field(t("vatRate"), vat), field(t("minStock"), minStock)),
+    h("small", { class: "field-hint" }, t("minStockHint")),
     barcode.el,
   ];
 
@@ -169,19 +202,34 @@ export function openProductSheet(product, preset = {}) {
   }
 
   let qty;
-  let cost;
+  let openingCost;
   if (product) {
     fields.push(h("div", { class: "facts" },
       fact(t("inStock"), `${formatNumber(product.stock)} ${unitLabel(product.unit)}`),
       fact(t("atSellersLabel"), `${formatNumber(product.consigned ?? 0)} ${unitLabel(product.unit)}`),
       fact(t("avgCost"), formatMoney(avgCost(product))),
       fact(t("stockValue"), formatMoney(product.value))));
+    // Çeşitler: aynı gruptaki diğer ürünler ve yeni çeşit ekleme.
+    const groupId = product.groupId || product.id;
+    const siblings = [...session.firm.products.values()].filter((p) => p.id !== product.id && (p.groupId || p.id) === groupId).sort(byName);
+    fields.push(
+      h("p", { class: "label" }, t("variants")),
+      h("div", { class: "chips" },
+        siblings.map((p) => h("button", { type: "button", class: "chip", onclick: () => openProductSheet(p) },
+          h("bdi", {}, p.variant || p.name), h("small", {}, ` · ${formatNumber(p.stock)}`))),
+        h("button", {
+          type: "button", class: "chip add",
+          onclick: () => openProductSheet(null, {
+            name: product.name, unit: product.unit, price: product.price, vat: product.vat, minStock: product.minStock, groupId,
+          }),
+        }, "+ ", t("addVariant"))),
+      h("small", { class: "field-hint" }, t("variantsHint")));
   } else {
     qty = numberInput({ placeholder: "0" });
-    cost = numberInput({ placeholder: "0,00" });
+    openingCost = numberInput({ placeholder: "0,00" });
     fields.push(
       h("p", { class: "label" }, t("openingStock")),
-      h("div", { class: "row2" }, field(t("qtyOnHand"), qty), field(t("unitCost"), cost)),
+      h("div", { class: "row2" }, field(t("qtyOnHand"), qty), field(t("unitCost"), openingCost)),
       h("small", { class: "field-hint" }, t("openingStockHint")));
   }
 
@@ -191,31 +239,40 @@ export function openProductSheet(product, preset = {}) {
     buttons.push(h("button", {
       type: "button", class: "block danger", disabled: hasStock,
       onclick: () => {
-        if (!confirm(t("confirmDelete", { name: product.name }))) return;
-        saved(deleteProduct(product.id), t("deleted", { name: product.name }));
+        if (!confirm(t("confirmDelete", { name: productLabel(product) }))) return;
+        saved(deleteProduct(product.id), t("deleted", { name: productLabel(product) }));
       },
     }, t("delete")));
     if (hasStock) buttons.push(h("small", { class: "field-hint center" }, t("cantDeleteProduct")));
   }
   buttons.push(closeButton());
 
-  open(product ? t("editProduct") : t("newProduct"), fields, buttons, () => {
+  const title = product ? t("editProduct") : preset.groupId ? t("addVariant") : t("newProduct");
+  open(title, fields, buttons, () => {
     const n = name.value.trim();
     if (!n) return t("enterName");
     const p = price.value.trim() ? parseMoney(price.value) : 0;
     if (p == null) return t("badNumber");
+    const v = vat.value.trim() ? parseQty(vat.value) : 0;
+    if (v == null || v < 0 || v > 100) return t("badVat");
+    const min = minStock.value.trim() ? parseQty(minStock.value) : 0;
+    if (min == null) return t("badNumber");
     const code = barcode.input.value.trim();
     const twin = code && productByBarcode(code);
-    if (twin && twin.id !== product?.id) return t("barcodeTaken", { name: twin.name });
+    if (twin && twin.id !== product?.id) return t("barcodeTaken", { name: productLabel(twin) });
     let opening;
-    if (!product && (qty.value.trim() || cost.value.trim())) {
+    if (!product && (qty.value.trim() || openingCost.value.trim())) {
       const q = parseQty(qty.value);
-      const c = cost.value.trim() ? parseMoney(cost.value) : 0;
+      const c = openingCost.value.trim() ? parseMoney(openingCost.value) : 0;
       if (!q || c == null) return t("badOpening");
       opening = { qty: q, cost: c };
     }
+    const data = {
+      name: n, variant: variant.value.trim(), unit: unit.value, price: p, barcode: code, vat: v, minStock: min,
+      groupId: product?.groupId ?? preset.groupId ?? "",
+    };
     const nextDeal = deal && deal.value !== currentDeal ? deal.value : undefined;
-    saved(saveProduct(product?.id, { name: n, unit: unit.value, price: p, barcode: code }, { opening, photo: photo.value(), deal: nextDeal }), t("saved"));
+    saved(saveProduct(product?.id, data, { opening, photo: photo.value(), deal: nextDeal }), t("saved"));
     return undefined;
   });
   if (!product && !preset.name) name.focus();
@@ -227,11 +284,20 @@ export function openPartySheet(kind, party) {
   const name = textInput({ maxlength: 80, value: party?.name, placeholder: t(kind === "seller" ? "sellerNamePlaceholder" : "supplierNamePlaceholder") });
   const phone = h("input", { type: "tel", maxlength: 24, value: party?.phone, dir: "ltr", autocomplete: "off", placeholder: "0555 555 55 55" });
   const note = textInput({ maxlength: 200, value: party?.note, placeholder: t("partyNotePlaceholder") });
-  const fields = [field(t("name"), name), field(t("phone"), phone), field(t("note"), note)];
+  const photo = photoField(party?.thumb, { round: true, label: t("addLogo") });
+  // Fatura bilgileri: fatura belgesinde müşteri/tedarikçi bloğuna yazılır (isteğe bağlı, kapalı gelir).
+  const taxNo = h("input", { inputmode: "numeric", maxlength: 20, value: party?.taxNo ?? "", dir: "ltr", autocomplete: "off" });
+  const taxOffice = textInput({ maxlength: 60, value: party?.taxOffice ?? "" });
+  const address = textInput({ maxlength: 300, value: party?.address ?? "" });
+  const taxInfo = h("details", { class: "more", open: Boolean(party?.taxNo || party?.address) },
+    h("summary", {}, t("invoiceDetails")),
+    h("div", { class: "row2" }, field(t("taxNo"), taxNo), field(t("taxOffice"), taxOffice)),
+    field(t("address"), address));
+  const fields = [photo.el, field(t("name"), name), field(t("phone"), phone), field(t("note"), note), taxInfo];
 
   // Telefon rehberinden seçme (Android Chrome); ad ve numarayı doldurur.
   if (canPickContact()) {
-    fields.unshift(h("button", {
+    fields.splice(1, 0, h("button", {
       type: "button", class: "block contact-pick",
       onclick: async () => {
         try {
@@ -294,9 +360,13 @@ export function openPartySheet(kind, party) {
       if (a == null) return t("badNumber");
       opening = a * Number(direction.value);
     }
-    const data = { kind, name: n, phone: phone.value.trim(), note: note.value.trim() };
+    const data = {
+      kind, name: n, phone: phone.value.trim(), note: note.value.trim(),
+      taxNo: taxNo.value.trim(), taxOffice: taxOffice.value.trim(), address: address.value.trim(),
+    };
     if (currency) data.currency = currency.value;
-    saved(saveParty(party?.id, data, opening), t("saved"));
+    const pic = photo.value();
+    saved(saveParty(party?.id, data, opening, pic === null ? null : pic && { thumb: pic.thumb }), t("saved"));
     return undefined;
   });
   // Rehberden seçilebiliyorsa klavye hemen açılmasın.
@@ -340,18 +410,32 @@ function rateField(onchange) {
 
 // Formda bir ürün satırı: ürün, miktar, birim fiyat.
 function lineRow(ctx, products, onchange, onremove) {
-  const product = select([["", t("chooseProduct")], ...products.map((p) => [p.id, p.name])], "");
+  const product = select([["", t("chooseProduct")], ...products.map((p) => [p.id, productLabel(p)])], "");
   const qty = numberInput({ placeholder: t("qty"), "aria-label": t("qty"), oninput: onchange });
   const price = numberInput({ placeholder: t("price"), "aria-label": t("unitPrice"), oninput: onchange });
   const unit = h("span", { class: "unit" });
   const total = h("strong", { class: "line-total" });
   const hint = h("small", { class: "field-hint" });
 
+  // Altta stok ve (satışta) bu fiyatla kâr marjı.
+  const showHint = () => {
+    const p = session.firm.products.get(product.value);
+    if (!p) {
+      hint.textContent = "";
+      return;
+    }
+    const parts = [t("inStockShort", { n: formatNumber(p.stock), unit: unitLabel(p.unit) })];
+    if (ctx.margin) {
+      const m = marginPct(parseMoney(price.value), p.stock > 0 ? avgCost(p) : p.lastCost);
+      if (m != null) parts.push(t("marginShort", { pct: formatNumber(m) }));
+    }
+    hint.textContent = parts.join(" · ");
+    hint.classList.toggle("bad", isLow(p));
+  };
   product.addEventListener("change", () => {
     const p = session.firm.products.get(product.value);
     unit.textContent = p ? unitLabel(p.unit) : "";
     price.value = p ? moneyInput(ctx.suggestPrice(p)) : "";
-    hint.textContent = p ? t("inStockShort", { n: formatNumber(p.stock), unit: unitLabel(p.unit) }) : "";
     onchange();
     if (p) qty.focus();
   });
@@ -369,6 +453,7 @@ function lineRow(ctx, products, onchange, onremove) {
     },
     refresh() {
       total.textContent = formatMoney(row.total(), ctx.currency());
+      showHint();
     },
     // Satır boşsa null, hatalıysa hata metni, doğruysa { product, qty, price }.
     read() {
@@ -405,7 +490,7 @@ function shortages(lines) {
   for (const [id, qty] of wanted) {
     const p = session.firm.products.get(id);
     if (p && qty > p.stock) {
-      out.push(t("shortLine", { name: p.name, stock: formatNumber(p.stock), qty: formatNumber(qty), unit: unitLabel(p.unit) }));
+      out.push(t("shortLine", { name: productLabel(p), stock: formatNumber(p.stock), qty: formatNumber(qty), unit: unitLabel(p.unit) }));
     }
   }
   return out;
@@ -460,6 +545,7 @@ export function openMoveSheet(type, { party: fixedParty } = {}) {
     const list = h("div", { class: "lines" });
     const ctx = {
       currency,
+      margin: type === "sale" || type === "consign",
       // Satışta ürünün satış fiyatı, emanette o satıcıya son verilen fiyat, alışta son alış fiyatı.
       suggestPrice(p) {
         if (type === "sale") return p.price;
@@ -654,7 +740,7 @@ function shelfItem(id, shelf, count, onchange) {
   const item = {
     el: h("div", { class: "line" },
       h("div", { class: "shelf-top" },
-        h("span", { class: "title" }, h("bdi", {}, p?.name ?? "?")),
+        h("span", { class: "title" }, h("bdi", {}, productLabel(p) || "?")),
         h("span", { class: "meta" }, t("onShelfQty", { n: formatNumber(shelf.stock), unit }))),
       h("div", { class: "shelf-nums" },
         field(count ? t("remaining") : t("returnQty"), input),
@@ -677,7 +763,7 @@ function shelfItem(id, shelf, count, onchange) {
     read() {
       if (!input.value.trim()) return null;
       const q = qty();
-      if (q == null || q < 0 || q > shelf.stock) return t(count ? "badRemaining" : "badReturn", { name: p?.name ?? "?" });
+      if (q == null || q < 0 || q > shelf.stock) return t(count ? "badRemaining" : "badReturn", { name: productLabel(p) || "?" });
       if (q === 0) return null;
       const pr = count ? parseMoney(price.value) : shelf.price;
       if (pr == null) return t("enterPrice");
@@ -728,6 +814,24 @@ export function openCashSheet(type) {
     fields.push(holder.field);
   }
 
+  // Gider kategorisi (kira, yakıt, vergi…): dokunarak seçilir; liste Ayarlar'dan değiştirilir.
+  let category = null;
+  if (type === "expense") {
+    const cats = expenseCategories(firm);
+    const chips = h("div", { class: "chips" }, cats.map((c) => {
+      const chip = h("button", {
+        type: "button", class: "chip", "aria-pressed": "false",
+        onclick: () => {
+          category = c;
+          chips.querySelectorAll(".chip").forEach((x) => x.setAttribute("aria-pressed", String(x === chip)));
+          if (!note.value.trim()) note.placeholder = c.name;
+        },
+      }, h("bdi", {}, c.name));
+      return chip;
+    }), h("button", { type: "button", class: "chip add", onclick: () => openCategoriesSheet() }, "+ ", t("edit")));
+    fields.splice(1, 0, h("p", { class: "label" }, t("expenseCategory")), chips);
+  }
+
   // Gider bir ürün ortaklığına ait olabilir; o zaman o ortaklığın kârından düşer.
   let deal;
   const deals = Object.entries(firm.deals ?? {});
@@ -740,8 +844,12 @@ export function openCashSheet(type) {
   open(t(`new_${type}`), fields, [saveButton(), closeButton()], () => {
     const a = parseMoney(amount.value);
     if (!a) return t("enterAmount");
-    if (type === "expense" && !note.value.trim()) return t("enterExpenseFor");
+    if (type === "expense" && !category) return t("chooseCategory");
     const input = { type, party: "", date: date.value, note: note.value.trim(), amount: a, holder: holder.el.value };
+    if (category) {
+      input.category = category.id;
+      input.categoryName = category.name;
+    }
     if (capitalMove) {
       input.partner = owner.value;
       // Uygulamadaki ortak kendi parasını kendisi koyar/çeker.
@@ -847,7 +955,7 @@ export function openDealSheet(dealId) {
         else chosen.add(p.id);
         chip.setAttribute("aria-pressed", String(chosen.has(p.id)));
       },
-    }, h("bdi", {}, p.name), other && h("small", {}, ` · ${other.name}`));
+    }, h("bdi", {}, productLabel(p)), other && h("small", {}, ` · ${other.name}`));
     return chip;
   }));
 
@@ -935,6 +1043,214 @@ export function openGuestSheet(guestId) {
   });
 }
 
+// --- Fiş ve fatura bilgisi (WhatsApp, yazdırma) ------------------------------------------
+
+const RECEIPT_TYPES = ["sale", "consignSale"];
+
+export function receiptLabels() {
+  return Object.fromEntries(RECEIPT_LABEL_KEYS.map((k) => [k, k === "dir" ? (lang === "ar" ? "rtl" : "ltr") : t(`rc_${k}`)]));
+}
+
+// Fiş numarası: tarih + kayıt kimliğinin başı ("20261026-AB12").
+export const receiptNumber = (move) => `${move.date.replace(/-/g, "")}-${move.id.slice(0, 4).toUpperCase()}`;
+
+// Hareketten fiş/fatura belgesi. paid ve balanceAfter sadece satış anında bilinir.
+export function receiptDoc(move, kind, { paid = 0, balanceAfter = null } = {}) {
+  const firm = currentFirm();
+  const party = session.firm.parties.get(move.party);
+  const at = millis(move.at);
+  return {
+    kind,
+    number: receiptNumber(move),
+    date: move.date,
+    time: at ? new Date(at).toTimeString().slice(0, 5) : "",
+    currency: move.currency ?? "TRY",
+    firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+    party: party ? {
+      name: party.name, title: party.name, taxOffice: party.taxOffice ?? "", taxNo: party.taxNo ?? "",
+      address: party.address ?? "", phone: party.phone ?? "",
+    } : null,
+    lines: move.lines.map((l) => ({
+      name: l.name, qty: l.qty, unit: unitLabel(l.unit), price: l.price,
+      vatRate: session.firm.products.get(l.product)?.vat ?? firm.defaultVat ?? 20,
+    })),
+    paid,
+    balanceAfter,
+    note: move.note ?? "",
+  };
+}
+
+// WhatsApp mesajı: fiş resmiyle birlikte giden kısa metin.
+function receiptText(doc) {
+  const total = doc.lines.reduce((s, l) => s + lineTotal(l), 0);
+  return [
+    `${doc.firm.name} · ${t(doc.kind === "invoice" ? "rc_invoiceTitle" : "rc_receiptTitle")} ${doc.number}`,
+    `${t("total")}: ${plainMoney(total, doc.currency)}`,
+    doc.balanceAfter > 0 ? `${t("rc_balanceOwed")}: ${plainMoney(doc.balanceAfter)}` : null,
+  ].filter(Boolean).join("\n");
+}
+
+const plainMoney = (v, c) => formatMoney(v, c).replace(/[⁦⁩]/g, "");
+
+// Belge düğmeleri: resimler pencere açılırken hazırlanır ki paylaş dokunuşu kaybolmasın (Safari).
+function receiptButtons(move, extra) {
+  const party = session.firm.parties.get(move.party);
+  const labels = receiptLabels();
+  const docs = { receipt: receiptDoc(move, "receipt", extra), invoice: receiptDoc(move, "invoice", extra) };
+  const blobs = {};
+  for (const kind of Object.keys(docs)) {
+    receiptBlob(docs[kind], labels).then((b) => { blobs[kind] = b; }).catch((err) => console.error(err));
+  }
+  const share = (kind) => async () => {
+    const blob = blobs[kind] ?? await receiptBlob(docs[kind], labels);
+    const result = await shareOnWhatsApp({ blob, filename: `${kind === "invoice" ? "fatura" : "fis"}-${docs[kind].number}.png`, text: receiptText(docs[kind]), phone: party?.phone });
+    if (result === "link") toast(t("receiptDownloaded"));
+  };
+  return [
+    h("button", { type: "button", class: "block whatsapp", onclick: share("receipt") }, icon("whatsapp"), t("sendReceipt")),
+    h("div", { class: "row2" },
+      h("button", { type: "button", class: "block", onclick: share("invoice") }, icon("receipt"), t("sendInvoice")),
+      h("button", { type: "button", class: "block", onclick: () => printReceipt(docs.receipt, labels) }, icon("printer"), t("print"))),
+    h("small", { class: "field-hint center" }, t("invoiceNote")),
+  ];
+}
+
+// Satış kaydedilince: özet + fiş gönderme + geri alma.
+function saleDone(moves, before) {
+  const sale = moves.find((m) => RECEIPT_TYPES.includes(m.type));
+  const paid = moves.filter((m) => m.type === "collection").reduce((s, m) => s + m.amount, 0);
+  const party = session.firm.parties.get(sale.party);
+  const after = before + sale.total - paid;
+  const extra = { paid, balanceAfter: party ? after : null };
+  open(t("saleSaved"), [
+    h("div", { class: "done-summary" },
+      h("span", { class: "done-check" }, icon("check")),
+      h("strong", {}, formatMoney(sale.total)),
+      party && h("span", { class: "muted" }, h("bdi", {}, party.name)),
+      party && h("small", { class: "muted" }, `${balanceText("seller", after).label}: ${balanceText("seller", after).amount}`)),
+    ...receiptButtons(sale, extra),
+  ], [
+    h("button", {
+      type: "button", class: "block ghost danger",
+      onclick: () => { sheet.close(); voidMoves(moves, t("undoReason")).then(() => toast(t("undone")), failed); },
+    }, t("undo")),
+    h("button", { type: "button", class: "block primary", onclick: () => sheet.close() }, t("done")),
+  ]);
+}
+
+// --- Ayarlar: işletme, gider kategorileri, yapay zekâ --------------------------------------
+
+const DEFAULT_CATEGORIES = ["rent", "fuel", "shipping", "tax", "salary", "utilities", "food", "other"];
+
+// İşletmenin gider kategorileri; hiç düzenlenmemişse hazır liste.
+export function expenseCategories(firm) {
+  return firm.expenseCategories?.length
+    ? firm.expenseCategories
+    : DEFAULT_CATEGORIES.map((id) => ({ id, name: t(`cat_${id}`) }));
+}
+
+export function openBusinessSheet() {
+  const firm = currentFirm();
+  const info = firm.info ?? {};
+  const logo = photoField(firm.logo, { round: true, label: t("addLogo") });
+  const name = textInput({ maxlength: 40, value: firm.name });
+  const input = (key, attrs = {}) => textInput({ maxlength: 120, value: info[key] ?? "", ...attrs });
+  const title = input("title", { placeholder: t("firmTitlePlaceholder") });
+  const taxOffice = input("taxOffice");
+  const taxNo = input("taxNo", { inputmode: "numeric", dir: "ltr", maxlength: 20 });
+  const address = input("address", { maxlength: 300 });
+  const phone = h("input", { type: "tel", maxlength: 24, value: info.phone ?? "", dir: "ltr", autocomplete: "off" });
+  const vat = numberInput({ value: String(firm.defaultVat ?? 20), placeholder: "20" });
+  open(t("businessInfo"), [
+    logo.el,
+    field(t("firmName"), name),
+    field(t("firmTitle"), title, t("firmTitleHint")),
+    h("div", { class: "row2" }, field(t("taxOffice"), taxOffice), field(t("taxNo"), taxNo)),
+    field(t("address"), address),
+    h("div", { class: "row2" }, field(t("phone"), phone), field(t("defaultVat"), vat)),
+    h("small", { class: "field-hint" }, t("businessHint")),
+  ], [saveButton(), closeButton()], () => {
+    const n = name.value.trim();
+    if (!n) return t("enterFirmName");
+    const v = parseQty(vat.value);
+    if (v == null || v < 0 || v > 100) return t("badVat");
+    const fields = {
+      name: n,
+      defaultVat: v,
+      info: {
+        title: title.value.trim(), taxOffice: taxOffice.value.trim(), taxNo: taxNo.value.trim(),
+        address: address.value.trim(), phone: phone.value.trim(),
+      },
+    };
+    const pic = logo.value();
+    if (pic) fields.logo = pic.thumb;
+    if (pic === null) fields.logo = "";
+    saved(saveFirmSettings(fields), t("saved"));
+    return undefined;
+  });
+}
+
+export function openCategoriesSheet() {
+  const firm = currentFirm();
+  const list = h("div", { class: "cat-list" });
+  const rows = [];
+  const addRow = (cat) => {
+    const input = textInput({ maxlength: 40, value: cat?.name ?? "", placeholder: t("categoryPlaceholder") });
+    const row = { id: cat?.id ?? `c${crypto.randomUUID().slice(0, 8)}`, input };
+    const el = h("div", { class: "cat-row" }, input, iconButton("x", t("remove"), () => {
+      rows.splice(rows.indexOf(row), 1);
+      el.remove();
+    }));
+    rows.push(row);
+    list.append(el);
+    return input;
+  };
+  for (const c of expenseCategories(firm)) addRow(c);
+  open(t("expenseCategories"), [
+    h("small", { class: "field-hint" }, t("categoriesHint")),
+    list,
+    h("button", { type: "button", class: "small add-line", onclick: () => addRow().focus() }, "+ ", t("addCategory")),
+  ], [saveButton(), closeButton()], () => {
+    const cats = rows.map((r) => ({ id: r.id, name: r.input.value.trim() })).filter((c) => c.name);
+    if (!cats.length) return t("addAtLeastOneCategory");
+    saved(saveFirmSettings({ expenseCategories: cats }), t("saved"));
+    return undefined;
+  });
+}
+
+export function openAiSheet() {
+  const firm = currentFirm();
+  const key = h("input", { type: "password", autocomplete: "off", dir: "ltr", value: firm.ai?.key ?? "", placeholder: "AIza…" });
+  const status = h("small", { class: "field-hint" });
+  open(t("aiSettings"), [
+    h("p", { class: "muted" }, t("aiIntro")),
+    h("ol", { class: "how" }, h("li", {}, t("aiStep1")), h("li", {}, t("aiStep2")), h("li", {}, t("aiStep3"))),
+    h("a", { class: "block-link", href: "https://aistudio.google.com/apikey", target: "_blank", rel: "noopener" }, t("aiGetKey")),
+    field(t("aiKey"), key),
+    status,
+    h("small", { class: "field-hint" }, t("aiPrivacy")),
+    h("small", { class: "field-hint" }, t("aiXmlNote")),
+  ], [
+    saveButton(),
+    h("button", {
+      type: "button", class: "block",
+      onclick: async () => {
+        status.textContent = "…";
+        try {
+          const model = await pickGeminiModel(key.value.trim());
+          status.textContent = t("aiWorks", { model });
+        } catch (err) {
+          status.textContent = t(`err_${(err.code ?? "ai-failed").replace(/-/g, "_")}`);
+        }
+      },
+    }, t("aiTest")),
+    closeButton(),
+  ], () => {
+    saved(saveFirmSettings({ ai: { key: key.value.trim() } }), t("saved"));
+    return undefined;
+  });
+}
+
 // --- Hareket ayrıntısı ve iptal -------------------------------------------------
 
 export function openMoveDetail(move) {
@@ -968,11 +1284,14 @@ export function openMoveDetail(move) {
   if (cur) totals.push(fact(t("inLiraShort"), formatMoney(Math.round(move.total * move.rate))));
   if (move.type === "sale" || move.type === "consignSale") {
     const cost = sum(move.lines, (l) => l.cost ?? 0);
+    const margin = marginPct(move.total, cost);
     totals.push(fact(t("cost"), formatMoney(cost)), fact(t("grossProfit"), formatMoney(move.total - cost)));
+    if (margin != null) totals.push(fact(t("margin"), `%${formatNumber(margin)}`));
   }
   fields.push(h("div", { class: "facts" }, totals));
-  if (move.note && move.type !== "expense") fields.push(h("p", { class: "note" }, h("bdi", {}, move.note)));
-  if (move.type === "expense") fields.unshift(h("p", { class: "note" }, h("bdi", {}, move.note)));
+  if (move.type === "expense") fields.unshift(fact(t("expenseCategory"), move.categoryName || t("uncategorized")));
+  if (move.invoiceNo) fields.push(fact(t("invoiceNo"), move.invoiceNo));
+  if (move.note) fields.push(h("p", { class: "note" }, h("bdi", {}, move.note)));
 
   const title = t(`type_${move.type}`);
   if (move.voided) {
@@ -980,9 +1299,14 @@ export function openMoveDetail(move) {
       t("voidedBy", { name: person(firm, move.voided.by).name, reason: move.voided.reason })));
     return open(title, fields, [closeButton()]);
   }
+  // Satışta fiş gönderme; iptal en altta, açılır bölümde (yanlışlıkla basılmasın).
+  if (RECEIPT_TYPES.includes(move.type)) fields.push(...receiptButtons(move));
   const reason = textInput({ maxlength: 200, placeholder: t("voidReasonPlaceholder") });
-  fields.push(field(t("voidReason"), reason, t("voidHint")));
-  open(title, fields, [h("button", { class: "block danger" }, t("voidMove")), closeButton()], () => {
+  fields.push(h("details", { class: "more danger-zone" },
+    h("summary", {}, t("voidMove")),
+    field(t("voidReason"), reason, t("voidHint")),
+    h("button", { class: "block danger" }, t("voidMove"))));
+  open(title, fields, [closeButton()], () => {
     const r = reason.value.trim();
     if (!r) return t("enterVoidReason");
     if (!confirm(t("confirmVoid"))) return undefined;
@@ -990,3 +1314,8 @@ export function openMoveDetail(move) {
     return undefined;
   });
 }
+
+// Başka form modülleri (faturadan alış) için ortak parçalar.
+export {
+  open as openSheet, field, textInput, numberInput, select, saveButton, closeButton, failed, rateField, marginPct,
+};

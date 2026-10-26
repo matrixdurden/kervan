@@ -118,7 +118,7 @@ function moveDoc(input, lines, find, seq) {
     // Ürün adı ve birimi harekete de yazılır: ürün sonradan değişse de defter okunur kalır.
     move.lines = lines.map((l) => ({
       product: l.product,
-      name: find.product(l.product)?.name ?? "",
+      name: productLabel(find.product(l.product)),
       unit: find.product(l.product)?.unit ?? "",
       qty: l.qty,
       price: l.price,
@@ -135,8 +135,19 @@ function moveDoc(input, lines, find, seq) {
   if (input.holder) move.holder = input.holder;
   if (input.partner && input.partner !== input.holder) move.partner = input.partner;
   if (input.deal) move.deal = input.deal;
+  if (input.category) {
+    move.category = input.category;
+    move.categoryName = input.categoryName ?? "";
+  }
+  if (input.invoiceNo) move.invoiceNo = input.invoiceNo;
   if (input.type === "transfer") move.to = input.to;
   return move;
+}
+
+// Ürünün görünen adı: "Kulaklık · Siyah"
+export function productLabel(p) {
+  if (!p) return "";
+  return p.variant ? `${p.name} · ${p.variant}` : p.name;
 }
 
 const PROFIT_TYPES = ["sale", "consignSale"];
@@ -165,11 +176,40 @@ function addMoves(batch, rawInputs, find) {
 
 // inputs: [{ type, party, date, note, lines: [{ product, qty, price }] | amount, currency?, rate?, holder?, to? }]
 // Yerel önbelleğe hemen yazılır; done sunucu onayını bekler. moves geri almak (undo) içindir.
-export function recordMoves(inputs) {
+// newProducts: aynı anda oluşturulacak ürünler (faturadan alışta) → { geçiciId: { name, unit, price, … } };
+// satırlarda bu geçici id'ler kullanılabilir, gerçek id'ye çevrilir.
+// newParty: aynı anda oluşturulacak tedarikçi { tempId, data }.
+export function recordMoves(inputs, { newProducts = {}, newParty = null } = {}) {
   const batch = writeBatch(db);
-  const moves = addMoves(batch, inputs, lookup());
+  const products = new Map();
+  const ids = new Map();
+  for (const [tempId, data] of Object.entries(newProducts)) {
+    const productRef = newRef("products");
+    const product = { unit: "adet", price: 0, barcode: "", ...data, ...EMPTY, consigned: 0 };
+    batch.set(productRef, { ...product, createdBy: session.uid, createdAt: serverTimestamp() });
+    products.set(productRef.id, product);
+    ids.set(tempId, productRef.id);
+  }
+  const parties = new Map();
+  let partyId = null;
+  if (newParty) {
+    const partyRef = newRef("parties");
+    const party = { phone: "", note: "", balance: 0, ...newParty.data };
+    batch.set(partyRef, { ...party, createdBy: session.uid, createdAt: serverTimestamp() });
+    parties.set(partyRef.id, party);
+    partyId = partyRef.id;
+  }
+  const resolved = inputs.map((input) => ({
+    ...input,
+    party: newParty && input.party === newParty.tempId ? partyId : input.party,
+    ...(input.lines && { lines: input.lines.map((l) => ({ ...l, product: ids.get(l.product) ?? l.product })) }),
+  }));
+  const moves = addMoves(batch, resolved, lookup({ products, parties }));
   return { moves, done: batch.commit() };
 }
+
+// İşletme ayarları (logo, fatura bilgileri, gider kategorileri, yapay zekâ anahtarı, varsayılan KDV).
+export const saveFirmSettings = (fields) => updateDoc(firmRef(), fields);
 
 // İptal: kayıt silinmez; "voided" yazılır ve etkisi kayıtlı maliyetlerle geri alınır.
 export function voidMoves(moves, reason) {
@@ -187,10 +227,11 @@ export function voidMoves(moves, reason) {
 //   opening: { qty, cost }    yeni ürün eldeki stokla açılır
 //   photo: { thumb, full }    yeni fotoğraf; null fotoğrafı kaldırır; undefined dokunmaz
 //   deal: ortaklık id'si      "" genel paylara döner; undefined dokunmaz
-export function saveProduct(id, { name, unit, price, barcode = "" }, { opening, photo, deal } = {}) {
+// fields: { name, unit, price, barcode, variant, groupId, minStock, vat }
+export function saveProduct(id, fields, { opening, photo, deal } = {}) {
   const batch = writeBatch(db);
   const productRef = id ? ref("products", id) : newRef("products");
-  const fields = { name, unit, price, barcode };
+  fields = { ...fields };
   if (photo) fields.thumb = photo.thumb;
   if (photo === null && id) fields.thumb = deleteField();
 
@@ -204,7 +245,7 @@ export function saveProduct(id, { name, unit, price, barcode = "" }, { opening, 
         lookup({ products: new Map([[productRef.id, product]]) }));
     }
   }
-  if (photo) batch.set(ref("images", productRef.id), { data: photo.full });
+  if (photo?.full) batch.set(ref("images", productRef.id), { data: photo.full });
   if (photo === null && id) batch.delete(ref("images", id));
   if (deal !== undefined) addDealMove(batch, productRef.id, deal);
   return batch.commit();
@@ -225,12 +266,20 @@ function addDealMove(batch, productId, dealId) {
 export const productByBarcode = (code) =>
   [...session.firm.products.values()].find((p) => p.barcode && p.barcode === code.trim());
 
+// fields: { kind, name, phone, note, currency?, taxNo, taxOffice, address }
 // opening: kişinin mevcut bakiyesi (satıcıda + bize borçlu, tedarikçide + biz borçluyuz).
-export function saveParty(id, { kind, name, phone, note, currency }, opening) {
-  if (id) return updateDoc(ref("parties", id), { name, phone, note, currency });
+// photo: { thumb } yeni fotoğraf; null kaldırır; undefined dokunmaz.
+export function saveParty(id, { kind, ...fields }, opening, photo) {
+  // Firestore undefined değer kabul etmez (örn. satıcının para birimi yok).
+  const clean = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined));
+  if (photo) clean.thumb = photo.thumb;
+  if (id) {
+    if (photo === null) clean.thumb = deleteField();
+    return updateDoc(ref("parties", id), clean);
+  }
   const batch = writeBatch(db);
   const partyRef = newRef("parties");
-  const party = { kind, name, phone, note, currency, balance: 0 };
+  const party = { kind, ...clean, balance: 0 };
   batch.set(partyRef, { ...party, createdBy: session.uid, createdAt: serverTimestamp() });
   if (opening) {
     addMoves(batch, [{ type: "opening", party: partyRef.id, amount: opening }],
