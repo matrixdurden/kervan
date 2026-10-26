@@ -8,7 +8,7 @@
         { "source": "**/*.@(html|js|css|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
         { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
       ],
-      "rewrites": [{ "source": "/r/**", "destination": "/fis.html" }]
+      "rewrites": [{ "source": "/r/**", "destination": "/fis.html" }, { "source": "/m/**", "destination": "/magaza.html" }]
     },
     {
       "site": "kervan-7c9f64",
@@ -18,7 +18,7 @@
         { "source": "**/*.@(html|js|css|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
         { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
       ],
-      "rewrites": [{ "source": "/r/**", "destination": "/fis.html" }]
+      "rewrites": [{ "source": "/r/**", "destination": "/fis.html" }, { "source": "/m/**", "destination": "/magaza.html" }]
     }
   ],
   "firestore": {

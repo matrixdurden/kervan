@@ -18,7 +18,7 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods, sendToChat, openProductCategories, openSheet, closeButton, failed,
+  openMethodsSheet, paymentMethods, sendToChat, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
@@ -28,6 +28,7 @@ import { sharedAiReady } from "./ai.js";
 import { REPORT_TYPES, buildReport, salesSeries } from "./report.js";
 import { kpi, pct, salesChart, profitCard, reportTiles, reportDetail, NOW_REPORTS } from "./report-pages.js";
 import { receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
+import { shopOf, scheduleShopSync, resetShopSync, listenOrders } from "./shop.js";
 
 const PAGE = 100;
 
@@ -59,6 +60,7 @@ export function openFirm(id) {
     session.firm[key] = new Map([...all].filter(([, x]) => !x.deleted));
     if (key in session.firm.trash) session.firm.trash[key] = new Map([...all].filter(([, x]) => x.deleted));
     refreshFirm();
+    if (key === "products") scheduleShopSync(); // online mağaza vitrini
   }, failed);
   unsubs = [listen("products", "products"), listen("parties", "parties"), listen("accounts", "accounts"), listen("months", "months")];
   // Ana ekrandaki "son işlemler".
@@ -73,6 +75,10 @@ export function openFirm(id) {
 }
 
 export function closeFirm() {
+  ordersUnsub?.();
+  ordersUnsub = null;
+  ordersSlug = null;
+  resetShopSync();
   for (const unsub of unsubs) unsub();
   unsubs = [];
   recentUnsub?.();
@@ -87,9 +93,24 @@ export function closeFirm() {
 export function refreshFirm() {
   if (!currentFirm()) return;
   setBaseCurrency(currentFirm().currency);
+  watchOrders();
+  scheduleShopSync(); // işletmenin adı, logosu ya da para birimi değiştiyse vitrin de güncellenir
   render();
   refreshParty();
 }
+
+// Online mağazanın siparişleri: mağaza açılınca (ya da adresi değişince) dinlenmeye başlar.
+let ordersUnsub = null;
+let ordersSlug = null;
+function watchOrders() {
+  const slug = shopOf()?.slug ?? null;
+  if (slug === ordersSlug) return;
+  ordersUnsub?.();
+  ordersSlug = slug;
+  session.firm.orders = [];
+  ordersUnsub = slug ? listenOrders((list) => { session.firm.orders = list; render(); }) : null;
+}
+const newOrders = () => (session.firm.orders ?? []).filter((o) => o.status === "new").length;
 
 // Dil değişince sayfanın üst kısmı da yeniden kurulsun.
 export function rebuildFirm() {
@@ -247,6 +268,8 @@ const START = {
   direct: () => openMoveSheet("sale"), // Satışlar → Satış gir ile aynı form
   expenseStart: () => openCashSheet("expense"), // Giderler → Gider gir ile aynı form
 };
+// Sayfa değil, doğrudan pencere açan kutucuklar.
+const TILE_ACTION = { invoice: () => openInvoiceImport(), shop: () => openShopSheet() };
 const SECTIONS = [
   ["collections", "plusCircle"], ["payments", "minusCircle"],
   ["sellers", "store"], ["suppliers", "truck"],
@@ -254,6 +277,7 @@ const SECTIONS = [
   ["invoice", "fileScan"], ["expenses", "receipt"],
   ["consign", "send"], ["saleReturns", "undo"],
   ["cash", "wallet"], ["debts", "scale"],
+  ["orders", "bag"], ["shop", "globe"],
   ["ledger", "book"], ["reports", "chart"],
   ["trash", "trash"], ["settings", "gear"],
 ];
@@ -300,8 +324,9 @@ const HOME = {
           h("small", {}, low.slice(0, 3).map(productLabel).join(", ") + (low.length > 3 ? "…" : ""))),
         icon("chevron")),
       h("div", { class: "tiles-grid" }, SECTIONS.map(([id, ic]) =>
-        h("button", { type: "button", class: `tile-small tone-${id}`, onclick: () => (id === "invoice" ? openInvoiceImport() : openPage(id)) },
-          h("span", { class: "tile-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))))),
+        h("button", { type: "button", class: `tile-small tone-${id}`, onclick: () => (TILE_ACTION[id] ? TILE_ACTION[id]() : openPage(id)) },
+          h("span", { class: "tile-ic" }, icon(ic)), h("span", {}, t(`page_${id}`)),
+          id === "orders" && newOrders() > 0 && h("span", { class: "tile-badge" }, String(newOrders()))))),
     ];
     if (!products.size || !parties("seller").length || !parties("supplier").length) out.push(startGuide());
     if (recent.length) {
@@ -948,6 +973,39 @@ const stockCountPage = {
   },
 };
 
+// --- Siparişler (online mağaza) ------------------------------------------------------------
+
+let ordersFilter = "new";
+const ORDER_STATUS = { new: "ord_statusNew", done: "ord_statusDone", rejected: "ord_statusRejected" };
+
+function orderRow(o) {
+  const at = millis(o.at);
+  const when = at ? new Intl.DateTimeFormat(dateLocale(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(at) : "";
+  const n = o.lines.reduce((s, l) => s + l.qty, 0);
+  return h("li", {}, h("button", { type: "button", class: `card row order-row ${o.status}`, onclick: () => openShopOrderSheet(o) },
+    h("span", { class: "move-icon" }, icon(o.via === "whatsapp" ? "whatsapp" : "bag")),
+    h("span", { class: "main" },
+      h("span", { class: "title" }, h("bdi", {}, o.name)),
+      h("span", { class: "meta" }, [o.code, when, t("productCount", { n: formatNumber(n) })].filter(Boolean).join(" · "))),
+    h("span", { class: "end" },
+      o.total ? h("span", { class: "amount" }, formatMoney(o.total, o.currency || base())) : null,
+      h("span", { class: `badge ${o.status === "new" ? "warn" : ""}` }, t(ORDER_STATUS[o.status] ?? "ord_statusNew")))));
+}
+
+const ordersPage = {
+  top: () => pageTop(t("page_orders"), h("button", { type: "button", class: "icon-btn", "aria-label": t("page_shop"), title: t("page_shop"), onclick: () => openShopSheet() }, icon("gear"))),
+  head: () => segmented([["new", t("ord_filterNew")], ["done", t("ord_filterDone")], ["all", t("filterAll")]], ordersFilter,
+    (v) => { ordersFilter = v; rerenderBody(); }, "tabs"),
+  body() {
+    if (!shopOf()?.slug) {
+      return [emptyState("🛍️", t("ord_noShop"), h("button", { type: "button", class: "primary", onclick: () => openShopSheet() }, icon("globe"), t("ord_openShop")))];
+    }
+    const list = (session.firm.orders ?? []).filter((o) => ordersFilter === "all" || (ordersFilter === "new" ? o.status === "new" : o.status !== "new"));
+    if (!list.length) return [emptyState("📭", t(ordersFilter === "new" ? "ord_noneNew" : "ord_none"))];
+    return [h("ul", { class: "cards" }, list.map(orderRow))];
+  },
+};
+
 // --- Hareketler (defter) ---------------------------------------------------------------------
 
 const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix", "debtOut", "debtIn"];
@@ -1123,7 +1181,8 @@ const settingsPage = {
         item("tag", t("expenseCategories"), cats?.length ? cats.map((c) => c.name).join(", ") : t("defaultCategoriesHint"), () => openCategoriesSheet()),
         item("wallet", t("paymentMethods"), paymentMethods(firm).map((m) => m.name).join(", "), () => openMethodsSheet()),
         item("fileScan", t("aiSettings"), firm.ai?.key || sharedAiReady() ? t("aiReady") : t("aiNotSet"), () => openAiSheet()),
-        item("wallet", t("page_cash"), t("cashSettingsHint"), () => openPage("cash"))),
+        item("wallet", t("page_cash"), t("cashSettingsHint"), () => openPage("cash")),
+        item("globe", t("page_shop"), shopOf()?.on ? shopOf().slug : t("shopOffHint"), () => openShopSheet())),
       h("div", { class: "field" }, h("span", {}, t("theme")),
         segmented([["auto", t("theme_auto")], ["light", t("theme_light")], ["dark", t("theme_dark")]], currentTheme(), applyTheme),
         h("small", { class: "field-hint" }, t("themeHint"))),
@@ -1190,6 +1249,7 @@ const PAGES = {
   sellers: partiesPage("seller"),
   suppliers: partiesPage("supplier"),
   debts: partiesPage("person"),
+  orders: ordersPage,
   cash: cashPage,
   reports: reportsPage,
   report: reportPage,

@@ -228,6 +228,47 @@ service cloud.firestore {
       allow delete: if isMember(resource.data.firm);
     }
 
+    // Online mağaza (vitrin): herkes okur; sadece işletmenin ortakları yazar. Adres (slug) bir kez
+    // alınınca başka işletme alamaz. Ürün kopyalarında maliyet ve stok adedi yoktur.
+    match /shops/{slug} {
+      function shopOwner() {
+        return isMember(get(/databases/$(database)/documents/shops/$(slug)).data.firm);
+      }
+      allow get: if true;
+      allow create: if slug.matches('^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$')
+        && isMember(request.resource.data.firm)
+        && request.resource.data.by == request.auth.uid;
+      allow update: if isMember(resource.data.firm) && request.resource.data.firm == resource.data.firm;
+      allow delete: if isMember(resource.data.firm);
+
+      match /items/{id} {
+        allow read: if true;
+        allow write: if shopOwner();
+      }
+      match /images/{id} {
+        allow get: if true;
+        allow write: if shopOwner();
+      }
+      // Müşteri siparişi: girişsiz oluşturulur (şekli ve boyutu sınırlı); kodu bilen tek tek okuyabilir
+      // (siparişin fotoğraf/PDF bağlantısı). Listeleme, değiştirme ve silme sadece işletmenin.
+      match /orders/{id} {
+        allow get: if true;
+        allow list, update, delete: if shopOwner();
+        allow create: if get(/databases/$(database)/documents/shops/$(slug)).data.open == true
+          && request.resource.data.keys().hasOnly(['code', 'name', 'phone', 'note', 'lines', 'total', 'currency', 'at', 'status', 'via'])
+          && text(request.resource.data.code, 12)
+          && name(request.resource.data.name)
+          && text(request.resource.data.phone, 24)
+          && text(request.resource.data.note, 300)
+          && request.resource.data.lines is list && request.resource.data.lines.size() > 0 && request.resource.data.lines.size() <= 100
+          && request.resource.data.total is int
+          && text(request.resource.data.currency, 3)
+          && request.resource.data.at == request.time
+          && request.resource.data.status == 'new'
+          && request.resource.data.via in ['whatsapp', 'direct'];
+      }
+    }
+
     match /invites/{code} {
       allow get: if signedIn();
       // İşletme ile aynı batch içinde oluşturulduğu için getAfter kullanılır.

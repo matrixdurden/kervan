@@ -348,7 +348,10 @@ export function saveParty(id, { kind, ...fields }, opening, photo) {
     addMoves(batch, [{ type: "opening", party: partyRef.id, amount: opening }],
       lookup({ parties: new Map([[partyRef.id, party]]) }));
   }
-  return batch.commit();
+  // Yeni kişinin kimliği hemen bilinsin (siparişi satışa çevirirken satış formu onunla açılır).
+  const done = batch.commit();
+  done.id = partyRef.id;
+  return done;
 }
 
 // Ürünle birlikte fotoğrafı silinir ve ortaklıklardan çıkarılır.

@@ -792,6 +792,21 @@ label.check input { width: 22px; height: 22px; accent-color: var(--primary); }
 .tone-saleReturns { --c: #8A5A9E; }
 .tone-stockCount { --c: #2E7D6B; }
 .tone-debts { --c: #4F46E5; }
+.tone-orders { --c: #B7791F; }
+.tone-shop { --c: #8A6A3B; }
+/* Ana ekran kutucuğunda sayı (yeni sipariş) */
+.tile-small { position: relative; }
+.tile-badge {
+  position: absolute; top: 8px; inset-inline-end: 8px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px;
+  background: var(--danger); color: #fff; font-size: 12px; font-weight: 800; display: grid; place-items: center;
+}
+/* Düğme gibi görünen bağlantı (vitrini aç, sipariş fişi) */
+a.button-link {
+  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 46px;
+  border: 1.5px solid var(--border); border-radius: var(--radius); color: var(--text); font-weight: 800; text-decoration: none;
+}
+a.button-link svg { width: 20px; height: 20px; }
+.order-row.done, .order-row.rejected { opacity: 0.75; }
 button.bubble.add svg { width: 15px; height: 15px; }
 .tile-dark { background: var(--spend); }
 @media (prefers-color-scheme: dark) {

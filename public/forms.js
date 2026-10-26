@@ -19,7 +19,8 @@ import {
   byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory, NO_CATEGORY,
   unitCostOf, landedCost,
 } from "./views.js";
-import { RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
+import { RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles, waPhone } from "./receipt.js";
+import { shopOf, shopUrl, slugify, saveShop, syncShop, setOrderStatus, deleteOrder } from "./shop.js";
 import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
 import { lastRate, rememberRate, fetchRate } from "./rates.js";
@@ -331,6 +332,8 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
   const minStock = numberInput({ value: base.minStock ? qtyInput(base.minStock) : "", placeholder: t("minStockPlaceholder") });
   const barcode = barcodeField(product?.barcode ?? preset.barcode ?? "");
   const category = categoryField(base.category ?? "");
+  // Online mağaza açıksa: bu ürün vitrinde görünsün mü (fiyatı olan ürünler görünür).
+  const shopShow = h("input", { type: "checkbox", checked: !base.shopHide });
 
   // Stok, birim ve fiyatın hemen altında: yeni üründe "Elinde şu an var mı?", kayıtlı üründe depo durumu.
   let qty;
@@ -381,6 +384,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     h("div", { class: "row2" }, field(t("unit"), unit), field(t("minStock"), minStock)),
     h("small", { class: "field-hint" }, t("minStockHint")),
     barcode.el,
+    shopOf()?.on && h("label", { class: "check" }, shopShow, h("span", {}, t("shopShowProduct"))),
   ];
 
   // Ortaklık: bu ürünün kârı genel paylarla mı, bir ürün ortaklığıyla mı bölünür?
@@ -462,6 +466,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     const data = {
       name: n, variant: variant.value.trim(), category: category.value(), unit: unit.value, price: p, barcode: code, vat: v, minStock: min,
       groupId: product?.groupId ?? preset.groupId ?? "", fuel: f, extras: extraCosts.slice(0, 10),
+      shopHide: !shopShow.checked,
     };
     // Kayıtlı ürünün maliyeti elle değiştirildiyse maliyet düzeltme kaydı (depodaki değer de güncellenir).
     if (product && c !== costNow) {
@@ -1850,6 +1855,119 @@ function moneyDone(move, before) {
       onclick: () => { sheet.close(); voidMoves([move], t("undoReason")).then(() => toast(t("undone")), failed); },
     }, t("undo")),
     h("button", { type: "button", class: "block primary", onclick: () => sheet.close() }, t("done")),
+  ]);
+}
+
+// --- Online mağaza ---------------------------------------------------------------------------
+
+// Mağaza ayarları: aç/kapat, adres, siparişlerin geleceği WhatsApp, fiyat ve tükenen ürün gösterimi.
+export function openShopSheet() {
+  const firm = currentFirm();
+  const cur = shopOf(firm) ?? {};
+  const check = (on) => h("input", { type: "checkbox", checked: on });
+  const on = check(cur.on ?? true);
+  const slug = textInput({ maxlength: 40, value: cur.slug ?? slugify(firm.name), dir: "ltr", placeholder: "dukkanim" });
+  const preview = h("small", { class: "field-hint", dir: "ltr" });
+  const paint = () => { preview.textContent = shopUrl(slugify(slug.value) || "…"); };
+  slug.addEventListener("input", paint);
+  paint();
+  const phone = h("input", { type: "tel", maxlength: 24, dir: "ltr", autocomplete: "off", value: cur.phone ?? firm.info?.phone ?? "", placeholder: "0555 555 55 55" });
+  const showPrices = check(cur.showPrices !== false);
+  const hideSoldOut = check(Boolean(cur.hideSoldOut));
+  const live = cur.slug && cur.on;
+  const fields = [
+    h("p", { class: "muted" }, t("shopIntro")),
+    h("label", { class: "check" }, on, h("span", {}, t("shopOn"))),
+    h("label", { class: "field" }, h("span", {}, t("shopAddress")), slug, preview),
+    field(t("shopPhone"), phone, t("shopPhoneHint")),
+    h("label", { class: "check" }, showPrices, h("span", {}, t("shopShowPrices"))),
+    h("label", { class: "check" }, hideSoldOut, h("span", {}, t("shopHideSoldOut"))),
+    h("small", { class: "field-hint" }, t("shopPrivacy")),
+  ];
+  const buttons = [saveButton()];
+  if (live) {
+    const url = shopUrl(cur.slug);
+    buttons.push(
+      h("a", { class: "block button-link", href: url, target: "_blank", rel: "noopener" }, icon("globe"), t("shopOpen")),
+      h("button", {
+        type: "button", class: "block whatsapp",
+        onclick: () => shareOnWhatsApp({ text: t("shopShareText", { name: firm.name, url }) }),
+      }, icon("whatsapp"), t("shopShare")),
+      h("button", {
+        type: "button", class: "block",
+        onclick: () => syncShop().then(() => toast(t("shopSynced")), failed),
+      }, icon("refresh"), t("shopSyncNow")));
+  }
+  buttons.push(closeButton());
+  open(t("page_shop"), fields, buttons, () => {
+    const s = slugify(slug.value);
+    if (s.length < 3) return t("shopBadAddress");
+    if (on.checked && phone.value.trim() && !waPhone(phone.value)) return t("shopBadPhone");
+    const settings = { slug: s, on: on.checked, phone: phone.value.trim(), showPrices: showPrices.checked, hideSoldOut: hideSoldOut.checked };
+    saveShop(settings).then(() => toast(t(settings.on ? "shopSaved" : "shopClosed")),
+      (err) => { console.error(err); toast(t(err?.code === "taken" ? "shopTaken" : "saveFailed")); });
+    sheet.close();
+    return undefined;
+  });
+}
+
+async function partyWhenReady(id) {
+  for (let i = 0; i < 60 && !session.firm.parties.has(id); i++) await new Promise((r) => setTimeout(r, 50));
+  return session.firm.parties.get(id);
+}
+
+// Siparişi satışa çevirir: müşteri telefonundan (yoksa adından) bulunur, yoksa yeni müşteri açılır;
+// satış formu siparişin ürünleri ve fiyatlarıyla dolu açılır. Fiyatı gizli siparişte liste fiyatı gelir.
+async function orderToSale(order) {
+  const sellers = [...session.firm.parties.values()].filter((p) => p.kind === "seller" && !p.walkIn);
+  const key = waPhone(order.phone);
+  const lower = (s) => (s || "").toLocaleLowerCase("tr").trim();
+  const found = (key && sellers.find((p) => waPhone(p.phone) === key)) || sellers.find((p) => lower(p.name) === lower(order.name));
+  let id = found?.id;
+  if (!id) {
+    const done = saveParty(null, { kind: "seller", name: order.name.slice(0, 80), phone: order.phone ?? "", note: t("ord_partyNote") });
+    done.catch(failed);
+    id = done.id;
+    await partyWhenReady(id);
+  }
+  setOrderStatus(order.id, "done").catch(failed);
+  openMoveSheet("sale", { party: id, lines: order.lines.map((l) => ({ product: l.id, qty: l.qty, ...(l.price > 0 && { price: l.price }) })) });
+}
+
+// Siparişin ayrıntısı: ürünler, müşteri, not; satışa çevir, müşteriye yaz, fişi, reddet, sil.
+export function openShopOrderSheet(order) {
+  const shop = shopOf();
+  const cur = order.currency || base();
+  const missing = order.lines.filter((l) => !session.firm.products.has(l.id)).length;
+  const fields = [
+    h("div", { class: "facts" },
+      fact(t("ord_customer"), order.name),
+      order.phone && fact(t("phone"), order.phone),
+      fact(t("ord_code"), order.code),
+      fact(t("ord_via"), t(order.via === "whatsapp" ? "ord_viaWa" : "ord_viaDirect"))),
+    h("ul", { class: "line-list" }, order.lines.map((l) => h("li", {},
+      h("span", { class: "main" },
+        h("span", { class: "title" }, h("bdi", {}, l.name)),
+        h("span", { class: "meta" }, `${formatNumber(l.qty)} ${l.unit || ""}${l.price ? ` × ${formatMoney(l.price, cur)}` : ""}`)),
+      l.price ? h("strong", {}, formatMoney(Math.round(l.qty * l.price), cur)) : null))),
+    order.total ? h("div", { class: "facts" }, fact(t("total"), formatMoney(order.total, cur))) : null,
+    order.note && h("p", { class: "note" }, h("bdi", {}, order.note)),
+    missing && h("small", { class: "field-hint" }, t("ord_missing", { n: missing })),
+  ];
+  const link = shop?.slug ? `${shopUrl(shop.slug)}/o/${order.id}` : "";
+  open(t("ord_title", { code: order.code }), fields, [
+    order.status !== "done" && h("button", { type: "button", class: "primary block", onclick: () => orderToSale(order) }, icon("out"), t("ord_toSale")),
+    order.phone && waPhone(order.phone) && h("button", {
+      type: "button", class: "block whatsapp",
+      onclick: () => shareOnWhatsApp({ phone: order.phone, text: t("ord_reply", { name: order.name, code: order.code, firm: currentFirm().name }) }),
+    }, icon("whatsapp"), t("ord_writeCustomer")),
+    link && h("a", { class: "block button-link", href: link, target: "_blank", rel: "noopener" }, icon("receipt"), t("ord_receipt")),
+    h("div", { class: "move-actions" },
+      order.status === "new"
+        ? h("button", { type: "button", class: "block", onclick: () => { sheet.close(); setOrderStatus(order.id, "rejected").then(() => toast(t("ord_rejected")), failed); } }, icon("x"), t("ord_reject"))
+        : h("button", { type: "button", class: "block", onclick: () => { sheet.close(); setOrderStatus(order.id, "new").catch(failed); } }, icon("undo"), t("ord_reopen")),
+      h("button", { type: "button", class: "block danger", onclick: () => { sheet.close(); deleteOrder(order.id).then(() => toast(t("ord_deleted")), failed); } }, icon("trash"), t("delete"))),
+    closeButton(),
   ]);
 }
 

@@ -50,6 +50,7 @@ async function show() {
   const name = `${heading || "fis"}-${receipt.number || receipt.date || id.slice(0, 6)}`.replace(/[\\/:*?"<>|\s]+/g, "-");
 
   const canvas = await receiptCanvas(receipt, labels);
+  canvas.style.width = ""; // telefonda ekrana sığsın (CSS genişliği verir)
   canvas.setAttribute("role", "img");
   canvas.setAttribute("aria-label", document.title);
   $("paper").replaceChildren(canvas);
