@@ -600,10 +600,10 @@ const periodSeg = (onchange) => segmented([
 
 const plain = (s) => s.replace(/[⁦⁩]/g, "");
 
-// Özet fişini resim olarak WhatsApp'tan gönderir (kişi uygulamada seçilir).
-async function sendSummary(doc, filename) {
+// Özet fişini resim olarak WhatsApp'tan gönderir; telefon yoksa kişi WhatsApp'ta seçilir.
+async function sendSummary(doc, filename, phone = null) {
   const blob = await receiptBlob(doc, receiptLabels());
-  const result = await shareOnWhatsApp({ blob, filename, text: `${doc.firm.name} · ${doc.title}: ${doc.subtitle}\n${doc.total[0]}: ${doc.total[1]}` });
+  const result = await shareOnWhatsApp({ blob, filename, phone, text: `${doc.firm.name} · ${doc.title}: ${doc.subtitle}\n${doc.total[0]}: ${doc.total[1]}` });
   if (result === "link") toast(t("receiptDownloaded"));
 }
 
@@ -686,7 +686,7 @@ const cashPage = {
           fact(t("netCapital"), formatMoney(acc.capital ?? 0)),
           fact(t("equity"), formatMoney(equity)))),
         h("div", { class: "statement-actions" },
-          h("button", { type: "button", class: "whatsapp", onclick: () => sendSummary(summary(), `ortak-${x.name}.png`) }, icon("whatsapp"), t("sendPartnerSummary")),
+          h("button", { type: "button", class: "whatsapp", onclick: () => sendSummary(summary(), `ortak-${x.name}.png`, firm.guests?.[x.uid]?.phone || null) }, icon("whatsapp"), t("sendPartnerSummary")),
           h("button", { type: "button", class: "small", onclick: () => printReceipt(summary(), receiptLabels()) }, icon("printer"), t("print"))));
       })),
       h("p", { class: "total-line" }, h("span", {}, t("cashTotal")),

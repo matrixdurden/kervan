@@ -387,12 +387,14 @@ export function saveDeal(id, { name, products, shares }) {
 export const deleteDeal = (id) => updateDoc(firmRef(), { [`deals.${id}`]: deleteField() });
 
 // Uygulamayı kullanmayan ortak (sadece adı). Kimliği "g" ile başlar.
-export function saveGuest(id, name) {
+// Uygulamasız ortak: { name, phone, party } (party: bağlı olduğu cari, varsa). Eski çağrı: sadece ad.
+export function saveGuest(id, info) {
+  const { name, phone = "", party = "" } = typeof info === "string" ? { name: info } : info;
   const firm = currentFirm();
   const guestId = id || newId("g");
   const used = [...Object.values(firm.people ?? {}), ...Object.values(firm.guests ?? {})].map((p) => p.color);
   const color = firm.guests?.[guestId]?.color ?? PALETTE.find((c) => !used.includes(c)) ?? PALETTE[0];
-  return { id: guestId, color, done: updateDoc(firmRef(), { [`guests.${guestId}`]: { name, color } }) };
+  return { id: guestId, color, done: updateDoc(firmRef(), { [`guests.${guestId}`]: { name, color, phone, party } }) };
 }
 
 export const deleteGuest = (id) => updateDoc(firmRef(), { [`guests.${id}`]: deleteField() });

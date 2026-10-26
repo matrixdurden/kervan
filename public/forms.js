@@ -1463,15 +1463,61 @@ export function openDealSheet(dealId) {
 }
 
 // Uygulamayı kullanmayan ortak ekleme (sadece adı).
+// Uygulamasız ortağın kişi bilgisi: carilerden (müşteri/tedarikçi) ya da telefon rehberinden seçilir,
+// istenirse elle yazılır. Telefon, ortağa özet fişini WhatsApp'tan göndermek için.
+function guestFields(guest = {}) {
+  const name = textInput({ maxlength: 40, value: guest.name ?? "", placeholder: t("guestNamePlaceholder") });
+  const phone = textInput({ maxlength: 24, value: guest.phone ?? "", type: "tel", inputmode: "tel", dir: "ltr", placeholder: "0555 555 55 55" });
+  let party = guest.party ?? "";
+  const parties = [...session.firm.parties.values()].filter((p) => !p.walkIn).sort(byName);
+  const fromParties = parties.length > 0 && select(
+    [["", t("pickFromParties")], ...parties.map((p) => [p.id, `${p.name} · ${t(p.kind)}`])], party,
+    {
+      onchange: (e) => {
+        const p = session.firm.parties.get(e.target.value);
+        party = p?.id ?? "";
+        if (p) {
+          name.value = p.name.slice(0, 40);
+          phone.value = p.phone ?? "";
+        }
+      },
+    });
+  const fromContacts = canPickContact() && h("button", {
+    type: "button", class: "block contact-pick",
+    onclick: async () => {
+      try {
+        const c = await pickContact();
+        if (!c) return;
+        if (c.name) name.value = c.name.slice(0, 40);
+        if (c.phone) phone.value = c.phone;
+        party = "";
+        if (fromParties) fromParties.value = "";
+      } catch (err) {
+        console.error(err);
+      }
+    },
+  }, icon("contact"), t("pickContact"));
+  return {
+    fields: [
+      fromParties && field(t("pickFromPartiesLabel"), fromParties),
+      fromContacts,
+      field(t("name"), name),
+      field(t("phone"), phone, t("guestPhoneHint")),
+      h("small", { class: "field-hint" }, t("guestHint")),
+    ],
+    name,
+    value: () => ({ name: name.value.trim(), phone: phone.value.trim(), party }),
+  };
+}
+
 export function openGuestAddSheet() {
-  const name = textInput({ maxlength: 40, placeholder: t("guestNamePlaceholder") });
-  open(t("addGuest"), [field(t("name"), name), h("small", { class: "field-hint" }, t("guestHint"))], [saveButton(), closeButton()], () => {
-    const n = name.value.trim();
-    if (!n) return t("enterName");
-    saved(saveGuest(null, n).done, t("saved"));
+  const g = guestFields();
+  open(t("addGuest"), g.fields, [saveButton(), closeButton()], () => {
+    const v = g.value();
+    if (!v.name) return t("enterName");
+    saved(saveGuest(null, v).done, t("saved"));
     return undefined;
   });
-  name.focus();
 }
 
 // Uygulamasız ortağın adını değiştirme / silme.
@@ -1479,14 +1525,11 @@ export function openGuestSheet(guestId) {
   const firm = currentFirm();
   const guest = firm.guests?.[guestId];
   if (!guest) return;
-  const name = textInput({ maxlength: 40, value: guest.name });
+  const g = guestFields(guest);
   const inDeal = Object.values(firm.deals ?? {}).some((d) => d.shares?.[guestId]) || firm.shares?.[guestId];
   const acc = session.firm.accounts.get(guestId);
   const busy = Boolean(inDeal || acc?.capital);
-  open(t("guestPartner"), [
-    field(t("name"), name),
-    h("small", { class: "field-hint" }, t("guestHint")),
-  ], [
+  open(t("guestPartner"), g.fields, [
     saveButton(),
     h("button", {
       type: "button", class: "block danger", disabled: busy,
@@ -1498,9 +1541,9 @@ export function openGuestSheet(guestId) {
     busy && h("small", { class: "field-hint center" }, t("cantDeleteGuest")),
     closeButton(),
   ], () => {
-    const n = name.value.trim();
-    if (!n) return t("enterName");
-    saved(saveGuest(guestId, n).done, t("saved"));
+    const v = g.value();
+    if (!v.name) return t("enterName");
+    saved(saveGuest(guestId, v).done, t("saved"));
     return undefined;
   });
 }
