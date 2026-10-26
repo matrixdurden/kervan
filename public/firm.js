@@ -18,7 +18,7 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods,
+  openMethodsSheet, paymentMethods, receiptMessage, sendToChat,
 } from "./forms.js";
 import { openInvoiceImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
@@ -33,6 +33,7 @@ const PAGE = 100;
 
 let unsubs = [];
 let page = null; // null: ana ekran
+let pageStack = []; // alt sayfa açılınca önceki sayfa (ve kaydırma yeri) burada; geri basınca oraya dönülür
 let pageUnsub = null;
 let pageMoves = null;
 let pageLimit = PAGE;
@@ -66,6 +67,7 @@ export function openFirm(id) {
     if (!page) refreshFirm();
   }, failed);
   page = null;
+  pageStack = [];
   rendered = null;
   refreshFirm();
 }
@@ -77,6 +79,7 @@ export function closeFirm() {
   recentUnsub = null;
   stopPageMoves();
   page = null;
+  pageStack = [];
   recent = [];
   resetFirm(null);
 }
@@ -96,6 +99,7 @@ export function rebuildFirm() {
 // --- Sayfalar arası geçiş (Android geri tuşu da çalışsın diye history kullanılır) ---
 
 export function openPage(id, options = {}) {
+  if (page) pageStack.push({ id: page, y: scrollY });
   page = id;
   if (options.kind) search[options.kind] = "";
   if (options.filter) productFilter = options.filter;
@@ -108,12 +112,15 @@ export function openPage(id, options = {}) {
   scrollTo(0, 0);
 }
 
+// Geri: alt sayfadan (ör. bir rapor) bir önceki sayfaya (Raporlar), en sonunda ana ekrana.
 export function closePage() {
-  page = null;
-  stopPageMoves();
+  const prev = pageStack.pop();
+  page = prev?.id ?? null;
+  if (page) listenPageMoves();
+  else stopPageMoves();
   rendered = null;
   render();
-  scrollTo(0, 0);
+  scrollTo(0, prev?.y ?? 0);
 }
 
 const back = () => history.back();
@@ -238,7 +245,7 @@ const START = {
   expenseStart: () => openCashSheet("expense"), // Giderler → Gider gir ile aynı form
 };
 const SECTIONS = [
-  ["payments", "minusCircle"], ["collections", "plusCircle"],
+  ["collections", "plusCircle"], ["payments", "minusCircle"],
   ["suppliers", "truck"], ["sellers", "store"],
   ["products", "box"], ["expenses", "receipt"],
   ["consign", "send"], ["invoice", "fileScan"],
@@ -686,8 +693,12 @@ const cashPage = {
           fact(t("netCapital"), formatMoney(acc.capital ?? 0)),
           fact(t("equity"), formatMoney(equity)))),
         h("div", { class: "statement-actions" },
-          h("button", { type: "button", class: "whatsapp", onclick: () => sendSummary(summary(), `ortak-${x.name}.png`, firm.guests?.[x.uid]?.phone || null) }, icon("whatsapp"), t("sendPartnerSummary")),
-          h("button", { type: "button", class: "small", onclick: () => printReceipt(summary(), receiptLabels()) }, icon("printer"), t("print"))));
+          h("button", { type: "button", class: "whatsapp", onclick: () => sendToChat(receiptMessage(summary()), firm.guests?.[x.uid]?.phone) },
+            icon("whatsapp"), t("sendPartnerSummary")),
+          h("button", { type: "button", class: "small", "aria-label": t("shareImage"), title: t("shareImage"),
+            onclick: () => sendSummary(summary(), `ortak-${x.name}.png`, firm.guests?.[x.uid]?.phone || null) }, icon("camera")),
+          h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => printReceipt(summary(), receiptLabels()) },
+            icon("printer"))));
       })),
       h("p", { class: "total-line" }, h("span", {}, t("cashTotal")),
         h("strong", {}, formatMoney(sum(firm.members, (uid) => accounts.get(uid)?.cash ?? 0)))),

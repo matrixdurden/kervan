@@ -628,6 +628,8 @@ const STRINGS = {
     // Fiş ve fatura bilgisi
     saleSaved: "Satış kaydedildi",
     sendReceipt: "WhatsApp'tan fiş gönder",
+    shareImage: "Resim",
+    noPhoneChat: "Bu kişinin telefonu kayıtlı değil; WhatsApp'ta kişiyi sen seçersin. Telefon eklersen fiş doğrudan sohbetine gider.",
     sendInvoice: "Fatura bilgisi",
     print: "Yazdır",
     invoiceNote: "Fatura bilgisi KDV dökümlü bir proformadır; e-Fatura / e-Arşiv yerine geçmez.",
@@ -1349,6 +1351,8 @@ const STRINGS = {
 
     saleSaved: "تم تسجيل البيع",
     sendReceipt: "إرسال الإيصال عبر واتساب",
+    shareImage: "صورة",
+    noPhoneChat: "لا يوجد رقم هاتف لهذا الشخص؛ تختاره في واتساب بنفسك. إذا أضفت رقمه يذهب الإيصال إلى محادثته مباشرة.",
     sendInvoice: "بيانات الفاتورة",
     print: "طباعة",
     invoiceNote: "بيانات الفاتورة فاتورة مبدئية مع تفصيل الضريبة؛ ولا تحل محل الفاتورة الإلكترونية.",

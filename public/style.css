@@ -1149,6 +1149,9 @@ p.total-line, .pl-row.total-line { display: flex; justify-content: space-between
 .price-actions button.pill-btn.on { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
 .line-list li button.small { height: 32px; padding: 0 10px; font-size: 13px; }
 
+.row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.row3 button { padding: 0 6px; font-size: 14px; white-space: normal; line-height: 1.15; }
+
 /* Ekstre / ortak özeti: WhatsApp'tan fiş olarak gönder ve yazdır */
 .statement-actions { display: flex; gap: 8px; width: 100%; margin-top: 10px; }
 .statement-actions button.whatsapp { flex: 1; min-width: 0; height: 48px; font-size: 15.5px; white-space: normal; }

@@ -1619,6 +1619,65 @@ function receiptText(doc) {
 }
 
 const plainMoney = (v, c) => formatMoney(v, c).replace(/[⁦⁩]/g, "");
+const dayText = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d.split("-").reverse().join(".") : d || "");
+
+// Doğrudan kişinin WhatsApp sohbetine giden ayrıntılı fiş yazısı (*kalın* WhatsApp biçimi).
+// Tarayıcı belli bir sohbete resim ekleyemez; resim ayrıca paylaşım ekranıyla gönderilir.
+// Satış fişi, ödeme/tahsilat makbuzu, hesap ekstresi ve özet fişi (ortak) için.
+export function receiptMessage(doc) {
+  const cur = doc.currency || "TRY";
+  const m = (v, c = cur) => plainMoney(v, c);
+  const balance = (v, label) => (v == null ? null : `${label ?? (v >= 0 ? t("rc_balanceOwed") : t("rc_balanceCredit"))}: *${m(Math.abs(v))}*`);
+  const when = [dayText(doc.date), doc.time].filter(Boolean).join(" ");
+  const out = [`*${doc.firm.name}*`];
+  if (doc.kind === "statement") {
+    out.push(`${t("rc_statementTitle")} · ${doc.party?.name ?? ""}`, when, "");
+    const rows = doc.rows.slice(-25);
+    if (doc.previous != null || rows.length < doc.rows.length) out.push(`${t("rc_previousBalance")}: ${m(Math.abs(rows.length < doc.rows.length ? rows[0].balance : doc.previous ?? 0))}`);
+    for (const r of rows) out.push(`${dayText(r.date)} ${r.label} ${r.sign}${m(r.amount)} → ${m(Math.abs(r.balance))}`);
+    out.push("", `${doc.balanceLabel}: *${m(Math.abs(doc.balance))}*`);
+    if (doc.shelf?.length) out.push("", `${t("rc_onShelf")}:`, ...doc.shelf.map((s) => `• ${s.name}: ${s.qty}`));
+  } else if (doc.kind === "summary") {
+    out.push(`${doc.title} · ${doc.subtitle ?? ""}`, when, "", ...doc.rows.map(([a, b]) => `${a}: ${b}`));
+    if (doc.total) out.push("", `${doc.total[0]}: *${doc.total[1]}*`);
+  } else if (MONEY_KINDS.includes(doc.kind)) {
+    out.push(`${t(`rc_${doc.kind}Title`)} · ${t("rc_number")} ${doc.number}`, when);
+    if (doc.party?.name) out.push(`${t(doc.kind === "payment" ? "rc_paidTo" : "rc_receivedFrom")}: ${doc.party.name}`);
+    out.push("", `${t("rc_amount")}: *${m(doc.amount)}*`);
+    if (doc.rate && cur !== "TRY") out.push(`${t("rc_rate")}: 1 ${cur} = ₺${formatRate(doc.rate)}`);
+    out.push(balance(doc.balanceAfter));
+  } else {
+    out.push(`${t(doc.kind === "invoice" ? "rc_invoiceTitle" : "rc_receiptTitle")} · ${t("rc_number")} ${doc.number}`, when);
+    if (doc.party?.name) out.push(`${t("rc_customer")}: ${doc.party.name}`);
+    out.push("");
+    for (const l of doc.lines) {
+      out.push(`• ${l.name}`, `   ${formatNumber(l.qty)} ${l.unit || ""} × ${m(l.price)} = ${m(lineTotal(l))}`);
+    }
+    out.push("", `${t("rc_total")}: *${m(doc.lines.reduce((s, l) => s + lineTotal(l), 0))}*`);
+    if (doc.paid) out.push(`${t("rc_paid")}: ${m(doc.paid)}`);
+    out.push(balance(doc.balanceAfter));
+  }
+  if (doc.note) out.push("", `${t("rc_note")}: ${doc.note}`);
+  out.push("", t("rc_thanks"));
+  return out.filter((x) => x != null).join("\n");
+}
+
+// Yazıyı doğrudan kişinin WhatsApp sohbetinde açar (telefon yoksa WhatsApp'ta kişi seçilir).
+export function sendToChat(text, phone) {
+  return shareOnWhatsApp({ text, phone: phone || null });
+}
+
+// Ana düğme: doğrudan sohbete yazı; altında resim, (varsa) fatura bilgisi ve yazdır.
+function chatButtons({ text, phone, label, image, invoice, print }) {
+  return [
+    h("button", { type: "button", class: "block whatsapp", onclick: () => sendToChat(text(), phone) }, icon("whatsapp"), label),
+    !phone && h("small", { class: "field-hint center" }, t("noPhoneChat")),
+    h("div", { class: invoice ? "row3" : "row2" },
+      h("button", { type: "button", class: "block", onclick: image }, icon("camera"), t("shareImage")),
+      invoice && h("button", { type: "button", class: "block", onclick: invoice }, icon("receipt"), t("sendInvoice")),
+      h("button", { type: "button", class: "block", onclick: print }, icon("printer"), t("print"))),
+  ];
+}
 
 // Belge düğmeleri: resimler pencere açılırken hazırlanır ki paylaş dokunuşu kaybolmasın (Safari).
 function receiptButtons(move, extra) {
@@ -1633,10 +1692,10 @@ function receiptButtons(move, extra) {
       const result = await shareOnWhatsApp({ blob: blob ?? await receiptBlob(doc, labels), filename: `makbuz-${doc.number}.png`, text: receiptText(doc), phone: party?.phone });
       if (result === "link") toast(t("receiptDownloaded"));
     };
-    return [
-      h("button", { type: "button", class: "block whatsapp", onclick: share }, icon("whatsapp"), t("sendMoneyReceipt")),
-      h("button", { type: "button", class: "block", onclick: () => printReceipt(doc, labels) }, icon("printer"), t("print")),
-    ];
+    return chatButtons({
+      text: () => receiptMessage(doc), phone: party?.phone, label: t("sendMoneyReceipt"),
+      image: share, print: () => printReceipt(doc, labels),
+    });
   }
   const docs = { receipt: receiptDoc(move, "receipt", extra), invoice: receiptDoc(move, "invoice", extra) };
   const blobs = {};
@@ -1649,10 +1708,10 @@ function receiptButtons(move, extra) {
     if (result === "link") toast(t("receiptDownloaded"));
   };
   return [
-    h("button", { type: "button", class: "block whatsapp", onclick: share("receipt") }, icon("whatsapp"), t("sendReceipt")),
-    h("div", { class: "row2" },
-      h("button", { type: "button", class: "block", onclick: share("invoice") }, icon("receipt"), t("sendInvoice")),
-      h("button", { type: "button", class: "block", onclick: () => printReceipt(docs.receipt, labels) }, icon("printer"), t("print"))),
+    ...chatButtons({
+      text: () => receiptMessage(docs.receipt), phone: party?.phone, label: t("sendReceipt"),
+      image: share("receipt"), invoice: share("invoice"), print: () => printReceipt(docs.receipt, labels),
+    }),
     h("small", { class: "field-hint center" }, t("invoiceNote")),
   ];
 }
