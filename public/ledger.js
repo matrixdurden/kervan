@@ -55,8 +55,9 @@ export const lineTotal = (line) => Math.round(line.qty * line.price);
 export const shelfKey = (party, product) => `${party}/${product}`;
 export const monthOf = (date) => date.slice(0, 7);
 
+// Satışta indirim / ikram (discount) satırların toplamından düşer: borç, fiş ve satış net tutardandır.
 export function moveTotal(move) {
-  return move.lines ? move.lines.reduce((sum, l) => sum + lineTotal(l), 0) : move.amount;
+  return move.lines ? move.lines.reduce((sum, l) => sum + lineTotal(l), 0) - (move.discount || 0) : move.amount;
 }
 
 const EMPTY = { stock: 0, value: 0, lastCost: 0 };
@@ -156,6 +157,19 @@ function moneyEffects(move, lines, sign) {
       b.cogs += s * (l.cost ?? 0);
       month.revenue += s * lineTotal(l);
       month.cogs += s * (l.cost ?? 0);
+    }
+    // İndirim satıştan düşer; ortaklık kovalarına satırların payıyla dağılır.
+    if (move.discount) {
+      const gross = lines.reduce((sum, l) => sum + lineTotal(l), 0);
+      const buckets = Object.entries(month.by);
+      let rest = move.discount;
+      buckets.forEach(([key, b], i) => {
+        const bucketGross = lines.filter((l) => (l.deal || GENERAL) === key).reduce((sum, l) => sum + lineTotal(l), 0);
+        const part = i === buckets.length - 1 ? rest : Math.round(move.discount * (gross ? bucketGross / gross : 0));
+        b.revenue -= s * part;
+        rest -= part;
+      });
+      month.revenue -= s * move.discount;
     }
   } else if (move.type === "stockCount") {
     // Satırın maliyeti stok değerindeki değişimdir (+ fazla, − eksik); eksik mal maliyete yazılır.

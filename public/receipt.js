@@ -138,16 +138,41 @@ export async function shareOnWhatsApp({ blob, filename = "fis.png", text = "", p
     }
     downloadBlob(blob, filename);
   }
+  openChat(phone, text);
+  return "link";
+}
+
+// Kişinin WhatsApp sohbetini doğrudan açar (telefon yoksa WhatsApp'ta kişi seçilir).
+export function openChat(phone, text = "") {
   const url = whatsappUrl(phone, text);
   // Android uygulama bağlantısı yeni sekmede değil, olduğu yerde açılır (sayfa yerinde kalır).
   if (url.startsWith("intent:")) {
     location.href = url;
-    return "link";
+    return;
   }
   const w = window.open(url, "_blank");
   if (w) w.opener = null;
   else location.href = url;
-  return "link";
+}
+
+// Bu cihaz resmi panoya kopyalayabiliyor mu (Android Chrome, iPhone Safari: evet)?
+export function canCopyImage() {
+  const CI = globalThis.ClipboardItem;
+  if (!globalThis.navigator?.clipboard?.write || !CI) return false;
+  return typeof CI.supports === "function" ? CI.supports("image/png") : true;
+}
+
+// Fiş fotoğrafını panoya kopyalar ve kişinin sohbetini doğrudan açar; kullanıcı mesaj kutusuna
+// yapıştırır (klavyenin üstünde çıkan fotoğrafa dokunur). Tarayıcı belli bir sohbete dosya
+// ekleyemediği için en kısa yol budur. blob bir Promise olabilir: kopyalama dokunuşla aynı anda başlar.
+export async function copyImageAndOpenChat(blob, phone) {
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": Promise.resolve(blob) })]);
+  } catch {
+    return false;
+  }
+  openChat(phone, "");
+  return true;
 }
 
 // ---------- Kanvas ----------

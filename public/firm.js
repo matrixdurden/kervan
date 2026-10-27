@@ -12,23 +12,23 @@ import { session, currentFirm, partners, person, sharePlan, resetFirm, myName } 
 import { formatMoney, formatNumber, parseQty, qtyInput, base, setBaseCurrency, CURRENCIES, currencyName } from "./money.js";
 import { avgCost, sumMonths, splitBuckets, lineTotal, roundQty } from "./ledger.js";
 import {
-  moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, newestFirst, productThumb,
+  moveRow, balanceText, emptyState, searchBox, byName, matches, segmented, newestFirst, productThumb, moveMatches, receiptNumber,
   productCategories, categoryBubbles, inCategory, bubbleRow, landedCost,
 } from "./views.js";
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
+  openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, sendPhoto, sharePhoto, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
 } from "./forms.js";
 import { openInvoiceImport, openSaleImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
-import { productByBarcode, productLabel, recompute, restoreProduct, restoreParty, purgeTrash, recordMoves, voidMoves, saveFirmSettings } from "./data.js";
+import { productByBarcode, barcodesOf, productLabel, recompute, restoreProduct, restoreParty, purgeTrash, recordMoves, voidMoves, saveFirmSettings } from "./data.js";
 import { canScan, scanBarcode } from "./scanner.js";
 import { sharedAiReady } from "./ai.js";
 import { REPORT_TYPES, buildReport, salesSeries } from "./report.js";
 import { kpi, pct, salesChart, profitCard, reportTiles, reportDetail, NOW_REPORTS } from "./report-pages.js";
 import { receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
-import { shopOf, scheduleShopSync, resetShopSync, listenOrders } from "./shop.js";
+import { shopOf, shopUrl, scheduleShopSync, resetShopSync, listenOrders } from "./shop.js";
 
 const PAGE = 100;
 
@@ -272,16 +272,18 @@ const START = {
 };
 // Sayfa değil, doğrudan pencere açan kutucuklar.
 const TILE_ACTION = { invoice: () => openInvoiceImport(), shop: () => openShopSheet() };
+// Tahsilatlar ve Ödemeler "Satış başlat / Gider başlat"ın hemen altında ferah renkli geniş kutular.
+const FRESH = [["collections", "plusCircle", "fresh-in"], ["payments", "minusCircle", "fresh-out"]];
 const SECTIONS = [
-  ["collections", "plusCircle"], ["payments", "minusCircle"],
   ["sellers", "store"], ["suppliers", "truck"],
   ["products", "box"], ["stockCount", "clipboard"],
   ["invoice", "fileScan"], ["expenses", "receipt"],
   ["consign", "send"], ["saleReturns", "undo"],
-  ["cash", "wallet"], ["debts", "scale"],
-  ["orders", "bag"], ["shop", "globe"],
-  ["ledger", "book"], ["reports", "chart"],
-  ["trash", "trash"], ["settings", "gear"],
+  ["cash", "wallet"], ["partners", "users"],
+  ["debts", "scale"], ["orders", "bag"],
+  ["shop", "globe"], ["ledger", "book"],
+  ["reports", "chart"], ["trash", "trash"],
+  ["settings", "gear"],
 ];
 
 const HOME = {
@@ -311,6 +313,9 @@ const HOME = {
     const stat = (label, value, tone, onclick) => h("button", { type: "button", class: `stat ${tone}`, onclick },
       h("span", {}, label), h("strong", {}, value));
     const out = [
+      // Tatlı arama kutusu: dokununca arama sayfası (ürün, müşteri, fiş no, barkod).
+      h("button", { type: "button", class: "home-search", onclick: () => { globalQuery = ""; openPage("search"); } },
+        icon("search"), h("span", {}, t("searchAll")), canScan() && h("span", { class: "hs-scan" }, icon("barcode"))),
       h("div", { class: "stats" },
         stat(t("receivable"), formatMoney(receivable), "in", () => openPage("sellers")),
         stat(t("cashTotal"), formatMoney(cash), "", () => openPage("cash")),
@@ -320,6 +325,9 @@ const HOME = {
         h("button", { type: "button", class: `tile-big ${cls}`, onclick: () => (START[id] ? START[id]() : openPage(id)) },
           h("span", { class: "big-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))),
         QUICK_NEW[id] && h("button", { type: "button", class: "tile-plus", "aria-label": t(QUICK_NEW[id][0]), title: t(QUICK_NEW[id][0]), onclick: QUICK_NEW[id][1] }, icon("plus"))))),
+      h("div", { class: "tiles-fresh" }, FRESH.map(([id, ic, cls]) =>
+        h("button", { type: "button", class: `tile-fresh ${cls}`, onclick: () => openPage(id) },
+          h("span", { class: "fresh-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))))),
       low.length > 0 && h("button", { type: "button", class: "card low-banner", onclick: () => openPage("products", { filter: "low" }) },
         icon("alert"), h("span", { class: "main" },
           h("strong", {}, t("lowStockCount", { n: low.length })),
@@ -557,10 +565,18 @@ const partiesPage = (kind) => ({
     const q = search[kind] ?? "";
     const list = all.filter((p) => matches(p.name, q) || matches(p.phone, q));
     const [theyOwe, weOwe] = personTotals(all);
+    // Borçlar: aramada liste; değilse iki kutu (bize borçlu / biz borçluyuz), dokununca kimler olduğu açılır.
+    if (kind === "person" && !q.trim()) {
+      const n = (sign) => all.filter((p) => Math.sign(p.balance) === sign).length;
+      return [
+        h("div", { class: "value-grid" },
+          valueTile("they", t("theyOweUs"), formatMoney(theyOwe), t("sv_people", { n: n(1) }), "in", "in", "debtList"),
+          valueTile("we", t("weOweThem"), formatMoney(weOwe), t("sv_people", { n: n(-1) }), "out", "out", "debtList")),
+        h("button", { type: "button", class: "block", onclick: () => openPage("debtList", { detail: "all" }) }, icon("users"), t("allPeople", { n: all.length })),
+      ];
+    }
     return [
-      kind === "person" ? h("div", { class: "kpis" },
-        h("div", { class: "kpi green" }, h("span", {}, t("theyOweUs")), h("strong", {}, formatMoney(theyOwe))),
-        h("div", { class: "kpi red" }, h("span", {}, t("weOweThem")), h("strong", {}, formatMoney(weOwe))))
+      kind === "person" ? null
       : h("p", { class: "total-line" },
         h("span", {}, t(kind === "seller" ? "totalReceivable" : "totalPayable")),
         h("strong", {}, kind === "seller" ? formatMoney(sum(all, (p) => Math.max(p.balance, 0))) : payableText())),
@@ -594,8 +610,8 @@ const costValueOf = (p) => Math.max(p.value ?? 0, 0);
 const owingCustomers = () => parties("seller").filter((p) => p.balance > 0);
 const owedSuppliers = () => parties("supplier").filter((p) => p.balance > 0);
 
-function valueTile(mode, label, value, sub, tone, ic) {
-  return h("button", { type: "button", class: `card value-tile ${tone}`, onclick: () => openPage("valueDetail", { detail: mode }) },
+function valueTile(mode, label, value, sub, tone, ic, page = "valueDetail") {
+  return h("button", { type: "button", class: `card value-tile ${tone}`, onclick: () => openPage(page, { detail: mode }) },
     h("span", { class: "vt-ic" }, icon(ic)),
     h("span", { class: "vt-label" }, label),
     h("strong", { class: "vt-value" }, value),
@@ -630,6 +646,88 @@ function homeValueCard() {
       cell(t("sv_customersDebt"), formatMoney(sum(owingCustomers(), (p) => p.balance)), "in"),
       cell(t("sv_suppliersDebt"), payableText(), "out")));
 }
+
+// Borçlar ayrıntısı: bize borçlu olanlar, borçlu olduklarımız ya da herkes.
+const debtListPage = {
+  fab: () => [t("new_person"), () => openPartySheet("person")],
+  top: () => pageTop(t(valueMode === "they" ? "theyOweUs" : valueMode === "we" ? "weOweThem" : "page_debts")),
+  head: () => h("div", { class: "page-head" }, searchBox(t("searchPeople"), search.value ?? "", (v) => { search.value = v; rerenderBody(); })),
+  body() {
+    const q = (search.value ?? "").trim();
+    const all = parties("person").filter((p) => valueMode === "all" || Math.sign(p.balance) === (valueMode === "they" ? 1 : -1))
+      .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
+    const list = all.filter((p) => matches(p.name, q) || matches(p.phone, q));
+    return [list.length ? h("ul", { class: "cards" }, list.map(partyRow)) : emptyState("🤝", t(all.length ? "noMatch" : "noPeople"))];
+  },
+};
+
+// Online mağazanın önizlemesi uygulamanın içinde (geri basınca uygulamada kalınır).
+const shopPreviewPage = {
+  top: () => pageTop(t("page_shop"), h("button", {
+    type: "button", class: "icon-btn", "aria-label": t("shopShare"), title: t("shopShare"),
+    onclick: () => shareOnWhatsApp({ text: t("shopShareText", { name: currentFirm().name, url: shopUrl(shopOf().slug) }) }),
+  }, icon("whatsapp"))),
+  body: () => [shopOf()?.slug ? h("iframe", { class: "shop-frame", src: shopUrl(shopOf().slug), title: t("page_shop") }) : emptyState("🛍️", t("ord_noShop"))],
+};
+document.addEventListener("kervan:shop-preview", () => openPage("shopPreview"));
+
+// --- Genel arama (ana ekranın üstünden): ürün, müşteri, tedarikçi, kişi ve fiş numarası -----------
+
+let globalQuery = "";
+const receiptHits = new Map(); // "20261026" → o günün hareketleri (eski fiş numaraları için)
+
+async function scanSearch() {
+  const code = await scanBarcode();
+  if (!code) return;
+  globalQuery = code;
+  rendered = null;
+  render();
+}
+
+// Fiş numarası yazıldıysa (20261026-AB12) o günün hareketleri okunur; numaranın kimlik kısmıyla eşleşenler.
+function receiptLookup(q) {
+  const m = q.replace(/\s/g, "").match(/^(\d{4})(\d{2})(\d{2})-?([a-z0-9]{0,4})$/i);
+  if (!m) return null;
+  const date = `${m[1]}-${m[2]}-${m[3]}`;
+  if (!receiptHits.has(date)) {
+    receiptHits.set(date, null);
+    getDocs(query(collection(db, "firms", session.firm.id, "moves"), where("date", "==", date)))
+      .then((snap) => {
+        receiptHits.set(date, snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) })));
+        if (page === "search") rerenderBody();
+      }, (err) => { console.error(err); receiptHits.delete(date); });
+  }
+  const list = receiptHits.get(date);
+  return list && list.filter((x) => x.id.slice(0, m[4].length).toUpperCase() === m[4].toUpperCase());
+}
+
+const searchPage = {
+  types: "all",
+  top: () => pageTop(t("page_search")),
+  head() {
+    const box = searchBox(t("searchAll"), globalQuery, (v) => { globalQuery = v; rerenderBody(); }, canScan() ? scanSearch : null);
+    setTimeout(() => box.querySelector("input")?.focus(), 60);
+    return h("div", { class: "page-head" }, box);
+  },
+  body() {
+    const q = globalQuery.trim();
+    if (!q) return [h("p", { class: "field-hint search-hint" }, t("searchHint"))];
+    const prods = [...session.firm.products.values()]
+      .filter((p) => matches(productLabel(p), q) || matches(p.category, q) || barcodesOf(p).includes(q)).sort(byName).slice(0, 30);
+    const people = [...session.firm.parties.values()].filter((p) => matches(p.name, q) || matches(p.phone, q)).sort(byName).slice(0, 30);
+    const byReceipt = receiptLookup(q);
+    const recentMoves = (pageMoves ?? []).filter((m) => moveMatches(m, q));
+    const moves = [...new Map([...(byReceipt ?? []), ...recentMoves].map((m) => [m.id, m])).values()].slice(0, 30);
+    const section = (title, items, row) => items.length ? [h("h2", { class: "sec" }, title), h("ul", { class: "cards" }, items.map(row))] : [];
+    const out = [
+      ...section(t("page_products"), prods, (p) => valueProductRow(p, "sale")),
+      ...section(t("search_people"), people, partyRow),
+      ...section(t("page_ledger"), moves, (m) => moveRow(m, { onclick: () => openMoveDetail(m) })),
+    ];
+    if (byReceipt === null) out.push(h("p", { class: "muted center" }, t("searchingReceipt")));
+    return out.length ? out : [emptyState("🔍", t("noMatch"))];
+  },
+};
 
 const stockValuePage = {
   top: () => pageTop(t("page_stockValue")),
@@ -759,11 +857,6 @@ const periodSeg = (onchange) => segmented([
 const plain = (s) => s.replace(/[⁦⁩]/g, "");
 
 // Özet fişini resim olarak WhatsApp'tan gönderir; telefon yoksa kişi WhatsApp'ta seçilir.
-async function sendSummary(doc, filename, phone = null) {
-  const blob = await receiptBlob(doc, receiptLabels());
-  const result = await shareOnWhatsApp({ blob, filename, phone, text: `${doc.firm.name} · ${doc.title}: ${doc.subtitle}\n${doc.total[0]}: ${doc.total[1]}` });
-  if (result === "link") toast(t("receiptDownloaded"));
-}
 
 // --- Kasalar (nakit, kart, banka…) -------------------------------------------------------------
 
@@ -823,13 +916,20 @@ const fundPage = {
   ],
 };
 
+// Kasa: paranın nerede durduğu (nakit, kart, banka…); para koy / çek, kasalar arası aktar.
 const cashPage = {
   top: () => pageTop(t("page_cash")),
+  head: () => bigActions(
+    [t("quick_capitalIn"), "plusCircle", () => openCashSheet("capitalIn")],
+    [t("quick_withdraw"), "minusCircle", () => openCashSheet("withdraw")]),
+  body: () => fundsSection(),
+};
+
+// Ortaklar: dönemin kârı, ortaklıklar ve her ortağın payı, elindeki para, koyduğu − çektiği.
+const partnersPage = {
+  top: () => pageTop(t("page_partners")),
   head: () => h("div", { class: "page-head" },
-    bigActions(
-      [t("quick_capitalIn"), "plusCircle", () => openCashSheet("capitalIn")],
-      [t("quick_withdraw"), "minusCircle", () => openCashSheet("withdraw")],
-      currentFirm().members.length > 1 && [t("quick_transfer"), "swap", () => openCashSheet("transfer")]),
+    currentFirm().members.length > 1 && bigActions([t("quick_transfer"), "swap", () => openCashSheet("transfer")]),
     periodSeg(rerenderBody)),
   body() {
     const firm = currentFirm();
@@ -858,7 +958,6 @@ const cashPage = {
           h("span", { class: "after" }, t("plProfit")))));
 
     return [
-      ...fundsSection(),
       profitCard(p),
       h("h2", { class: "sec" }, h("span", {}, t("deals")),
         h("button", { type: "button", class: "link", onclick: () => openDealSheet() }, `+ ${t("newDeal")}`)),
@@ -903,14 +1002,13 @@ const cashPage = {
           fact(t("netCapital"), formatMoney(acc.capital ?? 0)),
           fact(t("equity"), formatMoney(equity)))),
         h("div", { class: "statement-actions" },
-          // Yeşil: fotoğraf olarak (dosya paylaşamayan cihazda yazı + bağlantı); yanındaki: doğrudan sohbete yazı + bağlantı.
+          // Yeşil: özet fotoğrafı doğrudan ortağın sohbetine (kopyala + aç); yanındaki: paylaşım ekranı.
           h("button", {
             type: "button", class: "whatsapp",
-            onclick: () => (canShareFiles() ? sendSummary(summary(), `ortak-${x.name}.png`, firm.guests?.[x.uid]?.phone || null)
-              : sendToChat(summary(), firm.guests?.[x.uid]?.phone)),
+            onclick: () => sendPhoto(receiptBlob(summary(), receiptLabels()), firm.guests?.[x.uid]?.phone || null, `ortak-${x.name}.png`),
           }, icon("whatsapp"), t("sendPartnerSummary")),
-          h("button", { type: "button", class: "small", "aria-label": t("sendAsText"), title: t("sendAsText"),
-            onclick: () => sendToChat(summary(), firm.guests?.[x.uid]?.phone) }, icon("send")),
+          h("button", { type: "button", class: "small", "aria-label": t("sharePhoto"), title: t("sharePhoto"),
+            onclick: () => sharePhoto(receiptBlob(summary(), receiptLabels()), `ortak-${x.name}.png`) }, icon("send")),
           h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => printReceipt(summary(), receiptLabels()) },
             icon("printer"))));
       })),
@@ -1177,11 +1275,13 @@ const ledgerPage = {
   types: "all",
   top: () => pageTop(t("page_ledger"),
     h("button", { type: "button", class: "icon-btn", "aria-label": t("page_trash"), title: t("page_trash"), onclick: () => openPage("trash") }, icon("trash"))),
-  head: () => h("div", { class: "toolbar" },
-    h("select", { "aria-label": t("filter"), onchange: (e) => { ledgerFilter = e.target.value; rerenderBody(); } },
-      h("option", { value: "" }, t("allTypes")),
-      FILTERS.map((type) => h("option", { value: type, selected: type === ledgerFilter }, t(`type_${type}`))))),
-  body: () => movesList({ filter: ledgerFilter ? (m) => m.type === ledgerFilter : null }),
+  head: () => h("div", { class: "page-head" },
+    searchBox(t("searchMoves"), search.ledger ?? "", (v) => { search.ledger = v; rerenderBody(); }),
+    h("div", { class: "toolbar" },
+      h("select", { "aria-label": t("filter"), onchange: (e) => { ledgerFilter = e.target.value; rerenderBody(); } },
+        h("option", { value: "" }, t("allTypes")),
+        FILTERS.map((type) => h("option", { value: type, selected: type === ledgerFilter }, t(`type_${type}`)))))),
+  body: () => movesList({ filter: (m) => (!ledgerFilter || m.type === ledgerFilter) && moveMatches(m, search.ledger ?? "") }),
 };
 
 // --- Çöp kutusu: silinen kayıtlar; dokununca ayrıntı ve "Geri yükle" -------------------------
@@ -1417,8 +1517,12 @@ const PAGES = {
   debts: partiesPage("person"),
   orders: ordersPage,
   stockValue: stockValuePage,
+  search: searchPage,
+  shopPreview: shopPreviewPage,
+  debtList: debtListPage,
   valueDetail: valueDetailPage,
   cash: cashPage,
+  partners: partnersPage,
   fund: fundPage,
   reports: reportsPage,
   report: reportPage,

@@ -814,6 +814,15 @@ a.button-link svg { width: 20px; height: 20px; }
 .order-row.done, .order-row.rejected { opacity: 0.75; }
 button.bubble.add svg { width: 15px; height: 15px; }
 .tile-dark { background: var(--spend); }
+/* Tahsilatlar / Ödemeler: ferah renkli geniş kutular */
+.tiles-fresh { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+button.tile-fresh {
+  --c: var(--in); height: 76px; border-radius: 20px; border: 0; gap: 10px; font-size: 16.5px; font-weight: 800;
+  color: color-mix(in srgb, var(--c) 80%, var(--text)); background: color-mix(in srgb, var(--c) 16%, var(--card));
+}
+button.tile-fresh.fresh-out { --c: var(--danger); }
+.fresh-ic { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--c); color: #fff; }
+.fresh-ic svg { width: 22px; height: 22px; stroke-width: 2.4; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .tile-ic { color: color-mix(in srgb, var(--c) 60%, white); background: color-mix(in srgb, var(--c) 28%, var(--card)); }
 }
@@ -1012,9 +1021,10 @@ button.card.product-tile {
 .browser { display: flex; flex-direction: column; }
 /* Bütün kutucuklar aynı boyda (ad kısa ya da uzun, sepette olsun olmasın): ad hep iki satırlık yer kaplar,
    altta hep aynı yükseklikte şerit vardır. Telefonda 3'erli ve formun kenarlarına kadar; geniş ekranda daha fazla. */
+/* Kendi içinde kaymaz: parmak kutucukların üstündeyken de bütün form kayar. */
 .pick-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: max-content; align-items: start; gap: 6px;
-  max-height: min(58dvh, 520px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin-inline: -10px;
+  padding: 2px; margin-inline: -10px;
 }
 @media (min-width: 640px) { .pick-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); margin-inline: 0; } }
 .pick-tile {
@@ -1218,6 +1228,27 @@ p.total-line, .pl-row.total-line { display: flex; justify-content: space-between
 .move-actions button.danger { border-color: color-mix(in srgb, var(--danger) 40%, var(--card)); }
 .trash-hint { margin: 0 4px 10px; }
 .top-actions { display: flex; gap: 6px; }
+.with-button.discount { display: flex; gap: 8px; align-items: center; }
+.with-button.discount input { flex: 1; }
+.with-button.discount .seg { flex: none; }
+/* Ana ekranın en üstünde yuvarlak arama kutusu */
+button.home-search {
+  width: 100%; height: 52px; margin-bottom: 12px; padding: 0 8px 0 18px; justify-content: flex-start; gap: 10px;
+  border-radius: 999px; border: 1px solid var(--card-border); background: var(--card); box-shadow: var(--shadow);
+  color: var(--text-3); font-weight: 600; font-size: 15.5px;
+}
+button.home-search > svg { width: 20px; height: 20px; color: var(--primary); }
+button.home-search > span:first-of-type { flex: 1; text-align: start; }
+.hs-scan { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--card)); }
+.hs-scan svg { width: 20px; height: 20px; }
+.search-hint { margin: 8px 4px; }
+/* Fiş düğmelerinin alt sırası: kaç düğme varsa eşit bölünür */
+.row-buttons { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
+.row-buttons button { padding: 0 6px; font-size: 13.5px; white-space: normal; line-height: 1.15; height: 52px; flex-direction: column; gap: 2px; }
+.row-buttons button svg { width: 18px; height: 18px; }
+/* Mağaza önizlemesi uygulamanın içinde */
+.shop-frame { width: 100%; height: calc(100dvh - 120px); border: 0; border-radius: 16px; background: #F6F1E9; }
 /* Kasalar: simgeli kare kutular (nakit, kart, banka…) */
 .fund-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
 button.card.fund-tile {

@@ -17,9 +17,11 @@ import {
 } from "./data.js";
 import {
   byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory, NO_CATEGORY,
-  unitCostOf, landedCost,
+  unitCostOf, landedCost, receiptNumber, segmented,
 } from "./views.js";
-import { RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles, waPhone } from "./receipt.js";
+import {
+  RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, receiptPdf, printReceipt, shareOnWhatsApp, canShareFiles, waPhone, canCopyImage, copyImageAndOpenChat,
+} from "./receipt.js";
 import { shopOf, shopUrl, slugify, saveShop, syncShop, setOrderStatus, deleteOrder } from "./shop.js";
 import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
@@ -331,6 +333,20 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
   const vat = numberInput({ value: String(base.vat ?? firm.defaultVat ?? 20).replace(".", ","), placeholder: "20" });
   const minStock = numberInput({ value: base.minStock ? qtyInput(base.minStock) : "", placeholder: t("minStockPlaceholder") });
   const barcode = barcodeField(product?.barcode ?? preset.barcode ?? "");
+  // Aynı ürünün başka barkodları (farklı ambalaj, eski etiket…): her biri okutulabilir.
+  const extraCodes = h("div", { class: "cat-list" });
+  const codes = [];
+  const addCode = (value = "") => {
+    const input = h("input", { inputmode: "numeric", autocomplete: "off", dir: "ltr", maxlength: 64, value, placeholder: t("barcodeExtra") });
+    const row = { input };
+    const el = h("div", { class: "cat-row" }, input,
+      canScan() && iconButton("barcode", t("scanBarcode"), async () => { const c = await scanBarcode(); if (c) input.value = c; }),
+      iconButton("x", t("remove"), () => { codes.splice(codes.indexOf(row), 1); el.remove(); }));
+    codes.push(row);
+    extraCodes.append(el);
+    return input;
+  };
+  for (const c of product?.barcodes ?? []) addCode(c);
   const category = categoryField(base.category ?? "");
   // Online mağaza açıksa: bu ürün vitrinde görünsün mü (fiyatı olan ürünler görünür).
   const shopShow = h("input", { type: "checkbox", checked: !base.shopHide });
@@ -384,6 +400,8 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     h("div", { class: "row2" }, field(t("unit"), unit), field(t("minStock"), minStock)),
     h("small", { class: "field-hint" }, t("minStockHint")),
     barcode.el,
+    extraCodes,
+    h("button", { type: "button", class: "small add-line", onclick: () => addCode().focus() }, "+ ", t("addBarcode")),
     shopOf()?.on && h("label", { class: "check" }, shopShow, h("span", {}, t("shopShowProduct"))),
   ];
 
@@ -441,8 +459,11 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     const min = minStock.value.trim() ? parseQty(minStock.value) : 0;
     if (min == null) return t("badNumber");
     const code = barcode.input.value.trim();
-    const twin = code && productByBarcode(code);
-    if (twin && twin.id !== product?.id) return t("barcodeTaken", { name: productLabel(twin) });
+    const more = [...new Set(codes.map((x) => x.input.value.trim()).filter((x) => x && x !== code))].slice(0, 20);
+    for (const each of [code, ...more].filter(Boolean)) {
+      const twin = productByBarcode(each);
+      if (twin && twin.id !== product?.id) return t("barcodeTaken", { name: productLabel(twin) });
+    }
     const c = costIn.value.trim() ? parseMoney(costIn.value) : 0;
     const f = fuel.value.trim() ? parseMoney(fuel.value) : 0;
     if (c == null || f == null) return t("badNumber");
@@ -464,7 +485,7 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
       lastCost = c;
     }
     const data = {
-      name: n, variant: variant.value.trim(), category: category.value(), unit: unit.value, price: p, barcode: code, vat: v, minStock: min,
+      name: n, variant: variant.value.trim(), category: category.value(), unit: unit.value, price: p, barcode: code, barcodes: more, vat: v, minStock: min,
       groupId: product?.groupId ?? preset.groupId ?? "", fuel: f, extras: extraCosts.slice(0, 10),
       shopHide: !shopShow.checked,
     };
@@ -818,6 +839,9 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   let amount;
   let paidNow;
   let holder;
+  // İndirim / ikram (sadece satışta): tutar ya da yüzde.
+  let discountIn = null;
+  let discountMode = "amount";
   const symbolEls = [];
   const symbol = () => {
     const el = h("span", { class: "cur" });
@@ -825,12 +849,22 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     return el;
   };
 
+  // İndirim tutarı: yazılan tutar ya da toplamın yüzdesi.
+  function discountOf(gross) {
+    if (!discountIn?.value.trim()) return 0;
+    if (discountMode === "pct") {
+      const pct = parseQty(discountIn.value);
+      return pct > 0 ? Math.round((gross * Math.min(pct, 100)) / 100) : 0;
+    }
+    return Math.max(parseMoney(discountIn.value) ?? 0, 0);
+  }
+
   let browser = null;
   const refresh = () => {
     for (const el of symbolEls) el.textContent = currency() === base() ? "" : ` (${currencySymbol(currency())})`;
     for (const r of rows) r.refresh();
     browser?.refresh();
-    const value = hasLines(type) ? sum(rows, (r) => r.total()) : parseMoney(amount.value) ?? 0;
+    const value = hasLines(type) ? sum(rows, (r) => r.total()) - discountOf(sum(rows, (r) => r.total())) : parseMoney(amount.value) ?? 0;
     total.textContent = formatMoney(value, currency());
     const r = rate.value();
     totalTry.textContent = currency() !== base() && r ? t("inLira", { amount: formatMoney(Math.round(value * r)) }) : "";
@@ -926,6 +960,13 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     });
     fields.push(browser.el, h("p", { class: "label cart-label" }, icon("listCheck"), t("cart")), empty, list);
     if (type === "consign") fields.push(h("small", { class: "field-hint" }, t("consignHint")));
+    if (type === "sale") {
+      discountIn = numberInput({ placeholder: "0", value: edit?.discount ? moneyInput(edit.discount) : "", oninput: () => refresh() });
+      const mode = segmented([["amount", currencySymbol(base())], ["pct", "%"]], discountMode, (v) => { discountMode = v; refresh(); });
+      fields.push(h("div", { class: "field" }, h("span", {}, t("discount")),
+        h("div", { class: "with-button discount" }, discountIn, mode),
+        h("small", { class: "field-hint" }, t("discountHint"))));
+    }
     if (PAID_NOW[type] && !edit) {
       paidNow = numberInput({ placeholder: "0,00" });
       const paidWrap = h("label", { class: "field" },
@@ -999,9 +1040,12 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     const partyId = walkIn?.id ?? WALK_IN;
     const base = { party: partyId, date: date.value, holder: holder?.el.value };
     setFund(base, fund?.value());
-    const amount = sum(lines, (l) => lineTotal(l));
+    const gross = sum(lines, (l) => lineTotal(l));
+    const discount = discountOf(gross);
+    if (discount > gross) return t("discountTooBig");
+    const amount = gross - discount;
     record([
-      { ...base, type, note: note.value.trim(), lines },
+      { ...base, type, note: note.value.trim(), lines, ...(discount && { discount }) },
       { ...base, type: PAID_NOW[type], note: t(type === "sale" ? "directNote" : "directRefundNote"), amount },
     ], undefined, {
       listPrices: type === "sale" ? priceOptions(null).listPrices : {},
@@ -1011,7 +1055,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   };
 
   const summary = h("div", { class: "foot-sum" }, h("span", {}, t("total")), total, totalTry);
-  open(title, fields, [footBar(summary, saveButton())], () => {
+  open(title, fields, [footBar(summary, saveButton(type === "sale" && !edit ? t("completeSale") : undefined))], () => {
     if (isWalkIn()) return saveDirect();
     const p = party();
     if (!p) return t(`choose_${kind}`);
@@ -1037,6 +1081,12 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       }
       if (!lines.length) return t("addAtLeastOne");
       input.lines = lines;
+      if (type === "sale") {
+        const gross = sum(lines, (l) => lineTotal(l));
+        const discount = discountOf(gross);
+        if (discount > gross) return t("discountTooBig");
+        if (discount) input.discount = discount;
+      }
       if (paidNow?.value.trim()) {
         const paid = parseMoney(paidNow.value);
         if (!paid) return t("badNumber");
@@ -1083,7 +1133,7 @@ export function openOrderSheet(list) {
     if (!lines.length) return toast(t("noOrderLines"));
     const party = session.firm.parties.get(supplier.value);
     const text = [t("orderGreeting"), ...lines.map((it) => `• ${productLabel(it.p)}: ${formatNumber(it.qty())} ${unitLabel(it.p.unit)}`), `— ${firm.name}`].join("\n");
-    if (asText || !canShareFiles()) return shareOnWhatsApp({ text, phone: party?.phone ?? null });
+    if (asText || (!canShareFiles() && !canCopyImage())) return shareOnWhatsApp({ text, phone: party?.phone ?? null });
     const doc = {
       kind: "summary", title: t("orderTitle"), subtitle: party?.name ?? "", date: today(), time: new Date().toTimeString().slice(0, 5),
       firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
@@ -1091,10 +1141,7 @@ export function openOrderSheet(list) {
       total: [t("orderItemsTotal"), t("orderItemsCount", { n: lines.length })],
       note: "",
     };
-    const blob = await receiptBlob(doc, receiptLabels());
-    const result = await shareOnWhatsApp({ blob, filename: `siparis-${today()}.png`, text: `${t("orderGreeting")} — ${firm.name}`, phone: party?.phone ?? null });
-    if (result === "link") toast(t("receiptDownloaded"));
-    return result;
+    return sendPhoto(receiptBlob(doc, receiptLabels()), party?.phone ?? null, `siparis-${today()}.png`);
   };
   const received = () => {
     const lines = chosen();
@@ -1107,7 +1154,7 @@ export function openOrderSheet(list) {
     suppliers.length > 0 && field(t("supplier"), supplier),
     items.length ? h("div", { class: "lines" }, items.map((it) => it.el)) : h("p", { class: "lines-empty" }, t("noLowStock")),
     items.length > 0 && h("button", { type: "button", class: "block whatsapp", onclick: () => send() }, icon("whatsapp"), t("orderSend")),
-    items.length > 0 && canShareFiles() && h("button", { type: "button", class: "block", onclick: () => send(true) }, icon("send"), t("sendAsText")),
+    items.length > 0 && h("button", { type: "button", class: "block", onclick: () => send(true) }, icon("send"), t("sendAsText")),
   ], [items.length > 0 && h("button", { type: "button", class: "primary block", onclick: received }, icon("in"), t("orderReceived"))]);
 }
 
@@ -1683,7 +1730,7 @@ export function receiptLabels() {
 }
 
 // Fiş numarası: tarih + kayıt kimliğinin başı ("20261026-AB12").
-export const receiptNumber = (move) => `${move.date.replace(/-/g, "")}-${move.id.slice(0, 4).toUpperCase()}`;
+export { receiptNumber };
 
 // Hareketten fiş/fatura belgesi. paid ve balanceAfter sadece satış anında bilinir.
 // Ödeme ve tahsilatta makbuz: tek tutar, kur ve kalan borç (bakiye kişinin para biriminde).
@@ -1717,33 +1764,20 @@ export function receiptDoc(move, kind, { paid = 0, balanceAfter = null } = {}) {
       name: party.name, title: party.name, taxOffice: party.taxOffice ?? "", taxNo: party.taxNo ?? "",
       address: party.address ?? "", phone: party.phone ?? "",
     } : null,
-    lines: move.lines.map((l) => ({
-      name: l.name, qty: l.qty, unit: unitLabel(l.unit), price: l.price,
-      vatRate: session.firm.products.get(l.product)?.vat ?? firm.defaultVat ?? 20,
-    })),
+    lines: [
+      ...move.lines.map((l) => ({
+        name: l.name, qty: l.qty, unit: unitLabel(l.unit), price: l.price,
+        vatRate: session.firm.products.get(l.product)?.vat ?? firm.defaultVat ?? 20,
+      })),
+      // İndirim / ikram eksi bir satır olarak: toplam ve KDV net tutardan çıkar.
+      ...(move.discount ? [{ name: t("rc_discount"), qty: 1, unit: "", price: -move.discount, vatRate: firm.defaultVat ?? 20 }] : []),
+    ],
     // İade fişi: başlığı "İade Fişi", ödenen yerine "Geri verilen".
     ...(move.type === "saleReturn" && { title: t("rc_returnTitle"), paidLabel: t("rc_refunded") }),
     paid,
     balanceAfter,
     note: move.note ?? "",
   };
-}
-
-// WhatsApp mesajı: fiş resmiyle birlikte giden kısa metin.
-function receiptText(doc) {
-  if (MONEY_KINDS.includes(doc.kind)) {
-    return [
-      `${doc.firm.name} · ${t(`rc_${doc.kind}Title`)} ${doc.number}`,
-      `${t("rc_amount")}: ${plainMoney(doc.amount, doc.currency)}`,
-      doc.balanceAfter > 0 ? `${t("rc_balanceOwed")}: ${plainMoney(doc.balanceAfter, doc.currency)}` : null,
-    ].filter(Boolean).join("\n");
-  }
-  const total = doc.lines.reduce((s, l) => s + lineTotal(l), 0);
-  return [
-    `${doc.firm.name} · ${t(doc.kind === "invoice" ? "rc_invoiceTitle" : "rc_receiptTitle")} ${doc.number}`,
-    `${t("total")}: ${plainMoney(total, doc.currency)}`,
-    doc.balanceAfter > 0 ? `${t("rc_balanceOwed")}: ${plainMoney(doc.balanceAfter)}` : null,
-  ].filter(Boolean).join("\n");
 }
 
 const plainMoney = (v, c) => formatMoney(v, c).replace(/[⁦⁩]/g, "");
@@ -1795,13 +1829,37 @@ export function sendToChat(doc, phone) {
 // Ana düğme: fiş fotoğraf olarak WhatsApp'a (paylaşım ekranında WhatsApp ve kişi seçilir). Dosya
 // paylaşamayan cihazda (bilgisayar) doğrudan sohbete yazı + bağlantı. Altında: yazı + bağlantı
 // (kişinin sohbeti doğrudan açılır), (varsa) fatura bilgisi ve yazdır.
-function chatButtons({ doc, phone, label, image, invoice, print }) {
-  const photo = canShareFiles();
+// Fiş fotoğrafını kişiye gönderir: telefonu kayıtlıysa fotoğraf panoya kopyalanır ve kişinin WhatsApp
+// sohbeti doğrudan açılır (yapıştırılır); değilse ya da kopyalanamazsa paylaşım ekranı açılır.
+// Fotoğrafın altına yazı eklenmez: her şey fotoğrafta var. blob: Promise<Blob>.
+export async function sendPhoto(blob, phone, filename = "fis.png") {
+  if (phone && waPhone(phone) && canCopyImage()) {
+    if (await copyImageAndOpenChat(blob, phone)) return;
+  }
+  sharePhoto(blob, filename, phone);
+}
+// Paylaşım ekranıyla (WhatsApp ve kişi orada seçilir); yazısız.
+export async function sharePhoto(blob, filename = "fis.png", phone = null) {
+  const result = await shareOnWhatsApp({ blob: await blob, filename, phone: phone || null });
+  if (result === "link") toast(t("receiptDownloaded"));
+}
+function downloadFile(file) {
+  const url = URL.createObjectURL(file);
+  const a = h("a", { href: url, download: file.name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+const directPhoto = (phone) => Boolean(phone && waPhone(phone) && canCopyImage());
+
+function chatButtons({ doc, phone, label, blob, filename, invoice, print }) {
   return [
-    h("button", { type: "button", class: "block whatsapp", onclick: () => (photo ? image() : sendToChat(doc(), phone)) }, icon("whatsapp"), label),
-    h("small", { class: "field-hint center" }, t(photo ? "photoShareHint" : phone ? "textShareHint" : "noPhoneChat")),
-    h("div", { class: invoice ? "row3" : "row2" },
-      h("button", { type: "button", class: "block", onclick: () => sendToChat(doc(), phone) }, icon("send"), t("sendAsText")),
+    h("button", { type: "button", class: "block whatsapp", onclick: () => sendPhoto(blob(), phone, filename) }, icon("whatsapp"), label),
+    h("small", { class: "field-hint center" }, t(directPhoto(phone) ? "photoPasteHint" : "photoPickHint")),
+    h("div", { class: "row-buttons" },
+      h("button", { type: "button", class: "block", onclick: () => sharePhoto(blob(), filename, phone) }, icon("send"), t("sharePhoto")),
+      h("button", { type: "button", class: "block", onclick: () => sendToChat(doc(), phone) }, icon("whatsapp"), t("sendAsText")),
       invoice && h("button", { type: "button", class: "block", onclick: invoice }, icon("receipt"), t("sendInvoice")),
       h("button", { type: "button", class: "block", onclick: print }, icon("printer"), t("print"))),
   ];
@@ -1814,34 +1872,29 @@ function receiptButtons(move, extra) {
   if (MONEY_KINDS.includes(move.type)) {
     // Makbuz: WhatsApp ve yazdır (fatura bilgisi yok; ürün satırı olmayan bir para hareketi).
     const doc = receiptDoc(move, move.type, extra);
-    let blob = null;
-    receiptBlob(doc, labels).then((b) => { blob = b; }).catch((err) => console.error(err));
-    const share = async () => {
-      const result = await shareOnWhatsApp({ blob: blob ?? await receiptBlob(doc, labels), filename: `makbuz-${doc.number}.png`, text: receiptText(doc), phone: party?.phone });
-      if (result === "link") toast(t("receiptDownloaded"));
-    };
+    const ready = receiptBlob(doc, labels);
+    ready.catch((err) => console.error(err));
     return chatButtons({
       doc: () => doc, phone: party?.phone, label: t("sendMoneyReceipt"),
-      image: share, print: () => printReceipt(doc, labels),
+      blob: () => ready, filename: `makbuz-${doc.number}.png`, print: () => printReceipt(doc, labels),
     });
   }
   // İadede fatura bilgisi yok; sadece iade fişi.
   const isReturn = move.type === "saleReturn";
   const docs = isReturn ? { receipt: receiptDoc(move, "receipt", extra) }
     : { receipt: receiptDoc(move, "receipt", extra), invoice: receiptDoc(move, "invoice", extra) };
+  // Resimler pencere açılırken hazırlanır ki dokunuş anında hazır olsun.
   const blobs = {};
   for (const kind of Object.keys(docs)) {
-    receiptBlob(docs[kind], labels).then((b) => { blobs[kind] = b; }).catch((err) => console.error(err));
+    blobs[kind] = receiptBlob(docs[kind], labels);
+    blobs[kind].catch((err) => console.error(err));
   }
-  const share = (kind) => async () => {
-    const blob = blobs[kind] ?? await receiptBlob(docs[kind], labels);
-    const result = await shareOnWhatsApp({ blob, filename: `${kind === "invoice" ? "fatura" : "fis"}-${docs[kind].number}.png`, text: receiptText(docs[kind]), phone: party?.phone });
-    if (result === "link") toast(t("receiptDownloaded"));
-  };
   return [
     ...chatButtons({
       doc: () => docs.receipt, phone: party?.phone, label: t("sendReceipt"),
-      image: share("receipt"), invoice: isReturn ? null : share("invoice"), print: () => printReceipt(docs.receipt, labels),
+      blob: () => blobs.receipt, filename: `fis-${docs.receipt.number}.png`,
+      invoice: isReturn ? null : () => sendPhoto(blobs.invoice, party?.phone, `fatura-${docs.invoice.number}.png`),
+      print: () => printReceipt(docs.receipt, labels),
     }),
     !isReturn && h("small", { class: "field-hint center" }, t("invoiceNote")),
   ];
@@ -1926,7 +1979,7 @@ export function openShopSheet() {
   if (live) {
     const url = shopUrl(cur.slug);
     buttons.push(
-      h("a", { class: "block button-link", href: url, target: "_blank", rel: "noopener" }, icon("globe"), t("shopOpen")),
+      h("button", { type: "button", class: "block", onclick: () => { sheet.close(); document.dispatchEvent(new Event("kervan:shop-preview")); } }, icon("globe"), t("shopOpen")),
       h("button", {
         type: "button", class: "block whatsapp",
         onclick: () => shareOnWhatsApp({ text: t("shopShareText", { name: firm.name, url }) }),
@@ -1992,14 +2045,33 @@ export function openShopOrderSheet(order) {
     order.note && h("p", { class: "note" }, h("bdi", {}, order.note)),
     missing && h("small", { class: "field-hint" }, t("ord_missing", { n: missing })),
   ];
-  const link = shop?.slug ? `${shopUrl(shop.slug)}/o/${order.id}` : "";
+  // Siparişin fişi uygulamanın içinde hazırlanır (bağlantı açılıp uygulamadan çıkılmaz).
+  const doc = {
+    kind: "receipt", title: t("rc_orderTitle"), number: order.code, date: (order.at?.toDate?.() ?? new Date()).toISOString().slice(0, 10),
+    time: (order.at?.toDate?.() ?? new Date()).toTimeString().slice(0, 5), currency: cur, base: base(),
+    firm: { name: currentFirm().name, logo: currentFirm().logo ?? "", ...currentFirm().info },
+    party: { name: [order.name, order.phone].filter(Boolean).join(" · ") },
+    lines: order.lines.map((l) => ({ name: l.name, qty: l.qty, unit: l.unit ?? "", price: l.price, vatRate: 0 })),
+    paid: 0, balanceAfter: null, note: order.note ?? "",
+  };
+  const ready = receiptBlob(doc, receiptLabels());
+  ready.catch((err) => console.error(err));
+  const sharePdf = async () => {
+    const pdf = new File([await receiptPdf(doc, receiptLabels())], `siparis-${order.code}.pdf`, { type: "application/pdf" });
+    if (navigator.canShare?.({ files: [pdf] })) navigator.share({ files: [pdf] }).catch(() => {});
+    else downloadFile(pdf);
+  };
   open(t("ord_title", { code: order.code }), fields, [
     order.status !== "done" && h("button", { type: "button", class: "primary block", onclick: () => orderToSale(order) }, icon("out"), t("ord_toSale")),
     order.phone && waPhone(order.phone) && h("button", {
-      type: "button", class: "block whatsapp",
+      type: "button", class: "block",
       onclick: () => shareOnWhatsApp({ phone: order.phone, text: t("ord_reply", { name: order.name, code: order.code, firm: currentFirm().name }) }),
     }, icon("whatsapp"), t("ord_writeCustomer")),
-    link && h("a", { class: "block button-link", href: link, target: "_blank", rel: "noopener" }, icon("receipt"), t("ord_receipt")),
+    h("button", { type: "button", class: "block whatsapp", onclick: () => sendPhoto(ready, order.phone, `siparis-${order.code}.png`) }, icon("whatsapp"), t("ord_sendReceipt")),
+    h("div", { class: "row-buttons" },
+      h("button", { type: "button", class: "block", onclick: () => sharePhoto(ready, `siparis-${order.code}.png`) }, icon("send"), t("sharePhoto")),
+      h("button", { type: "button", class: "block", onclick: sharePdf }, icon("receipt"), "PDF"),
+      h("button", { type: "button", class: "block", onclick: () => printReceipt(doc, receiptLabels()) }, icon("printer"), t("print"))),
     h("div", { class: "move-actions" },
       order.status === "new"
         ? h("button", { type: "button", class: "block", onclick: () => { sheet.close(); setOrderStatus(order.id, "rejected").then(() => toast(t("ord_rejected")), failed); } }, icon("x"), t("ord_reject"))
@@ -2261,6 +2333,8 @@ export function openMoveDetail(move, { balanceAfter = null } = {}) {
       && fact(t(move.partner ? `handler_${move.type}` : `holderOf_${move.type}`), person(firm, move.holder).name),
     move.type === "expense" && fact(t("expenseDeal"), firm.deals?.[move.deal]?.name ?? t("generalShares")),
     move.type === "transfer" && fact(t("transferFromTo"), `${person(firm, move.holder).name} → ${person(firm, move.to).name}`),
+    move.id && ["sale", "consignSale", "saleReturn", "collection", "payment", "refund", "debtOut", "debtIn", "purchaseReturn", "supplierRefund"].includes(move.type)
+      && fact(t("receiptNo"), receiptNumber(move)),
     !move.lines && move.type !== "expense" && move.methodName
       && fact(t("fundLabel"), move.toMethodName ? `${move.methodName} → ${move.toMethodName}` : move.methodName),
     cur && fact(t("rate"), `1 ${cur} = ${currencySymbol(base())}${formatRate(move.rate)}`),

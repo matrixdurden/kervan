@@ -342,3 +342,11 @@ test("kasalar: tahsilat seçilen kasaya girer, gider seçilen kasadan çıkar, a
   assert.equal(state.funds.get("cash"), -500);
   assert.equal(state.cash.get("ali"), 10000 - 3000 + 2500 - 4000);
 });
+
+test("indirim: satışın borcu ve aylık satışı net tutardan; maliyet değişmez", () => {
+  const sale = { ...sell("çay", 4, 15000), discount: 6000 };
+  const { balances, months } = run([buy("çay", 10, 10000), sale]);
+  assert.equal(moveTotal(sale), 54000);
+  assert.equal(balances.get("sel"), 54000);
+  assert.deepEqual(months.get("2026-10"), { revenue: 54000, cogs: 40000, expenses: 0 });
+});

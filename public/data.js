@@ -152,6 +152,7 @@ function moveDoc(input, lines, find, seq) {
     move.methodName = input.methodName ?? "";
   }
   if (input.invoiceNo) move.invoiceNo = input.invoiceNo;
+  if (input.discount) move.discount = input.discount;
   if (input.type === "transfer") move.to = input.to;
   // Kasalar arası aktarmada paranın gittiği kasa.
   if (input.toMethod) {
@@ -171,6 +172,7 @@ export function inputOf(move) {
     if (move[key] != null && move[key] !== "") input[key] = move[key];
   }
   if (move.lines) input.lines = move.lines.map((l) => ({ product: l.product, qty: l.qty, price: l.price }));
+  if (move.discount) input.discount = move.discount;
   else input.amount = move.amount;
   return input;
 }
@@ -333,8 +335,10 @@ function addDealMove(batch, productId, dealId) {
 }
 
 // Barkodla ürün bulur.
+// Ürünün bütün barkodları: asıl barkod ve eklenenler (aynı ürünün farklı ambalajları gibi).
+export const barcodesOf = (p) => [p?.barcode, ...(p?.barcodes ?? [])].filter(Boolean);
 export const productByBarcode = (code) =>
-  [...session.firm.products.values()].find((p) => p.barcode && p.barcode === code.trim());
+  [...session.firm.products.values()].find((p) => barcodesOf(p).includes(code.trim()));
 
 // fields: { kind, name, phone, note, currency?, taxNo, taxOffice, address }
 // opening: kişinin mevcut bakiyesi (satıcıda + bize borçlu, tedarikçide + biz borçluyuz).

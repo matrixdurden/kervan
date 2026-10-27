@@ -72,6 +72,7 @@ service cloud.firestore {
         && optNumber(d, 'minStock')
         && optNumber(d, 'vat')
         && optNumber(d, 'fuel')
+        && d.get('barcodes', []) is list && d.get('barcodes', []).size() <= 20
         && d.get('extras', []) is list && d.get('extras', []).size() <= 10
         && trashable(d, d.stock == 0 && d.value == 0 && d.get('consigned', 0) == 0);
     }
@@ -120,6 +121,7 @@ service cloud.firestore {
         && (!('method' in d) || (text(d.method, 40) && text(d.get('methodName', ''), 40)))
         && (!('toMethod' in d) || (d.type == 'fundMove' && text(d.toMethod, 40) && text(d.get('toMethodName', ''), 40)))
         && text(d.get('invoiceNo', ''), 40)
+        && (!('discount' in d) || (d.type == 'sale' && d.discount is int && d.discount >= 0))
         && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return', 'saleReturn', 'stockCount', 'costFix'] && validLines(d))
           || (d.type in ['payment', 'collection', 'refund', 'expense', 'capitalIn', 'withdraw', 'debtOut', 'debtIn'] && d.amount is int && d.amount > 0)
           || (d.type == 'transfer' && d.amount is int && d.amount > 0 && memberUid(firmId, d.to) && d.to != d.holder)

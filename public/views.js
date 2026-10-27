@@ -18,6 +18,19 @@ export const unitCostOf = (p) => (p.stock > 0 ? avgCost(p) : p.lastCost || 0);
 export const extraCostOf = (p) => (p.fuel || 0) + (p.extras ?? []).reduce((s, e) => s + (e.amount || 0), 0);
 export const landedCost = (p) => unitCostOf(p) + extraCostOf(p);
 
+// Fiş numarası: tarih + kayıt kimliğinin başı ("20261026-AB12"). Fişte, listede ve aramada aynıdır.
+export const receiptNumber = (move) => `${move.date.replace(/-/g, "")}-${move.id.slice(0, 4).toUpperCase()}`;
+const NUMBERED = ["sale", "consignSale", "saleReturn", "collection", "payment", "refund", "debtOut", "debtIn", "purchaseReturn", "supplierRefund"];
+
+// Hareket aramada eşleşiyor mu: kişi, not, fiş numarası, ürün adları, kasa.
+export function moveMatches(move, q) {
+  const s = q.trim();
+  if (!s) return true;
+  const squash = (x) => x.replace(/[-\s]/g, "").toLocaleUpperCase("tr");
+  if (move.id && squash(receiptNumber(move)).includes(squash(s))) return true;
+  return [move.partyName, move.note, move.methodName, move.categoryName, ...(move.lines ?? []).map((l) => l.name)].some((x) => matches(x, s));
+}
+
 // Doğal sıra: "Ürün 2", "Ürün 10"dan önce gelir.
 export const byName = (a, b) => a.name.localeCompare(b.name, "tr", { numeric: true });
 
@@ -62,7 +75,8 @@ export function moveRow(move, { onclick, after, kind, currency } = {}) {
   const firm = currentFirm();
   const typeLabel = t(`type_${move.type}`);
   const title = kind ? typeLabel : moveTitle(move, firm);
-  const meta = [kind ? null : typeLabel, formatDay(move.date), person(firm, move.by).name].filter(Boolean).join(" · ");
+  const meta = [kind ? null : typeLabel, formatDay(move.date), person(firm, move.by).name,
+    NUMBERED.includes(move.type) && move.id ? `No ${receiptNumber(move)}` : null].filter(Boolean).join(" · ");
   let sub = move.lines && (kind || move.partyName) ? linesSummary(move.lines) : move.type === "expense" ? "" : move.note;
   if (move.currency) sub = [sub, `1 ${move.currency} = ${currencySymbol(base())}${move.rate}`].filter(Boolean).join(" · ");
   const balance = after != null && !move.voided ? balanceText(kind, after, currency) : null;

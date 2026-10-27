@@ -10,9 +10,9 @@ import { session } from "./session.js";
 import { balanceOf } from "./ledger.js";
 import { formatMoney, formatNumber, base, currencySymbol } from "./money.js";
 import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary, TYPE_ICON } from "./views.js";
-import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, sendToChat, openSheet, closeButton } from "./forms.js";
+import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, openSheet, closeButton, sendPhoto, sharePhoto } from "./forms.js";
 import { show } from "./nav.js";
-import { receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
+import { receiptBlob, printReceipt, canCopyImage } from "./receipt.js";
 import { currentFirm } from "./session.js";
 import { productLabel, clearPartyPrice } from "./data.js";
 import { today } from "./ui.js";
@@ -62,27 +62,10 @@ function prepareStatement(party) {
   receiptBlob(doc, receiptLabels()).then((b) => { if (statement.key === key) statement.blob = b; }).catch((err) => console.error(err));
 }
 
-async function sendStatement(party) {
+// Cari detayının resmi (hazırsa hemen, değilse çizilerek).
+function statementBlob(party) {
   prepareStatement(party);
-  const blob = statement.blob ?? await receiptBlob(statement.doc, receiptLabels());
-  const result = await shareOnWhatsApp({ blob, filename: `ekstre-${party.name}.png`, text: statementText(party), phone: party.phone });
-  if (result === "link") toast(t("receiptDownloaded"));
-}
-
-// WhatsApp'a gidecek hesap özeti: bakiye ve (satıcıda) emanetteki mal.
-function statementText(party) {
-  const plain = (s) => s.replace(/[⁦⁩]/g, "");
-  const b = balanceText(party.kind, party.balance, party.currency);
-  const lines = [t("statementHello", { name: party.name, firm: currentFirm().name }), `${b.label}: ${plain(b.amount)}`];
-  const items = Object.entries(party.shelf ?? {}).filter(([, s]) => s.stock > 0);
-  if (items.length) {
-    lines.push("", `${t("onShelf")}:`);
-    for (const [id, s] of items) {
-      const p = session.firm.products.get(id);
-      lines.push(`• ${productLabel(p) || "?"}: ${formatNumber(s.stock)} ${unitLabel(p?.unit)}`);
-    }
-  }
-  return lines.join("\n");
+  return statement.blob ? Promise.resolve(statement.blob) : receiptBlob(statement.doc, receiptLabels());
 }
 
 let partyId = null;
@@ -218,15 +201,15 @@ function render() {
       h("div", { class: "statement-actions" },
         h("button", {
           type: "button", class: "whatsapp",
-          onclick: () => { prepareStatement(party); if (canShareFiles()) sendStatement(party); else sendToChat(statement.doc, party.phone); },
+          onclick: () => sendPhoto(statementBlob(party), party.phone, `cari-${party.name}.png`),
         }, icon("whatsapp"), t("sendStatement")),
         h("button", {
-          type: "button", class: "small", "aria-label": t("sendAsText"), title: t("sendAsText"),
-          onclick: () => { prepareStatement(party); sendToChat(statement.doc, party.phone); },
+          type: "button", class: "small", "aria-label": t("sharePhoto"), title: t("sharePhoto"),
+          onclick: () => sharePhoto(statementBlob(party), `cari-${party.name}.png`, party.phone),
         }, icon("send")),
         h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => { prepareStatement(party); printReceipt(statement.doc, receiptLabels()); } },
           icon("printer"))),
-      !party.phone && !canShareFiles() && h("small", { class: "field-hint" }, t("noPhoneChat"))),
+      h("small", { class: "field-hint" }, t(party.phone && canCopyImage() ? "photoPasteHint" : "photoPickHint"))),
   ];
   if (moves) prepareStatement(party);
 
