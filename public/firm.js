@@ -300,14 +300,15 @@ const START = {
 const TILE_ACTION = { invoice: () => openInvoiceImport(), shop: () => openShopSheet() };
 // Tahsilatlar ve Ödemeler "Satış başlat / Gider başlat"ın hemen altında ferah renkli geniş kutular.
 const FRESH = [["collections", "plusCircle", "fresh-in"], ["payments", "minusCircle", "fresh-out"]];
+// Online mağaza satırı Tahsilatlar/Ödemeler'in hemen altında; diğer bölümler aşağıda.
+const SHOP_TILES = [["orders", "bag"], ["shop", "globe"]];
 const SECTIONS = [
   ["sellers", "store"], ["suppliers", "truck"],
   ["products", "box"], ["stockCount", "clipboard"],
   ["invoice", "fileScan"], ["expenses", "receipt"],
   ["consign", "send"], ["saleReturns", "undo"],
   ["cash", "wallet"], ["partners", "users"],
-  ["debts", "scale"], ["orders", "bag"],
-  ["shop", "globe"], ["ledger", "book"],
+  ["debts", "scale"], ["ledger", "book"],
   ["reports", "chart"], ["trash", "trash"],
   ["settings", "gear"],
 ];
@@ -354,16 +355,14 @@ const HOME = {
       h("div", { class: "tiles-fresh" }, FRESH.map(([id, ic, cls]) =>
         h("button", { type: "button", class: `tile-fresh ${cls}`, onclick: () => openPage(id) },
           h("span", { class: "fresh-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))))),
+      smallTiles(SHOP_TILES),
       low.length > 0 && h("button", { type: "button", class: "card low-banner", onclick: () => openPage("products", { filter: "low" }) },
         icon("alert"), h("span", { class: "main" },
           h("strong", {}, t("lowStockCount", { n: low.length })),
           h("small", {}, low.slice(0, 3).map(productLabel).join(", ") + (low.length > 3 ? "…" : ""))),
         icon("chevron")),
       products.size > 0 && homeValueCard(),
-      h("div", { class: "tiles-grid" }, SECTIONS.map(([id, ic]) =>
-        h("button", { type: "button", class: `tile-small tone-${id}`, onclick: () => (TILE_ACTION[id] ? TILE_ACTION[id]() : openPage(id)) },
-          h("span", { class: "tile-ic" }, icon(ic)), h("span", {}, t(`page_${id}`)),
-          id === "orders" && newOrders() > 0 && h("span", { class: "tile-badge" }, String(newOrders()))))),
+      smallTiles(SECTIONS),
     ];
     if (!products.size || !parties("seller").length || !parties("supplier").length) out.push(startGuide());
     if (recent.length) {
@@ -375,6 +374,11 @@ const HOME = {
     return out;
   },
 };
+
+const smallTiles = (list) => h("div", { class: "tiles-grid" }, list.map(([id, ic]) =>
+  h("button", { type: "button", class: `tile-small tone-${id}`, onclick: () => (TILE_ACTION[id] ? TILE_ACTION[id]() : openPage(id)) },
+    h("span", { class: "tile-ic" }, icon(ic)), h("span", {}, t(`page_${id}`)),
+    id === "orders" && newOrders() > 0 && h("span", { class: "tile-badge" }, String(newOrders())))));
 
 // İlk kurulumda ne yapılacağını adım adım gösterir.
 function startGuide() {
