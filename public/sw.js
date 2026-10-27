@@ -1,7 +1,7 @@
 // Uygulama dosyalarını önbelleğe alır ki internet yokken de açılsın.
 // İnternet varsa her zaman en güncel sürüm gelir.
 
-const CACHE = "kervan-v35";
+const CACHE = "kervan-v36";
 const SHELL = [
   "/", "/index.html", "/style.css", "/app.js", "/firm.js", "/party.js", "/forms.js", "/views.js", "/nav.js",
   "/data.js", "/ledger.js", "/money.js", "/rates.js", "/ui.js", "/session.js", "/firebase.js", "/firebase-config.js",
@@ -22,12 +22,13 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Online mağazadan yeni sipariş (Worker'dan içeriksiz bildirim). Uygulama ekranda açıksa uygulama
-// kendisi ses çalar; değilse telefonun üst perdesinde (sesli) bildirim çıkar.
+// Online mağazadan yeni sipariş (Worker'dan içeriksiz bildirim): telefonun üst perdesinde sesli, yazılı
+// bildirim. Uygulama açıksa siparişi kendisi ayrıntısıyla (ad, ürün sayısı, tutar) zaten gösterdiyse
+// ikinci kez çıkmaz.
 self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
-    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    if (wins.some((w) => w.visibilityState === "visible")) return;
+    const shown = await self.registration.getNotifications({ tag: "kervan-order" });
+    if (shown.some((n) => Date.now() - (n.timestamp || 0) < 60000)) return;
     await self.registration.showNotification("Yeni sipariş 🛍️", {
       body: "Online mağazandan sipariş geldi. Görmek için dokun.",
       tag: "kervan-order", renotify: true, icon: "/icons/icon-192.png", badge: "/icons/icon-192.png",

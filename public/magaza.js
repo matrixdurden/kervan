@@ -213,7 +213,7 @@ function render() {
       h("button", { type: "button", class: "cat", "aria-pressed": String(!cat), onclick: () => { cat = ""; render(); } },
         h("span", { class: "ring" }, icon("grid")), h("span", { class: "name" }, say("all"))),
       cats.map(([c, it]) => h("button", { type: "button", class: "cat", "aria-pressed": String(cat === c), onclick: () => { cat = cat === c ? "" : c; render(); } },
-        h("span", { class: "ring" }, it.thumb ? h("img", { src: it.thumb, alt: "" }) : icon("grid")), h("span", { class: "name" }, c)))),
+        h("span", { class: "ring" }, (shop.cats?.[c] || it.thumb) ? h("img", { src: shop.cats?.[c] || it.thumb, alt: "" }) : icon("grid")), h("span", { class: "name" }, c)))),
     h("div", { class: "section-head" }, h("h2", {}, cat || say("products")), h("small", {}, say("items", { n: list.length }))),
     h("section", { class: "grid" },
       list.length ? list.map(card) : h("p", { class: "empty" }, say(items.length ? "noMatch" : "noProducts"))),

@@ -2,7 +2,7 @@
    koyu deniz yeşili ana renk, her bölümün kendi rengi. */
 
 :root {
-  --css-rev: 33; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
+  --css-rev: 34; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
   --bg: #F3F1EC;
   --card: #FFFFFF;
   --card-border: #E1DCD2;
@@ -1364,3 +1364,30 @@ button.card.row.trash-record { width: 100%; height: auto; text-align: start; fon
 button.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
 button.danger-fill.armed { animation: pulse 0.9s ease-in-out infinite alternate; }
 @keyframes pulse { to { filter: brightness(1.18); transform: scale(1.02); } }
+
+/* Yeni sipariş şeridi: ekranın üstünde, dokunulana kadar kalır */
+.order-bar {
+  position: fixed; z-index: 1000; top: calc(8px + env(safe-area-inset-top)); inset-inline: 10px; margin-inline: auto; max-width: 560px;
+  display: flex; align-items: center; gap: 4px; padding: 6px; border-radius: 16px;
+  background: var(--card); border: 2px solid var(--primary); box-shadow: 0 10px 30px rgb(0 0 0 / 0.25);
+  animation: ob-in .25s ease-out;
+}
+@keyframes ob-in { from { transform: translateY(-120%); } to { transform: none; } }
+.order-bar button.ob-main {
+  flex: 1; min-width: 0; height: auto; display: flex; align-items: center; gap: 10px; padding: 6px; border: 0;
+  background: none; text-align: start; justify-content: flex-start; font-weight: 400;
+}
+.order-bar .ob-ic {
+  flex: none; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--primary); color: var(--on-primary);
+}
+.order-bar .ob-ic svg { width: 22px; height: 22px; }
+.order-bar .ob-text { display: flex; flex-direction: column; min-width: 0; }
+.order-bar .ob-text strong { font-size: 15px; }
+.order-bar .ob-text small { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.order-bar button.ob-close { flex: none; width: 36px; height: 36px; padding: 0; border: 0; background: none; color: var(--text-3); }
+
+/* Ürün kategorileri listesinde kategorinin fotoğrafı */
+.cat-photo { flex: none; width: 44px; height: 44px; border-radius: 12px; object-fit: cover; }
+.cat-photo.empty { display: grid; place-items: center; background: var(--field); border: 1.5px dashed var(--border); color: var(--text-3); }
+.cat-photo.empty svg { width: 20px; height: 20px; }

@@ -605,10 +605,13 @@ const STRINGS = {
 
     // Ürün: çeşit, KDV, stok uyarısı, marj
     category: "Kategori",
+    categoryPhoto: "Kategori fotoğrafı",
+    categoryPhotoHint: "Online mağazada kategori kutucuğunda görünür. Seçmezsen kategorideki ilk ürünün fotoğrafı görünür.",
     newCategory: "Yeni kategori",
     productCategories: "Kategoriler",
     pickPicture: "Resim seç",
     ord_arrived: "Yeni sipariş: {name}",
+    ord_lines: "{n} ürün",
     ord_notifyTitle: "Yeni sipariş 🛍️",
     ord_notifyAsk: "Uygulama kapalıyken de sipariş gelince telefonun sesli bildirim versin mi?",
     ord_notifyEnable: "Sipariş bildirimlerini aç",
@@ -1598,10 +1601,13 @@ const STRINGS = {
     waAppHint: "إذا كان في هاتفك واتساب عادي وواتساب أعمال فاختر الذي تتواصل به مع عملائك. يعمل على أندرويد؛ يُحفظ الاختيار على هذا الهاتف.",
 
     category: "الفئة",
+    categoryPhoto: "صورة الفئة",
+    categoryPhotoHint: "تظهر في مربع الفئة في المتجر الإلكتروني. إذا لم تخترها تظهر صورة أول منتج في الفئة.",
     newCategory: "فئة جديدة",
     productCategories: "الفئات",
     pickPicture: "اختر صورة",
     ord_arrived: "طلب جديد: {name}",
+    ord_lines: "{n} منتج",
     ord_notifyTitle: "طلب جديد 🛍️",
     ord_notifyAsk: "هل تريد إشعارًا صوتيًا عند وصول طلب حتى والتطبيق مغلق؟",
     ord_notifyEnable: "فعّل إشعارات الطلبات",

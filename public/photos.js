@@ -52,6 +52,30 @@ export async function preparePhoto(file) {
   }
 }
 
+// Kategori fotoğrafı: ortadan kare kırpılır, 220 px JPEG (~12 KB); işletme belgesinde durduğu için küçük.
+// photoField ile aynı şekli döner ({ thumb, full }).
+export async function prepareSquare(file) {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const side = Math.min(bitmap.width, bitmap.height);
+    const size = Math.min(220, side);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, size, size);
+    ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+    let thumb = "";
+    for (const q of [0.72, 0.6, 0.5]) {
+      thumb = canvas.toDataURL("image/jpeg", q);
+      if (thumb.length <= 20000) break;
+    }
+    return { thumb, full: thumb };
+  } finally {
+    bitmap.close?.();
+  }
+}
+
 // Ürünün büyük fotoğrafı (yoksa null).
 export async function loadFullPhoto(productId) {
   try {

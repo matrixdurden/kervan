@@ -26,7 +26,7 @@ import { shopOf, shopUrl, slugify, saveShop, syncShop, setOrderStatus, deleteOrd
 import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
 import { lastRate, rememberRate, fetchRate } from "./rates.js";
-import { pickImage, preparePhoto, loadFullPhoto } from "./photos.js";
+import { pickImage, preparePhoto, prepareSquare, loadFullPhoto } from "./photos.js";
 import { canScan, scanBarcode } from "./scanner.js";
 import { canPickContact, pickContact } from "./contacts.js";
 
@@ -155,7 +155,7 @@ function missing(title, text, action, onclick) {
 
 // Fotoğraf alanı: dokununca kamera/galeri açılır. Sonuç: undefined (değişmedi), null (kaldırıldı)
 // ya da { thumb, full } (yeni). loadFull verilirse büyük hal sonradan yüklenir.
-function photoField(current, { loadFull, round = false, label = t("addPhoto") } = {}) {
+function photoField(current, { loadFull, round = false, label = t("addPhoto"), prepare = preparePhoto } = {}) {
   let result;
   const img = h("img", { alt: "" });
   const empty = h("span", { class: "photo-empty" }, icon("camera"), h("span", {}, label));
@@ -174,7 +174,7 @@ function photoField(current, { loadFull, round = false, label = t("addPhoto") } 
     const file = await pickImage();
     if (!file) return;
     try {
-      result = await preparePhoto(file);
+      result = await prepare(file);
       show(result.full);
     } catch (err) {
       console.error(err);
@@ -226,6 +226,7 @@ export function openProductCategories() {
   open(t("productCategories"), [
     h("ul", { class: "cards" },
       cats.map(([c, n]) => h("li", {}, h("button", { type: "button", class: "card row", onclick: () => openCategoryEditor(c) },
+        categoryPhoto(c) ? h("img", { class: "cat-photo", src: categoryPhoto(c), alt: "" }) : h("span", { class: "cat-photo empty" }, icon("camera")),
         h("span", { class: "main" }, h("span", { class: "title" }, h("bdi", {}, c)), h("span", { class: "meta" }, t("productCount", { n }))),
         icon("chevron"))))),
     !cats.length && h("p", { class: "field-hint" }, t("noCategoriesYet")),
@@ -235,10 +236,15 @@ export function openProductCategories() {
   ]);
 }
 
-// Bir kategori: adı ve içindeki ürünler (işaretli olanlar). Kaydedince işaretlenenler bu kategoriye geçer,
-// işareti kaldırılanlar kategorisiz kalır; ad değişirse hepsi yeni adı alır. Hiç ürün kalmazsa kategori silinmiş olur.
+// Kategori fotoğrafı (online mağazada kategori kutucuğunda görünür): işletme ayarlarında, kategori adına göre.
+const categoryPhoto = (name) => currentFirm().categoryPhotos?.[name] ?? "";
+
+// Bir kategori: fotoğrafı, adı ve içindeki ürünler (işaretli olanlar). Kaydedince işaretlenenler bu kategoriye
+// geçer, işareti kaldırılanlar kategorisiz kalır; ad değişirse hepsi (ve fotoğrafı) yeni adı alır. Hiç ürün
+// kalmazsa kategori silinmiş olur.
 function openCategoryEditor(current) {
   const products = [...session.firm.products.values()].sort(byName);
+  const photo = photoField(categoryPhoto(current), { prepare: prepareSquare, label: t("categoryPhoto") });
   const name = textInput({ maxlength: 40, value: current, placeholder: t("newCategoryPlaceholder") });
   const picked = new Set(products.filter((p) => current && p.category === current).map((p) => p.id));
   let query = "";
@@ -261,6 +267,8 @@ function openCategoryEditor(current) {
   };
   render();
   open(current || t("newCategory"), [
+    photo.el,
+    h("small", { class: "field-hint center" }, t("categoryPhotoHint")),
     field(t("categoryName"), name),
     h("p", { class: "label" }, t("categoryProducts")),
     searchBox(t("searchProducts"), "", (v) => { query = v; render(); }),
@@ -275,8 +283,21 @@ function openCategoryEditor(current) {
       const next = picked.has(p.id) ? n : p.category === current && current ? "" : p.category ?? "";
       if (next !== (p.category ?? "")) changes[p.id] = next;
     }
-    if (!Object.keys(changes).length) return sheet.close();
-    saved(setCategories(changes), t("saved"));
+    // Fotoğraf: yeni seçildiyse o, kaldırıldıysa yok, değişmediyse eskisi (ad değiştiyse yeni adla).
+    const photos = { ...(currentFirm().categoryPhotos ?? {}) };
+    const before = JSON.stringify(photos);
+    const pic = photo.value();
+    const keep = categoryPhoto(current);
+    if (current) delete photos[current];
+    if (pic) photos[n] = pic.thumb;
+    else if (pic === undefined && keep) photos[n] = keep;
+    else delete photos[n];
+    const photoChanged = JSON.stringify(photos) !== before;
+    if (!Object.keys(changes).length && !photoChanged) return sheet.close();
+    saved(Promise.all([
+      Object.keys(changes).length ? setCategories(changes) : null,
+      photoChanged ? saveFirmSettings({ categoryPhotos: photos }) : null,
+    ]), t("saved"));
     return undefined;
   });
 }

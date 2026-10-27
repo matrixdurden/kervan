@@ -118,16 +118,35 @@ function watchOrders() {
   }) : null;
 }
 
-// Yeni sipariş geldi: ses, bildirim (uygulama arka plandaysa üst perdede), ekranda haber.
+// Yeni sipariş geldi: ses, titreşim, üst perdede yazılı bildirim (uygulama açıkken de; izin varsa) ve
+// ekranın üstünde dokunulana kadar kalan şerit. Sunucudan gelen (içeriksiz) bildirim aynı etiketi
+// taşır: önce o geldiyse bu, sessizce ayrıntılı haliyle değiştirir.
 function announceOrder(order) {
   orderChime();
   navigator.vibrate?.([200, 100, 200]);
-  toast(t("ord_arrived", { name: order.name }));
-  if (document.hidden && pushPermission() === "granted") {
-    navigator.serviceWorker?.ready.then((reg) => reg.showNotification(t("ord_notifyTitle"), {
-      body: t("ord_arrived", { name: order.name }), tag: "kervan-order", renotify: true, icon: "/icons/icon-192.png", data: { url: "/#orders" },
-    })).catch(() => {});
+  const n = (order.lines ?? []).reduce((sum, l) => sum + (l.qty ?? 0), 0);
+  const body = [order.name, n && t("ord_lines", { n }), order.total > 0 && formatMoney(order.total, order.currency)]
+    .filter(Boolean).join(" · ");
+  showOrderBar(order, body);
+  if (pushPermission() === "granted") {
+    navigator.serviceWorker?.ready.then(async (reg) => {
+      const shown = await reg.getNotifications({ tag: "kervan-order" }).catch(() => []);
+      return reg.showNotification(t("ord_notifyTitle"), {
+        body, tag: "kervan-order", renotify: !shown.length, icon: "/icons/icon-192.png", badge: "/icons/icon-192.png",
+        vibrate: [200, 100, 200], data: { url: "/#orders" },
+      });
+    }).catch(() => {});
   }
+}
+// Ekranın üstünde kalan sipariş şeridi: dokununca Siparişler açılır; × ile kapanır.
+function showOrderBar(order, body) {
+  document.querySelector(".order-bar")?.remove();
+  const bar = h("div", { class: "order-bar", role: "alert" },
+    h("button", { type: "button", class: "ob-main", onclick: () => { bar.remove(); if (currentFirm()) openPage("orders"); } },
+      h("span", { class: "ob-ic" }, icon("bag")),
+      h("span", { class: "ob-text" }, h("strong", {}, t("ord_notifyTitle")), h("small", {}, h("bdi", {}, body)))),
+    h("button", { type: "button", class: "ob-close", "aria-label": t("close"), onclick: () => bar.remove() }, icon("x")));
+  document.body.append(bar);
 }
 // Bildirime dokununca siparişler açılır.
 navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "open-orders" && currentFirm()) openPage("orders"); });

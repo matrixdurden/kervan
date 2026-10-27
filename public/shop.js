@@ -54,10 +54,10 @@ export async function saveShop(settings) {
   return shop;
 }
 
-// İşletmenin adı, logosu ya da para birimi değişince vitrinin üst bilgisi de güncellenir.
+// İşletmenin adı, logosu, para birimi ya da kategori fotoğrafları değişince vitrinin üst bilgisi de güncellenir.
 async function syncHeader(shop) {
   const firm = currentFirm();
-  const head = { name: firm.name, logo: firm.logo ?? "", currency: base() };
+  const head = { name: firm.name, logo: firm.logo ?? "", currency: base(), cats: firm.categoryPhotos ?? {} };
   const h = hashOf(head);
   if (h === headerHash) return;
   await updateDoc(doc(db, "shops", shop.slug), { ...head, updatedAt: serverTimestamp() });
