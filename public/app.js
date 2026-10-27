@@ -403,6 +403,20 @@ $("#sign-out").addEventListener("click", async () => {
 
 // --- Çevrimdışı kullanım için service worker --------------------------------
 
+// Tarayıcı eski stil dosyasını yeni kodla birlikte açarsa (önbellek) ekran bozuk görünür: stil dosyasının
+// sürümü koddakiyle aynı değilse stil dosyası önbelleği atlayarak yeniden yüklenir.
+const CSS_REV = "33";
+function freshStyles() {
+  const link = document.querySelector('link[rel="stylesheet"][href^="/style.css"]');
+  const rev = getComputedStyle(document.documentElement).getPropertyValue("--css-rev").trim();
+  if (!link || rev === CSS_REV || link.dataset.retried) return;
+  link.dataset.retried = "1";
+  const url = `/style.css?v=${CSS_REV}`;
+  fetch(url, { cache: "reload" }).catch(() => {}).finally(() => { link.href = url; });
+}
+if (document.readyState === "complete") freshStyles();
+else addEventListener("load", freshStyles);
+
 // Telefonda açık kalan uygulama da yeni sürümü alsın: öne gelince güncelleme aranır; yeni sürüm
 // devreye girince açık form yoksa hemen, varsa form kapanınca sayfa yenilenir (yazılan kaybolmaz).
 if ("serviceWorker" in navigator) {

@@ -2,6 +2,7 @@
    koyu deniz yeşili ana renk, her bölümün kendi rengi. */
 
 :root {
+  --css-rev: 33; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
   --bg: #F3F1EC;
   --card: #FFFFFF;
   --card-border: #E1DCD2;
@@ -1054,7 +1055,7 @@ button.card.product-tile {
 .pt-step.add { grid-template-columns: 1fr; background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); }
 /* "+ Yeni ürün" kutucuğu */
 button.pick-tile.new {
-  height: auto; min-height: 120px; padding: 8px; gap: 6px; justify-content: center; align-items: center;
+  height: auto; min-height: 120px; align-self: stretch; padding: 8px; gap: 6px; justify-content: center; align-items: center;
   border-style: dashed; color: var(--primary); font-weight: 800; white-space: normal; text-align: center;
 }
 .pt-plus { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--primary) 12%, var(--card)); }

@@ -13,7 +13,7 @@ import {
 import { PARTY_KIND, hasLines, lineTotal, avgCost, roundQty } from "./ledger.js";
 import {
   recordMoves, voidMoves, replaceMove, restoreMove, saveProduct, saveParty, deleteProduct, deleteParty, restoreProduct, restoreParty, saveShares,
-  setCategories, saveDeal, deleteDeal, putDeal, saveGuest, deleteGuest, putGuest, dealOf, productByBarcode, productLabel, saveFirmSettings, shareReceipt,
+  setCategories, saveDeal, deleteDeal, putDeal, saveGuest, deleteGuest, putGuest, dealOf, productByBarcode, barcodesOf, productLabel, saveFirmSettings, shareReceipt,
 } from "./data.js";
 import {
   byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory, NO_CATEGORY,
@@ -652,7 +652,7 @@ function productBrowser({ products, count, price, currency, onstep, onnew, onsca
     const q = query.trim();
     const all = products();
     bubbles.replaceChildren(...[categoryBubbles(all, cat, (v) => { cat = v; render(); })].filter(Boolean));
-    const shown = all.filter((p) => inCategory(p, cat) && (matches(productLabel(p), q) || (q && p.barcode === q)));
+    const shown = all.filter((p) => inCategory(p, cat) && (matches(productLabel(p), q) || barcodesOf(p).includes(q)));
     const add = onnew && h("button", { type: "button", class: "pick-tile new", onclick: () => onnew({ name: q, category: cat && cat !== NO_CATEGORY ? cat : "" }) },
       h("span", { class: "pt-plus", "aria-hidden": "true" }, icon("plus")), h("span", { class: "pt-name" }, t("newProduct")));
     grid.replaceChildren(...[add].filter(Boolean), ...shown.map((p) => {

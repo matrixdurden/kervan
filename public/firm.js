@@ -483,7 +483,7 @@ const productsPage = {
     if (!all.length) return [emptyState("📦", t("noProducts"))];
     const q = search.products.trim();
     const base = all
-      .filter((p) => matches(productLabel(p), q) || (q && p.barcode === q))
+      .filter((p) => matches(productLabel(p), q) || barcodesOf(p).includes(q))
       .filter((p) => productFilter !== "low" || isLow(p))
       .sort(byName);
     const bubbles = categoryBubbles(base, productCat, (v) => { productCat = v; rerenderBody(); });
@@ -792,7 +792,7 @@ const valueDetailPage = {
     if (valueMode === "sale" || valueMode === "cost") {
       const valueOf = valueMode === "sale" ? saleValueOf : costValueOf;
       const all = inStock();
-      const list = all.filter((p) => matches(productLabel(p), q) || matches(p.category, q) || (q && p.barcode === q))
+      const list = all.filter((p) => matches(productLabel(p), q) || matches(p.category, q) || barcodesOf(p).includes(q))
         .sort((a, b) => valueOf(b) - valueOf(a));
       return [
         h("p", { class: "total-line" }, h("span", {}, t("sv_total", { n: list.length })), h("strong", {}, formatMoney(sum(list, valueOf)))),
@@ -1243,7 +1243,7 @@ const stockCountPage = {
     const all = [...session.firm.products.values()].sort(byName);
     if (!all.length) return [emptyState("📦", t("noProducts"))];
     const q = (search.count ?? "").trim();
-    const base = all.filter((p) => matches(productLabel(p), q) || (q && p.barcode === q));
+    const base = all.filter((p) => matches(productLabel(p), q) || barcodesOf(p).includes(q));
     const list = base.filter((p) => inCategory(p, countCat))
       .filter((p) => countFilter === "all" || (countFilter === "todo" ? countStatus(p) === "todo" : !["todo", "ok"].includes(countStatus(p))));
     const countedN = all.filter((p) => counts[p.id] != null).length;
