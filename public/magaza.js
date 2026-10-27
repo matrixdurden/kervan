@@ -28,6 +28,7 @@ const TEXT = {
     rc: { receiptTitle: "Sipariş", number: "No", customer: "Müşteri", total: "Toplam", paid: "Ödenen", note: "Not", thanks: "Teşekkür ederiz", balanceOwed: "Kalan", balanceCredit: "Alacak" },
     madeWith: "kervan ile hazırlandı",
     install: "Uygulama olarak yükle", installIos: "Yüklemek için: Paylaş düğmesi → Ana Ekrana Ekle",
+    installAndroid: "Uygulama olarak yüklemek için: sayfayı Chrome'da aç, sağ üstteki ⋮ menüsünden \"Uygulamayı yükle\" ya da \"Ana ekrana ekle\".",
   },
   ar: {
     eyebrow: "متجر إلكتروني", title: "متجر إلكتروني", search: "عمّ تبحث؟", all: "الكل", products: "المنتجات", items: "{n} منتج",
@@ -44,6 +45,7 @@ const TEXT = {
     rc: { receiptTitle: "طلب", number: "رقم", customer: "العميل", total: "المجموع", paid: "المدفوع", note: "ملاحظة", thanks: "شكرًا لكم", balanceOwed: "المتبقي", balanceCredit: "له" },
     madeWith: "صُنع بـ kervan",
     install: "ثبّت كتطبيق", installIos: "للتثبيت: زر المشاركة ← إضافة إلى الشاشة الرئيسية",
+    installAndroid: "للتثبيت كتطبيق: افتح الصفحة في Chrome، ثم من قائمة ⋮ اختر \"تثبيت التطبيق\" أو \"إضافة إلى الشاشة الرئيسية\".",
   },
 };
 
@@ -74,6 +76,9 @@ const icon = (name) => {
 };
 
 // Güvenli DOM oluşturucu: metin hep textContent olarak girer.
+// replaceChildren boş değerleri (null, false) yazı olarak koyar; h() gibi atlansın.
+const clean = (...kids) => kids.filter((c) => c != null && c !== false);
+
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -194,12 +199,13 @@ function render() {
     type: "search", value: query, placeholder: say("search"), "aria-label": say("search"), enterkeyhint: "search", autocomplete: "off",
     oninput: (e) => { query = e.target.value; render(); },
   });
-  app$.replaceChildren(
+  app$.replaceChildren(...clean(
     h("header", { class: "hero" },
       shop.logo ? h("img", { class: "logo", src: shop.logo, alt: "" }) : h("span", { class: "logo" }, shop.name.charAt(0).toLocaleUpperCase("tr")),
       h("div", { class: "titles" }, h("p", { class: "eyebrow" }, say("eyebrow")), h("h1", {}, shop.name)),
       h("div", { class: "lang", role: "group" },
         ["tr", "ar"].map((l) => h("button", { type: "button", "aria-pressed": String(l === lang), onclick: () => { lang = l; store.set("lang", l); applyLang(); render(); } }, l === "tr" ? "TR" : "ع")))),
+    installPrompt && !standalone() && h("button", { type: "button", class: "install-chip", onclick: install }, icon("bag"), say("install")),
     h("div", { class: "search-wrap" },
       h("label", { class: "search" }, icon("search"), searchInput,
         query && h("button", { type: "button", class: "clear", "aria-label": say("close"), onclick: () => { query = ""; render(); } }, icon("x")))),
@@ -216,7 +222,7 @@ function render() {
     count > 0 && h("button", { type: "button", class: "cart-bar", onclick: openCart },
       h("span", { class: "count" }, String(count)),
       h("span", { class: "sum" }, h("small", {}, say("cartCount", { n: count })), h("strong", {}, shop.showPrices ? money(total) : say("cart"))),
-      h("span", { class: "go" }, say("seeCart"))));
+      h("span", { class: "go" }, say("seeCart")))));
   if (keepFocus) {
     searchInput.focus();
     searchInput.setSelectionRange(query.length, query.length);
@@ -227,11 +233,11 @@ function render() {
 
 function openSheet(view, title, body, foot) {
   sheet.dataset.view = view;
-  sheet.replaceChildren(
+  sheet.replaceChildren(...clean(
     h("div", { class: "sheet-head" }, h("h2", {}, title),
       h("button", { type: "button", class: "icon-btn", "aria-label": say("close"), onclick: () => sheet.close() }, icon("x"))),
     h("div", { class: "sheet-body" }, body),
-    foot && h("div", { class: "sheet-foot" }, foot));
+    foot && h("div", { class: "sheet-foot" }, foot)));
   if (!sheet.open) sheet.showModal();
 }
 sheet.addEventListener("click", (e) => { if (e.target === sheet) sheet.close(); });
@@ -400,10 +406,18 @@ function state(text, title = "") {
 
 // --- Telefona uygulama olarak yükleme ---
 // Mağazanın kendi uygulama tanımı (/m/{adres}/manifest.webmanifest) ve çalışanı (/m/{adres}/sw.js):
-// yüklenen uygulama doğrudan bu mağazayla açılır. Android'de "Yükle" düğmesi, iPhone'da yol gösterilir.
+// yüklenen uygulama doğrudan bu mağazayla açılır. Android'de "Yükle" düğmesi (üstte ve altta); tarayıcı
+// yükleme önermiyorsa (WhatsApp içinden açıldı, ya da zaten önerilmedi) Chrome menüsünden yol gösterilir.
 let installPrompt = null;
 const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isAndroid = /android/i.test(navigator.userAgent);
+async function install() {
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => null);
+  installPrompt = null;
+  render();
+}
 function setupInstall() {
   if (!route.pretty) return;
   const base = `/m/${route.slug}/`;
@@ -423,12 +437,10 @@ function setupInstall() {
 function installButton() {
   if (standalone() || !route.pretty) return null;
   if (installPrompt) {
-    return h("button", {
-      type: "button", class: "btn outline install",
-      onclick: async () => { installPrompt.prompt(); await installPrompt.userChoice.catch(() => null); installPrompt = null; render(); },
-    }, icon("bag"), say("install"));
+    return h("button", { type: "button", class: "btn outline install", onclick: install }, icon("bag"), say("install"));
   }
-  return isIos ? h("p", { class: "hint center install-hint" }, say("installIos")) : null;
+  if (isIos) return h("p", { class: "hint center install-hint" }, say("installIos"));
+  return isAndroid ? h("p", { class: "hint center install-hint" }, say("installAndroid")) : null;
 }
 
 async function start() {
