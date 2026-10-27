@@ -246,6 +246,13 @@ async function loadLogo(src) {
   try { return await createImageBitmap(await (await fetch(src)).blob()); } catch { return null; }
 }
 
+// Fişin sonu: ayarlardaki ek satır (IBAN, adres notu…) ve teşekkür yazısı (boşsa hiç yazılmaz).
+function thanks(c, L) {
+  if (L.footer) line(c, L.footer, { size: 19, align: "center", color: C.text2 });
+  if (L.thanks) line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
+}
+const thanksHtml = (L) => `${L.footer ? `<p class="c mute">${esc(L.footer)}</p>` : ""}${L.thanks ? `<p class="c thanks">${esc(L.thanks)}</p>` : ""}`;
+
 function drawReceipt(c, doc, L, logo) {
   const cur = doc.currency || "TRY", f = doc.firm || {}, tot = invoiceTotals(doc.lines);
   if (logo) logoAt(c, logo, { align: "center", maxW: 220, maxH: 110 });
@@ -268,7 +275,7 @@ function drawReceipt(c, doc, L, logo) {
   if (bal) pair(c, bal[0], bal[1], { size: 21, weight: 600, color: doc.balanceAfter > 0 ? C.text : C.primary });
   if (doc.note) { c.y += 8; line(c, `${L.note}: ${doc.note}`, { size: 19, color: C.text2 }); }
   rule(c, { dash: [6, 5] });
-  line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
+  thanks(c, L);
 }
 
 // Ödeme / tahsilat makbuzu: fişle aynı dar biçim; ürün satırları yerine tek büyük tutar ve kalan borç.
@@ -289,7 +296,7 @@ function drawMoney(c, doc, L, logo) {
   if (bal) pair(c, bal[0], bal[1], { size: 22, weight: 700, color: doc.balanceAfter > 0 ? C.text : C.primary });
   if (doc.note) { c.y += 8; line(c, `${L.note}: ${doc.note}`, { size: 19, color: C.text2 }); }
   rule(c, { dash: [6, 5] });
-  line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
+  thanks(c, L);
 }
 
 // Hesap ekstresi: carinin hareketleri eskiden yeniye, her satırda tutar ve sonraki bakiye; altta
@@ -319,7 +326,7 @@ function drawStatement(c, doc, L, logo) {
     for (const s of doc.shelf) pair(c, s.name, s.qty, { size: 19, color: C.text2 });
   }
   rule(c, { dash: [6, 5] });
-  line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
+  thanks(c, L);
 }
 
 // Özet fişi (ortak hesabı gibi): başlık, kişi, satır satır etiket – değer, altta büyük toplam.
@@ -339,7 +346,7 @@ function drawSummary(c, doc, L, logo) {
   }
   if (doc.note) { c.y += 8; line(c, doc.note, { size: 18, color: C.text2 }); }
   rule(c, { dash: [6, 5] });
-  line(c, L.thanks, { size: 23, weight: 800, align: "center", color: C.accent });
+  thanks(c, L);
 }
 
 const DRAW = { invoice: drawInvoice, statement: drawStatement, summary: drawSummary, payment: drawMoney, collection: drawMoney };
@@ -553,7 +560,7 @@ ${p(f.phone, "mute")}${p(f.address, "mute")}</div><hr><h2 class="c">${esc(doc.ti
 <table>${tr(doc.number ? esc(`${L.number}: ${doc.number}`) : "", esc(when(doc)), "mute")}</table>
 ${doc.party?.name ? p(`${L.customer}: ${doc.party.name}`) : ""}<hr><table>${rows}</table><hr>
 <table>${tr(esc(L.total), m(tot.gross, cur), "tot")}${doc.paid ? tr(esc(doc.paidLabel || L.paid), m(doc.paid, cur)) : ""}${bal ? tr(esc(bal[0]), esc(bal[1])) : ""}</table>
-${doc.note ? `<hr>${p(`${L.note}: ${doc.note}`, "mute")}` : ""}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
+${doc.note ? `<hr>${p(`${L.note}: ${doc.note}`, "mute")}` : ""}<hr>${thanksHtml(L)}`;
 }
 
 function moneyBody(doc, L) {
@@ -563,7 +570,7 @@ ${p(f.phone, "mute")}${p(f.address, "mute")}</div><hr><h2 class="c">${esc(L[`${d
 <table>${tr(doc.number ? esc(`${L.number}: ${doc.number}`) : "", esc(when(doc)), "mute")}</table>
 ${p(moneyParty(doc, L))}<hr><table>${tr(esc(L.amount), m(doc.amount, cur), "tot")}${rateText(doc) ? tr(esc(L.rate), esc(rateText(doc)), "mute") : ""}
 ${bal ? tr(esc(bal[0]), esc(bal[1])) : ""}</table>
-${doc.note ? `<hr>${p(`${L.note}: ${doc.note}`, "mute")}` : ""}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
+${doc.note ? `<hr>${p(`${L.note}: ${doc.note}`, "mute")}` : ""}<hr>${thanksHtml(L)}`;
 }
 
 const head = (f, logo) => `<div class="c">${logo ? `<img class="logo" src="${esc(logo)}" alt="">` : ""}<h1>${esc(f.name || f.title)}</h1>${p(f.phone, "mute")}</div>`;
@@ -576,7 +583,7 @@ function statementBody(doc, L) {
   return `${head(f, safeLogo(f.logo))}<hr><h2 class="c">${esc(L.statementTitle)}</h2>
 <table>${tr(`<b>${esc(doc.party?.name ?? "")}</b>`, esc(when(doc)))}</table><hr>
 <table>${doc.previous != null ? tr(`<span class="mute">${esc(L.previousBalance)}</span>`, `<span class="mute">${m(Math.abs(doc.previous), cur)}</span>`) : ""}${rows}</table><hr>
-<table>${tr(esc(doc.balanceLabel), m(Math.abs(doc.balance), cur), "tot")}</table>${shelf}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
+<table>${tr(esc(doc.balanceLabel), m(Math.abs(doc.balance), cur), "tot")}</table>${shelf}<hr>${thanksHtml(L)}`;
 }
 
 function summaryBody(doc, L) {
@@ -585,7 +592,7 @@ function summaryBody(doc, L) {
 <table>${tr(`<b>${esc(doc.subtitle ?? "")}</b>`, esc(when(doc)))}</table><hr>
 <table>${doc.rows.map(([a, b]) => tr(esc(a), esc(b))).join("")}</table>
 ${doc.total ? `<hr><table>${tr(esc(doc.total[0]), esc(doc.total[1]), "tot")}</table>` : ""}
-${doc.note ? p(doc.note, "mute") : ""}<hr><p class="c thanks">${esc(L.thanks)}</p>`;
+${doc.note ? p(doc.note, "mute") : ""}<hr>${thanksHtml(L)}`;
 }
 
 function invoiceBody(doc, L) {
@@ -615,7 +622,7 @@ export function receiptHtml(doc, labels) {
   return `<!doctype html><html dir="${dir}" lang="${dir === "rtl" ? "ar" : "tr"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&family=Tajawal:wght@400;500;800&display=swap">
-<style>${BASE_CSS}${invoice ? INVOICE_CSS : RECEIPT_CSS}</style></head><body>${body}</body></html>`;
+<style>${BASE_CSS}${invoice ? INVOICE_CSS : L.paper === "58" ? RECEIPT_CSS.replaceAll("80mm", "58mm") : RECEIPT_CSS}</style></head><body>${body}</body></html>`;
 }
 
 // Gizli iframe'e koyup yazdırır; bitince (afterprint ya da 60 sn) iframe kaldırılır.

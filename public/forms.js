@@ -409,10 +409,8 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
   const deals = Object.entries(firm.deals ?? {});
   const currentDeal = product ? dealOf(product.id) : "";
   let deal;
-  if (deals.length) {
-    deal = select([["", t("generalShares")], ...deals.map(([id, d]) => [id, d.name])], currentDeal);
-    fields.push(field(t("productDeal"), deal, t("productDealHint")));
-  }
+  deal = select([["", t("generalShares")], ...deals.map(([id, d]) => [id, d.name])], currentDeal);
+  fields.push(field(t("productDeal"), deal, t(deals.length ? "productDealHint" : "noDealsHint")));
 
   if (product) {
     // Çeşitler: aynı gruptaki diğer ürünler ve yeni çeşit ekleme.
@@ -796,7 +794,7 @@ function lineRow(ctx, p, onchange, onremove, init) {
   return row;
 }
 
-const PAID_NOW = { sale: "collection", purchase: "payment", saleReturn: "refund" };
+const PAID_NOW = { sale: "collection", purchase: "payment", saleReturn: "refund", purchaseReturn: "supplierRefund" };
 const WALK_IN = "__walkin"; // satış formundaki "Peşin müşteri (direkt satış)" seçeneği
 
 // edit: düzenlenen kayıt; form onun bilgileriyle dolu açılır, kaydedince eskisi çöp kutusuna gider.
@@ -877,7 +875,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       currency,
       symbol,
       margin: type === "sale" || type === "consign",
-      outgoing: type === "sale" || type === "consign",
+      outgoing: type === "sale" || type === "consign" || type === "purchaseReturn",
       // Satışta ve iadede o müşteriye özel fiyat (yoksa ürünün satış fiyatı), emanette o satıcıya son
       // verilen fiyat, alışta son alış fiyatı.
       suggestPrice(p) {
@@ -970,8 +968,8 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     if (PAID_NOW[type] && !edit) {
       paidNow = numberInput({ placeholder: "0,00" });
       const paidWrap = h("label", { class: "field" },
-        h("span", {}, t(type === "sale" ? "paidNowSale" : type === "saleReturn" ? "refundNow" : "paidNowPurchase"), symbol()), paidNow,
-        h("small", { class: "field-hint" }, t(type === "saleReturn" ? "refundNowHint" : "paidNowHint")));
+        h("span", {}, t({ sale: "paidNowSale", saleReturn: "refundNow", purchaseReturn: "refundReceived" }[type] ?? "paidNowPurchase"), symbol()), paidNow,
+        h("small", { class: "field-hint" }, t({ saleReturn: "refundNowHint", purchaseReturn: "refundReceivedHint" }[type] ?? "paidNowHint")));
       fields.push(paidWrap);
       // Peşin müşteride tamamı zaten tahsil edilir: "Peşin alınan" gizlenir.
       partySelect.addEventListener("change", () => {
@@ -991,13 +989,13 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
     fields.push(h("label", { class: "field" }, h("span", {}, t("amount"), symbol()), amount, balanceHint));
   }
   if (type !== "consign") {
-    holder = partnerField(t(["sale", "collection", "debtIn"].includes(type) ? "holderIn" : "holderOut"), edit?.holder);
+    holder = partnerField(t(["sale", "collection", "debtIn", "purchaseReturn", "supplierRefund"].includes(type) ? "holderIn" : "holderOut"), edit?.holder);
     fields.push(holder.field);
   }
   // Kasa: paranın girdiği / çıktığı yer (satışta ve alışta peşin ödenen kısım için).
   let fund = null;
-  if (["collection", "payment", "refund", "debtOut", "debtIn", "sale", "purchase", "saleReturn"].includes(type)) {
-    fund = fundField(t(["collection", "debtIn", "sale"].includes(type) ? "fundIn" : "fundOut"), fundOf(edit));
+  if (["collection", "payment", "refund", "debtOut", "debtIn", "sale", "purchase", "saleReturn", "purchaseReturn", "supplierRefund"].includes(type)) {
+    fund = fundField(t(["collection", "debtIn", "sale", "purchaseReturn", "supplierRefund"].includes(type) ? "fundIn" : "fundOut"), fundOf(edit));
     fields.push(fund.el);
   }
   fields.push(noteField(note));
@@ -1090,7 +1088,7 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       if (paidNow?.value.trim()) {
         const paid = parseMoney(paidNow.value);
         if (!paid) return t("badNumber");
-        extra.push({ ...input, lines: undefined, type: PAID_NOW[type], note: t(type === "saleReturn" ? "refundNote" : "paidNowNote"), amount: paid });
+        extra.push({ ...input, lines: undefined, type: PAID_NOW[type], note: t(type === "saleReturn" || type === "purchaseReturn" ? "refundNote" : "paidNowNote"), amount: paid });
       }
     } else {
       const a = parseMoney(amount.value);
@@ -1136,7 +1134,7 @@ export function openOrderSheet(list) {
     if (asText || (!canShareFiles() && !canCopyImage())) return shareOnWhatsApp({ text, phone: party?.phone ?? null });
     const doc = {
       kind: "summary", title: t("orderTitle"), subtitle: party?.name ?? "", date: today(), time: new Date().toTimeString().slice(0, 5),
-      firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+      firm: receiptFirm(firm),
       rows: lines.map((it) => [productLabel(it.p), `${formatNumber(it.qty())} ${unitLabel(it.p.unit)}`]),
       total: [t("orderItemsTotal"), t("orderItemsCount", { n: lines.length })],
       note: "",
@@ -1416,9 +1414,9 @@ export function openCashSheet(type, { edit } = {}) {
   // Gider bir ürün ortaklığına ait olabilir; o zaman o ortaklığın kârından düşer.
   let deal;
   const deals = Object.entries(firm.deals ?? {});
-  if (type === "expense" && deals.length) {
+  if (type === "expense") {
     deal = select([["", t("generalShares")], ...deals.map(([id, d]) => [id, d.name])], edit?.deal ?? "");
-    fields.push(field(t("expenseDeal"), deal));
+    fields.push(field(t("expenseDeal"), deal, deals.length ? null : t("noDealsHint")));
   }
   fields.push(field(t(type === "expense" ? "expenseNote" : "note"), note), h("small", { class: "field-hint" }, t(`hint_${type}`)), bubble);
   say();
@@ -1725,8 +1723,59 @@ export function openGuestSheet(guestId) {
 
 const RECEIPT_TYPES = ["sale", "consignSale", "saleReturn"];
 
+// Fiş ayarları (Ayarlar → Fiş ayarları): başlık, alt yazı, ek satır, kâğıt; logo/telefon/adres/bakiye.
+const receiptSettings = () => currentFirm()?.receipt ?? {};
+
 export function receiptLabels() {
-  return Object.fromEntries(RECEIPT_LABEL_KEYS.map((k) => [k, k === "dir" ? (lang === "ar" ? "rtl" : "ltr") : t(`rc_${k}`)]));
+  const rs = receiptSettings();
+  const labels = Object.fromEntries(RECEIPT_LABEL_KEYS.map((k) => [k, k === "dir" ? (lang === "ar" ? "rtl" : "ltr") : t(`rc_${k}`)]));
+  if (rs.title) labels.receiptTitle = rs.title;
+  if (rs.thanks != null) labels.thanks = rs.thanks;
+  return { ...labels, footer: rs.extra ?? "", paper: rs.paper ?? "80" };
+}
+
+// Fişin üstündeki işletme bilgisi: ayarlarda kapatılan logo, telefon ve adres yazılmaz.
+export function receiptFirm(firm = currentFirm()) {
+  const rs = firm.receipt ?? {};
+  return {
+    name: firm.name, logo: rs.showLogo === false ? "" : firm.logo ?? "", ...firm.info,
+    ...(rs.showPhone === false && { phone: "" }), ...(rs.showAddress === false && { address: "" }),
+  };
+}
+
+// Fiş ayarları.
+export function openReceiptSettings() {
+  const rs = receiptSettings();
+  const check = (on) => h("input", { type: "checkbox", checked: on });
+  const title = textInput({ maxlength: 40, value: rs.title ?? "", placeholder: t("rc_receiptTitle") });
+  const thanksIn = textInput({ maxlength: 80, value: rs.thanks ?? t("rc_thanks") });
+  const extra = textInput({ maxlength: 160, value: rs.extra ?? "", placeholder: t("rsExtraPlaceholder") });
+  const logo = check(rs.showLogo !== false);
+  const phone = check(rs.showPhone !== false);
+  const address = check(rs.showAddress !== false);
+  const balance = check(rs.showBalance !== false);
+  let paper = rs.paper ?? "80";
+  open(t("receiptSettings"), [
+    h("p", { class: "muted" }, t("rsIntro")),
+    field(t("rsTitle"), title, t("rsTitleHint")),
+    field(t("rsThanks"), thanksIn, t("rsThanksHint")),
+    field(t("rsExtra"), extra, t("rsExtraHint")),
+    h("label", { class: "check" }, logo, h("span", {}, t("rsLogo"))),
+    h("label", { class: "check" }, phone, h("span", {}, t("rsPhone"))),
+    h("label", { class: "check" }, address, h("span", {}, t("rsAddress"))),
+    h("label", { class: "check" }, balance, h("span", {}, t("rsBalance"))),
+    h("div", { class: "field" }, h("span", {}, t("rsPaper")),
+      segmented([["58", "58 mm"], ["80", "80 mm"]], paper, (v) => { paper = v; }),
+      h("small", { class: "field-hint" }, t("rsPaperHint"))),
+  ], [saveButton(), closeButton()], () => {
+    saved(saveFirmSettings({
+      receipt: {
+        title: title.value.trim(), thanks: thanksIn.value.trim(), extra: extra.value.trim(),
+        showLogo: logo.checked, showPhone: phone.checked, showAddress: address.checked, showBalance: balance.checked, paper,
+      },
+    }), t("saved"));
+    return undefined;
+  });
 }
 
 // Fiş numarası: tarih + kayıt kimliğinin başı ("20261026-AB12").
@@ -1734,7 +1783,8 @@ export { receiptNumber };
 
 // Hareketten fiş/fatura belgesi. paid ve balanceAfter sadece satış anında bilinir.
 // Ödeme ve tahsilatta makbuz: tek tutar, kur ve kalan borç (bakiye kişinin para biriminde).
-export function receiptDoc(move, kind, { paid = 0, balanceAfter = null } = {}) {
+export function receiptDoc(move, kind, { paid = 0, balanceAfter: after = null } = {}) {
+  const balanceAfter = receiptSettings().showBalance === false ? null : after;
   const firm = currentFirm();
   const party = session.firm.parties.get(move.party);
   const at = millis(move.at);
@@ -1746,7 +1796,7 @@ export function receiptDoc(move, kind, { paid = 0, balanceAfter = null } = {}) {
       time: at ? new Date(at).toTimeString().slice(0, 5) : "",
       currency: move.currency ?? base(), base: base(),
       rate: move.rate ?? null,
-      firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+      firm: receiptFirm(firm),
       party: party ? { name: party.name, phone: party.phone ?? "" } : null,
       amount: move.total,
       balanceAfter,
@@ -1759,7 +1809,7 @@ export function receiptDoc(move, kind, { paid = 0, balanceAfter = null } = {}) {
     date: move.date,
     time: at ? new Date(at).toTimeString().slice(0, 5) : "",
     currency: move.currency ?? base(), base: base(),
-    firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+    firm: receiptFirm(firm),
     party: party ? {
       name: party.name, title: party.name, taxOffice: party.taxOffice ?? "", taxNo: party.taxNo ?? "",
       address: party.address ?? "", phone: party.phone ?? "",
@@ -2404,7 +2454,7 @@ export function openMoveDetail(move, { balanceAfter = null } = {}) {
 
 // Düzenlenebilen kayıtlar: formu olanlar. Sayım/iade raftaki o anki duruma bağlı olduğu için
 // silinip yeniden girilir; açılış kaydı ürün/kişi formundan gelir.
-const EDITABLE = ["sale", "saleReturn", "purchase", "consign", "payment", "collection", "refund", "debtOut", "debtIn", "expense", "capitalIn", "withdraw", "transfer"];
+const EDITABLE = ["sale", "saleReturn", "purchase", "purchaseReturn", "supplierRefund", "consign", "payment", "collection", "refund", "debtOut", "debtIn", "expense", "capitalIn", "withdraw", "transfer"];
 
 function editMove(move) {
   if (["expense", "capitalIn", "withdraw", "transfer"].includes(move.type)) openCashSheet(move.type, { edit: move });

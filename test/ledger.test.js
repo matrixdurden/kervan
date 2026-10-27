@@ -350,3 +350,16 @@ test("indirim: satışın borcu ve aylık satışı net tutardan; maliyet deği�
   assert.equal(balances.get("sel"), 54000);
   assert.deepEqual(months.get("2026-10"), { revenue: 54000, cogs: 40000, expenses: 0 });
 });
+
+test("tedarikçiye iade: mal ortalama maliyetle çıkar, borç azalır, fark kâra; para iadesi kasaya girer", () => {
+  const ret = { type: "purchaseReturn", party: "sup", date: D, by: "ali", lines: [{ product: "çay", qty: 2, price: 11000 }] };
+  const state = run([buy("çay", 10, 10000), ret, money("supplierRefund", 22000, { party: "sup", holder: "ali" })]);
+  assert.deepEqual(state.products.get("çay"), { stock: 8, value: 80000, lastCost: 10000 });
+  assert.equal(state.balances.get("sup"), 100000 - 22000 + 22000);
+  assert.deepEqual(state.months.get("2026-10"), { revenue: 0, cogs: -2000, expenses: 0 });
+  assert.equal(state.cash.get("ali"), 22000);
+  const get = { product: (id) => run([buy("çay", 10, 10000)]).products.get(id) };
+  const rec = recorded(ret, get);
+  const undone = run([buy("çay", 10, 10000), rec, { revert: rec }]);
+  assert.deepEqual(undone.products.get("çay"), { stock: 10, value: 100000, lastCost: 10000 });
+});

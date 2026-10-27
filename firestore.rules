@@ -51,6 +51,7 @@ service cloud.firestore {
         && d.get('paymentMethods', []) is list && d.get('paymentMethods', []).size() <= 20
         && d.get('ai', {}) is map
         && d.get('defaultVat', 0) is number
+        && d.get('receipt', {}) is map
         && d.get('currency', 'TRY').matches('^[A-Z]{3}$');
     }
 
@@ -105,7 +106,7 @@ service cloud.firestore {
 
     function validMove(firmId, d) {
       return d.type in ['purchase', 'payment', 'sale', 'collection', 'consign', 'consignSale', 'return',
-          'saleReturn', 'refund', 'expense', 'capitalIn', 'withdraw', 'transfer', 'opening', 'stockCount', 'costFix', 'debtOut', 'debtIn', 'fundMove', 'fundAdjust']
+          'saleReturn', 'refund', 'expense', 'capitalIn', 'withdraw', 'transfer', 'opening', 'stockCount', 'costFix', 'debtOut', 'debtIn', 'fundMove', 'fundAdjust', 'purchaseReturn', 'supplierRefund']
         && text(d.party, 40) && text(d.partyName, 80)
         && (d.type in ['opening', 'expense', 'capitalIn', 'withdraw', 'transfer', 'stockCount', 'costFix', 'fundMove', 'fundAdjust'] || d.party.size() > 0)
         && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
@@ -122,8 +123,8 @@ service cloud.firestore {
         && (!('toMethod' in d) || (d.type == 'fundMove' && text(d.toMethod, 40) && text(d.get('toMethodName', ''), 40)))
         && text(d.get('invoiceNo', ''), 40)
         && (!('discount' in d) || (d.type == 'sale' && d.discount is int && d.discount >= 0))
-        && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return', 'saleReturn', 'stockCount', 'costFix'] && validLines(d))
-          || (d.type in ['payment', 'collection', 'refund', 'expense', 'capitalIn', 'withdraw', 'debtOut', 'debtIn'] && d.amount is int && d.amount > 0)
+        && ((d.type in ['purchase', 'sale', 'consign', 'consignSale', 'return', 'saleReturn', 'stockCount', 'costFix', 'purchaseReturn'] && validLines(d))
+          || (d.type in ['payment', 'collection', 'refund', 'expense', 'capitalIn', 'withdraw', 'debtOut', 'debtIn', 'supplierRefund'] && d.amount is int && d.amount > 0)
           || (d.type == 'transfer' && d.amount is int && d.amount > 0 && memberUid(firmId, d.to) && d.to != d.holder)
           || (d.type == 'fundMove' && d.amount is int && d.amount > 0 && d.toMethod is string && d.toMethod != d.get('method', 'cash'))
           || (d.type == 'fundAdjust' && d.amount is int && d.amount != 0)

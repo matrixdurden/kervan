@@ -18,7 +18,7 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, sendPhoto, sharePhoto, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
+  openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, sendPhoto, sharePhoto, receiptFirm, openReceiptSettings, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
 } from "./forms.js";
 import { openInvoiceImport, openSaleImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
@@ -978,7 +978,7 @@ const partnersPage = {
         const pctOf = general.shares[x.uid] ?? (general.ids.includes(x.uid) ? Math.round((100 / general.ids.length) * 10) / 10 : 0);
         const summary = () => ({
           kind: "summary", title: t("partnerSummaryTitle"), subtitle: x.name, date: today(), time: new Date().toTimeString().slice(0, 5),
-          firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+          firm: receiptFirm(firm),
           rows: [
             [t("periodLabel"), t(`period_${period}`)],
             [t("generalShareOf"), `%${formatNumber(pctOf)}`],
@@ -1269,7 +1269,7 @@ const ordersPage = {
 
 // --- Hareketler (defter) ---------------------------------------------------------------------
 
-const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix", "debtOut", "debtIn", "fundMove", "fundAdjust"];
+const FILTERS = ["sale", "collection", "saleReturn", "refund", "purchase", "payment", "consign", "consignSale", "return", "expense", "capitalIn", "withdraw", "transfer", "opening", "stockCount", "costFix", "debtOut", "debtIn", "fundMove", "fundAdjust", "purchaseReturn", "supplierRefund"];
 
 const ledgerPage = {
   types: "all",
@@ -1291,7 +1291,7 @@ const ledgerPage = {
 const TRASH_GROUPS = [
   ["products", ["costFix"]], ["sellers"], ["suppliers"],
   ["sales", ["sale", "consignSale"]], ["purchases", ["purchase"]], ["collections", ["collection"]],
-  ["saleReturns", ["saleReturn", "refund"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
+  ["saleReturns", ["saleReturn", "refund", "purchaseReturn", "supplierRefund"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
   ["stockCount", ["stockCount"]], ["debts", ["debtOut", "debtIn"]], ["cash", ["capitalIn", "withdraw", "transfer", "opening", "fundMove", "fundAdjust"]],
 ];
 let trashCat = "";
@@ -1445,7 +1445,8 @@ const settingsPage = {
         item("wallet", t("paymentMethods"), paymentMethods(firm).map((m) => m.name).join(", "), () => openMethodsSheet()),
         item("fileScan", t("aiSettings"), firm.ai?.key || sharedAiReady() ? t("aiReady") : t("aiNotSet"), () => openAiSheet()),
         item("wallet", t("page_cash"), t("cashSettingsHint"), () => openPage("cash")),
-        item("globe", t("page_shop"), shopOf()?.on ? shopOf().slug : t("shopOffHint"), () => openShopSheet())),
+        item("globe", t("page_shop"), shopOf()?.on ? shopOf().slug : t("shopOffHint"), () => openShopSheet()),
+        item("receipt", t("receiptSettings"), t("receiptSettingsHint"), () => openReceiptSettings())),
       h("div", { class: "field" }, h("span", {}, t("theme")),
         segmented([["auto", t("theme_auto")], ["light", t("theme_light")], ["dark", t("theme_dark")]], currentTheme(), applyTheme),
         h("small", { class: "field-hint" }, t("themeHint"))),
@@ -1490,9 +1491,13 @@ const PAGES = {
       [t("page_consign"), "send", () => openPage("consign")]],
   }),
   // İadeler: satış sayfasının aynısı; müşterinin geri getirdiği mal ve geri verilen para.
+  // İadeler: müşteriden iade al (satış iadesi) ve tedarikçiye iade ver.
   saleReturns: movesPage({
-    types: ["saleReturn", "refund"], empty: "noSaleReturns",
-    fab: () => [t("new_saleReturn"), () => openMoveSheet("saleReturn")],
+    types: ["saleReturn", "refund", "purchaseReturn", "supplierRefund"], empty: "noSaleReturns",
+    fab: () => [t("returnsTake"), () => openMoveSheet("saleReturn")],
+    actions: () => [
+      [t("returnsTake"), "undo", () => openMoveSheet("saleReturn")],
+      [t("returnsGive"), "out", () => openMoveSheet("purchaseReturn")]],
     summary: () => monthTotal(["saleReturn"]),
   }),
   purchases: movesPage({

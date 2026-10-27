@@ -102,7 +102,7 @@ const holderName = (m) => person(currentFirm(), m.holder).name;
 
 // Tüm İşlemler: tür baloncuklarıyla süzülen liste.
 const ALL_GROUPS = [
-  ["sales", ["sale", "consignSale"]], ["saleReturns", ["saleReturn", "refund"]], ["purchases", ["purchase"]],
+  ["sales", ["sale", "consignSale"]], ["saleReturns", ["saleReturn", "refund", "purchaseReturn", "supplierRefund"]], ["purchases", ["purchase"]],
   ["collections", ["collection"]], ["payments", ["payment"]], ["expenses", ["expense"]], ["consign", ["consign", "return"]],
   ["stockCount", ["stockCount"]], ["debts", ["debtOut", "debtIn"]], ["cash", ["capitalIn", "withdraw", "transfer", "fundMove", "fundAdjust"]],
 ];
@@ -150,7 +150,7 @@ const PAGES = {
   cash(r) {
     const firm = currentFirm();
     const { accounts } = session.firm;
-    const inTypes = ["collection", "capitalIn", "debtIn"];
+    const inTypes = ["collection", "capitalIn", "debtIn", "supplierRefund"];
     const outTypes = ["payment", "refund", "expense", "withdraw", "debtOut"];
     const moneyIn = sum(ofType(r, ...inTypes), inLira);
     const moneyOut = sum(ofType(r, ...outTypes), inLira);
@@ -243,14 +243,15 @@ const PAGES = {
         kpi(t("rp_returnsTotal"), formatMoney(total), t("rp_returnCount", { n: returns.length }), "red"),
         kpi(t("rp_refunds"), formatMoney(r.refunds), null, "amber"),
         kpi(t("rp_returnRate"), `%${formatNumber(pct(total, r.sales + total))}`, null, "ink"),
-        kpi(t("rp_consignReturns"), formatMoney(sum(ofType(r, "return"), (m) => m.total)), null, "blue")),
+        kpi(t("rp_consignReturns"), formatMoney(sum(ofType(r, "return"), (m) => m.total)), null, "blue"),
+        kpi(t("type_purchaseReturn"), formatMoney(sum(ofType(r, "purchaseReturn"), inLira)), null, "ink")),
       sec(t("rp_perCustomer")),
       breakdown(topBy(groupTotals(returns, (m) => m.party, partyName, (m) => m.total), "total", 20).map(([, g]) =>
         shareRow(g.name, g.total, total, t("rp_returnCount", { n: g.count })))),
       sec(t("rp_byProduct")),
       breakdown(topBy(byProduct, "total", 20).map(([, x]) => shareRow(x.name, x.total, total, `${formatNumber(x.qty)} ${unitLabel(x.unit)}`))),
       sec(t("rp_list")),
-      movesList(ofType(r, "saleReturn", "refund", "return")),
+      movesList(ofType(r, "saleReturn", "refund", "return", "purchaseReturn", "supplierRefund")),
     ];
   },
 

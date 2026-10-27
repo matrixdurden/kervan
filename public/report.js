@@ -6,7 +6,7 @@ import { lineTotal, roundQty } from "./ledger.js";
 import { invoiceTotals } from "./receipt.js";
 
 const SALES = ["sale", "consignSale"];
-export const REPORT_TYPES = [...SALES, "saleReturn", "refund", "purchase", "expense", "collection", "payment", "return", "consign", "capitalIn", "withdraw", "transfer", "stockCount", "debtOut", "debtIn"];
+export const REPORT_TYPES = [...SALES, "saleReturn", "refund", "purchase", "expense", "collection", "payment", "return", "consign", "capitalIn", "withdraw", "transfer", "stockCount", "debtOut", "debtIn", "purchaseReturn", "supplierRefund"];
 
 // Dövizli hareketin TL karşılığı.
 export const inLira = (m) => (m.currency && m.rate ? Math.round(m.total * m.rate) : m.total);
@@ -70,6 +70,10 @@ export function buildReport(moves) {
       r.payments += inLira(m);
     } else if (m.type === "refund") {
       r.refunds += m.total;
+    } else if (m.type === "purchaseReturn") {
+      // Tedarikçiye iade alıştan düşer.
+      r.purchases -= inLira(m);
+      bump(r.suppliers, m.party, () => ({ name: m.partyName ?? "", total: 0, count: 0 }), (s) => { s.total -= inLira(m); });
     }
   }
   return r;

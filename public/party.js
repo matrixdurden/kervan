@@ -10,7 +10,7 @@ import { session } from "./session.js";
 import { balanceOf } from "./ledger.js";
 import { formatMoney, formatNumber, base, currencySymbol } from "./money.js";
 import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary, TYPE_ICON } from "./views.js";
-import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, openSheet, closeButton, sendPhoto, sharePhoto } from "./forms.js";
+import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, receiptFirm, openSheet, closeButton, sendPhoto, sharePhoto } from "./forms.js";
 import { show } from "./nav.js";
 import { receiptBlob, printReceipt, canCopyImage } from "./receipt.js";
 import { currentFirm } from "./session.js";
@@ -42,7 +42,7 @@ function statementDoc(party) {
     date: today(),
     time: new Date().toTimeString().slice(0, 5),
     currency: party.currency || base(),
-    firm: { name: firm.name, logo: firm.logo ?? "", ...firm.info },
+    firm: receiptFirm(firm),
     party: { name: party.name, phone: party.phone ?? "" },
     previous: truncated || running ? running : null,
     rows,
@@ -136,7 +136,8 @@ function pricesCard(party) {
 const TYPE_BOXES = {
   seller: [["sale", ["sale"], "type_sale"], ["collection", ["collection"], "type_collection"],
     ["saleReturn", ["saleReturn", "refund"], "type_saleReturn"], ["consign", ["consign", "consignSale", "return"], "page_consign"]],
-  supplier: [["purchase", ["purchase"], "type_purchase"], ["payment", ["payment"], "type_payment"]],
+  supplier: [["purchase", ["purchase"], "type_purchase"], ["payment", ["payment"], "type_payment"],
+    ["purchaseReturn", ["purchaseReturn", "supplierRefund"], "type_purchaseReturn"]],
   person: [["debtOut", ["debtOut"], "type_debtOut"], ["debtIn", ["debtIn"], "type_debtIn"]],
 };
 
@@ -232,9 +233,10 @@ function render() {
       actionButton("debtIn", t("quick_debtIn"), open("debtIn"))),
     h("small", { class: "field-hint" }, t("debtHint")));
   } else {
-    out.push(h("div", { class: "quicks two" },
+    out.push(h("div", { class: "quicks three first" },
       actionButton("purchase", t("quick_purchase"), open("purchase")),
-      actionButton("payment", t("quick_payment"), open("payment"))));
+      actionButton("payment", t("quick_payment"), open("payment")),
+      actionButton("purchaseReturn", t("quick_purchaseReturn"), open("purchaseReturn"))));
   }
 
   if (moves?.length) {

@@ -8,7 +8,7 @@ import { avgCost } from "./ledger.js";
 
 export const TYPE_ICON = {
   purchase: "in", sale: "out", payment: "coin", collection: "coin",
-  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin", stockCount: "clipboard", costFix: "pencil", debtOut: "out", debtIn: "in", fundMove: "swap", fundAdjust: "wallet",
+  consign: "send", consignSale: "clipboard", return: "undo", saleReturn: "undo", refund: "coin", stockCount: "clipboard", costFix: "pencil", debtOut: "out", debtIn: "in", fundMove: "swap", fundAdjust: "wallet", purchaseReturn: "undo", supplierRefund: "coin",
   expense: "receipt", capitalIn: "plusCircle", withdraw: "minusCircle", transfer: "swap", opening: "flag",
 };
 
