@@ -10,9 +10,9 @@ import { session } from "./session.js";
 import { balanceOf } from "./ledger.js";
 import { formatMoney, formatNumber, base, currencySymbol } from "./money.js";
 import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary, TYPE_ICON } from "./views.js";
-import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, receiptFirm, openSheet, closeButton, sendPhoto, sharePhoto } from "./forms.js";
+import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, receiptFirm, openSheet, closeButton, sendPhoto, pastePhoto, directPhoto, photoHint } from "./forms.js";
 import { show } from "./nav.js";
-import { receiptBlob, printReceipt, canCopyImage } from "./receipt.js";
+import { receiptBlob, printReceipt } from "./receipt.js";
 import { currentFirm } from "./session.js";
 import { productLabel, clearPartyPrice } from "./data.js";
 import { today } from "./ui.js";
@@ -204,13 +204,13 @@ function render() {
           type: "button", class: "whatsapp",
           onclick: () => sendPhoto(statementBlob(party), party.phone, `cari-${party.name}.png`),
         }, icon("whatsapp"), t("sendStatement")),
-        h("button", {
-          type: "button", class: "small", "aria-label": t("sharePhoto"), title: t("sharePhoto"),
-          onclick: () => sharePhoto(statementBlob(party), `cari-${party.name}.png`, party.phone),
-        }, icon("send")),
+        directPhoto(party.phone) && h("button", {
+          type: "button", class: "small", "aria-label": t("pasteToChat"), title: t("pasteToChat"),
+          onclick: () => pastePhoto(statementBlob(party), party.phone, `cari-${party.name}.png`),
+        }, icon("clipboard")),
         h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => { prepareStatement(party); printReceipt(statement.doc, receiptLabels()); } },
           icon("printer"))),
-      h("small", { class: "field-hint" }, t(party.phone && canCopyImage() ? "photoPasteHint" : "photoPickHint"))),
+      h("small", { class: "field-hint" }, photoHint())),
   ];
   if (moves) prepareStatement(party);
 

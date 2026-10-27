@@ -18,7 +18,7 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, sendPhoto, sharePhoto, receiptFirm, openReceiptSettings, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
+  openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, sendPhoto, pastePhoto, directPhoto, receiptFirm, openReceiptSettings, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
 } from "./forms.js";
 import { openInvoiceImport, openSaleImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
@@ -1032,13 +1032,13 @@ const partnersPage = {
           fact(t("netCapital"), formatMoney(acc.capital ?? 0)),
           fact(t("equity"), formatMoney(equity)))),
         h("div", { class: "statement-actions" },
-          // Yeşil: özet fotoğrafı doğrudan ortağın sohbetine (kopyala + aç); yanındaki: paylaşım ekranı.
+          // Yeşil: özet fotoğrafı paylaşım ekranıyla; yanındaki: kopyala + ortağın sohbetini aç.
           h("button", {
             type: "button", class: "whatsapp",
             onclick: () => sendPhoto(receiptBlob(summary(), receiptLabels()), firm.guests?.[x.uid]?.phone || null, `ortak-${x.name}.png`),
           }, icon("whatsapp"), t("sendPartnerSummary")),
-          h("button", { type: "button", class: "small", "aria-label": t("sharePhoto"), title: t("sharePhoto"),
-            onclick: () => sharePhoto(receiptBlob(summary(), receiptLabels()), `ortak-${x.name}.png`) }, icon("send")),
+          directPhoto(firm.guests?.[x.uid]?.phone) && h("button", { type: "button", class: "small", "aria-label": t("pasteToChat"), title: t("pasteToChat"),
+            onclick: () => pastePhoto(receiptBlob(summary(), receiptLabels()), firm.guests[x.uid].phone, `ortak-${x.name}.png`) }, icon("clipboard")),
           h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => printReceipt(summary(), receiptLabels()) },
             icon("printer"))));
       })),

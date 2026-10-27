@@ -1876,23 +1876,21 @@ export function sendToChat(doc, phone) {
   return shareOnWhatsApp({ text: receiptMessage(doc, link), phone: phone || null });
 }
 
-// Ana düğme: fiş fotoğraf olarak WhatsApp'a (paylaşım ekranında WhatsApp ve kişi seçilir). Dosya
-// paylaşamayan cihazda (bilgisayar) doğrudan sohbete yazı + bağlantı. Altında: yazı + bağlantı
-// (kişinin sohbeti doğrudan açılır), (varsa) fatura bilgisi ve yazdır.
-// Fiş fotoğrafını kişiye gönderir: telefonu kayıtlıysa fotoğraf panoya kopyalanır ve kişinin WhatsApp
-// sohbeti doğrudan açılır (yapıştırılır); değilse ya da kopyalanamazsa paylaşım ekranı açılır.
+// Fiş fotoğrafını kişiye gönderir: telefonda paylaşım ekranı açılır, fotoğraf eklenmiş gelir (WhatsApp,
+// kişi seçilir, gönder'e basılır). Tarayıcı belli bir sohbete dosya ekleyemez, WhatsApp da kendiliğinden
+// göndermez. Dosya paylaşamayan cihazda (bilgisayar) fotoğraf kopyalanıp sohbet açılır, olmazsa indirilir.
 // Fotoğrafın altına yazı eklenmez: her şey fotoğrafta var. blob: Promise<Blob>.
 export async function sendPhoto(blob, phone, filename = "fis.png") {
-  if (phone && waPhone(phone) && canCopyImage()) {
-    if (await copyImageAndOpenChat(blob, phone)) return;
-  }
-  sharePhoto(blob, filename, phone);
-}
-// Paylaşım ekranıyla (WhatsApp ve kişi orada seçilir); yazısız.
-export async function sharePhoto(blob, filename = "fis.png", phone = null) {
+  if (!canShareFiles() && directPhoto(phone) && await copyImageAndOpenChat(blob, phone)) return;
   const result = await shareOnWhatsApp({ blob: await blob, filename, phone: phone || null });
   if (result === "link") toast(t("receiptDownloaded"));
 }
+// İkinci yol: fotoğraf kopyalanır, kişinin sohbeti doğrudan açılır, mesaj kutusuna yapıştırılır.
+export async function pastePhoto(blob, phone, filename = "fis.png") {
+  if (directPhoto(phone) && await copyImageAndOpenChat(blob, phone)) return;
+  sendPhoto(blob, phone, filename);
+}
+export const photoHint = () => t(canShareFiles() ? "photoShareHint" : "photoPickHint");
 function downloadFile(file) {
   const url = URL.createObjectURL(file);
   const a = h("a", { href: url, download: file.name });
@@ -1901,14 +1899,16 @@ function downloadFile(file) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
-const directPhoto = (phone) => Boolean(phone && waPhone(phone) && canCopyImage());
+export const directPhoto = (phone) => Boolean(phone && waPhone(phone) && canCopyImage());
 
+// Ana düğme: fiş fotoğraf olarak WhatsApp'a (paylaşım ekranı). Altında: sohbete yapıştır (telefon kayıtlıysa),
+// yazı + bağlantı (kişinin sohbeti doğrudan açılır), (varsa) fatura bilgisi ve yazdır.
 function chatButtons({ doc, phone, label, blob, filename, invoice, print }) {
   return [
     h("button", { type: "button", class: "block whatsapp", onclick: () => sendPhoto(blob(), phone, filename) }, icon("whatsapp"), label),
-    h("small", { class: "field-hint center" }, t(directPhoto(phone) ? "photoPasteHint" : "photoPickHint")),
+    h("small", { class: "field-hint center" }, photoHint()),
     h("div", { class: "row-buttons" },
-      h("button", { type: "button", class: "block", onclick: () => sharePhoto(blob(), filename, phone) }, icon("send"), t("sharePhoto")),
+      directPhoto(phone) && h("button", { type: "button", class: "block", onclick: () => pastePhoto(blob(), phone, filename) }, icon("clipboard"), t("pasteToChat")),
       h("button", { type: "button", class: "block", onclick: () => sendToChat(doc(), phone) }, icon("whatsapp"), t("sendAsText")),
       invoice && h("button", { type: "button", class: "block", onclick: invoice }, icon("receipt"), t("sendInvoice")),
       h("button", { type: "button", class: "block", onclick: print }, icon("printer"), t("print"))),
@@ -2124,7 +2124,7 @@ export function openShopOrderSheet(order) {
     }, icon("whatsapp"), t("ord_writeCustomer")),
     h("button", { type: "button", class: "block whatsapp", onclick: () => sendPhoto(ready, order.phone, `siparis-${order.code}.png`) }, icon("whatsapp"), t("ord_sendReceipt")),
     h("div", { class: "row-buttons" },
-      h("button", { type: "button", class: "block", onclick: () => sharePhoto(ready, `siparis-${order.code}.png`) }, icon("send"), t("sharePhoto")),
+      directPhoto(order.phone) && h("button", { type: "button", class: "block", onclick: () => pastePhoto(ready, order.phone, `siparis-${order.code}.png`) }, icon("clipboard"), t("pasteToChat")),
       h("button", { type: "button", class: "block", onclick: sharePdf }, icon("receipt"), "PDF"),
       h("button", { type: "button", class: "block", onclick: () => printReceipt(doc, receiptLabels()) }, icon("printer"), t("print"))),
     h("div", { class: "move-actions" },
