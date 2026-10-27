@@ -22,7 +22,7 @@ import {
 import {
   RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, receiptPdf, printReceipt, shareOnWhatsApp, canShareFiles, waPhone, canCopyImage, copyImageAndOpenChat,
 } from "./receipt.js";
-import { shopOf, shopUrl, slugify, saveShop, syncShop, setOrderStatus, deleteOrder } from "./shop.js";
+import { shopOf, shopUrl, slugify, saveShop, syncShop, setOrderStatus, deleteOrder, pushSupported, pushPermission, enableOrderPush } from "./shop.js";
 import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
 import { lastRate, rememberRate, fetchRate } from "./rates.js";
@@ -2037,7 +2037,12 @@ export function openShopSheet() {
       h("button", {
         type: "button", class: "block",
         onclick: () => syncShop().then(() => toast(t("shopSynced")), failed),
-      }, icon("refresh"), t("shopSyncNow")));
+      }, icon("refresh"), t("shopSyncNow")),
+      pushSupported() && h("button", {
+        type: "button", class: "block",
+        onclick: () => enableOrderPush().then(() => toast(t("ord_notifyOn")),
+          (err) => { console.error(err); toast(t(err?.code === "denied" ? "ord_notifyDenied" : "genericError")); }),
+      }, icon("bell"), t(pushPermission() === "granted" ? "ord_notifyRenew" : "ord_notifyEnable")));
   }
   buttons.push(closeButton());
   open(t("page_shop"), fields, buttons, () => {

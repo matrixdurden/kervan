@@ -28,7 +28,7 @@ import { sharedAiReady } from "./ai.js";
 import { REPORT_TYPES, buildReport, salesSeries } from "./report.js";
 import { kpi, pct, salesChart, profitCard, reportTiles, reportDetail, NOW_REPORTS } from "./report-pages.js";
 import { receiptBlob, printReceipt, shareOnWhatsApp, canShareFiles } from "./receipt.js";
-import { shopOf, shopUrl, scheduleShopSync, resetShopSync, listenOrders } from "./shop.js";
+import { shopOf, shopUrl, scheduleShopSync, resetShopSync, listenOrders, orderChime, pushPermission, pushSupported, enableOrderPush } from "./shop.js";
 
 const PAGE = 100;
 
@@ -108,7 +108,33 @@ function watchOrders() {
   ordersUnsub?.();
   ordersSlug = slug;
   session.firm.orders = [];
-  ordersUnsub = slug ? listenOrders((list) => { session.firm.orders = list; render(); }) : null;
+  let seen = null; // ilk okumada gelenler eski sayılır
+  ordersUnsub = slug ? listenOrders((list) => {
+    const fresh = seen ? list.filter((o) => o.status === "new" && !seen.has(o.id)) : [];
+    seen = new Set(list.map((o) => o.id));
+    session.firm.orders = list;
+    render();
+    if (fresh.length) announceOrder(fresh[0]);
+  }) : null;
+}
+
+// Yeni sipariş geldi: ses, bildirim (uygulama arka plandaysa üst perdede), ekranda haber.
+function announceOrder(order) {
+  orderChime();
+  navigator.vibrate?.([200, 100, 200]);
+  toast(t("ord_arrived", { name: order.name }));
+  if (document.hidden && pushPermission() === "granted") {
+    navigator.serviceWorker?.ready.then((reg) => reg.showNotification(t("ord_notifyTitle"), {
+      body: t("ord_arrived", { name: order.name }), tag: "kervan-order", renotify: true, icon: "/icons/icon-192.png", data: { url: "/#orders" },
+    })).catch(() => {});
+  }
+}
+// Bildirime dokununca siparişler açılır.
+navigator.serviceWorker?.addEventListener("message", (e) => { if (e.data?.type === "open-orders" && currentFirm()) openPage("orders"); });
+if (location.hash === "#orders") {
+  history.replaceState(null, "", location.pathname);
+  const wait = setInterval(() => { if (currentFirm()) { clearInterval(wait); openPage("orders"); } }, 300);
+  setTimeout(() => clearInterval(wait), 15000);
 }
 const newOrders = () => (session.firm.orders ?? []).filter((o) => o.status === "new").length;
 
@@ -1262,8 +1288,16 @@ const ordersPage = {
       return [emptyState("🛍️", t("ord_noShop"), h("button", { type: "button", class: "primary", onclick: () => openShopSheet() }, icon("globe"), t("ord_openShop")))];
     }
     const list = (session.firm.orders ?? []).filter((o) => ordersFilter === "all" || (ordersFilter === "new" ? o.status === "new" : o.status !== "new"));
-    if (!list.length) return [emptyState("📭", t(ordersFilter === "new" ? "ord_noneNew" : "ord_none"))];
-    return [h("ul", { class: "cards" }, list.map(orderRow))];
+    // Kapalıyken de bildirim için bir kez izin + kayıt.
+    const notifyCard = pushSupported() && pushPermission() !== "granted" && h("div", { class: "card fund-notice" },
+      h("span", {}, t("ord_notifyAsk")),
+      h("button", {
+        type: "button", class: "small primary",
+        onclick: () => enableOrderPush().then(() => { toast(t("ord_notifyOn")); rerenderBody(); },
+          (err) => { console.error(err); toast(t(err?.code === "denied" ? "ord_notifyDenied" : "genericError")); }),
+      }, icon("bell"), t("ord_notifyEnable")));
+    if (!list.length) return [notifyCard, emptyState("📭", t(ordersFilter === "new" ? "ord_noneNew" : "ord_none"))];
+    return [notifyCard, h("ul", { class: "cards" }, list.map(orderRow))];
   },
 };
 

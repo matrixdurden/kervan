@@ -11,6 +11,8 @@ import { session, currentFirm } from "./session.js";
 import { productLabel, saveFirmSettings } from "./data.js";
 import { base } from "./money.js";
 import { unitLabel } from "./i18n.js";
+import { auth } from "./firebase.js";
+import { aiReaderUrl, pushPublicKey } from "./firebase-config.js";
 
 // İşletmenin mağaza ayarı: { slug, on, phone, showPrices, hideSoldOut } (yoksa null).
 export const shopOf = (firm = currentFirm()) => firm?.shop ?? null;
@@ -139,6 +141,47 @@ export function listenOrders(onchange) {
   return onSnapshot(query(collection(db, "shops", shop.slug, "orders"), orderBy("at", "desc"), limit(100)),
     (snap) => onchange(snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))),
     (err) => console.error(err));
+}
+
+// --- Sipariş bildirimi ---
+// Bu telefon kapalıyken de bildirim alsın: tarayıcının push aboneliği Worker'a kaydedilir.
+export const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && Boolean(pushPublicKey);
+export const pushPermission = () => (("Notification" in window) ? Notification.permission : "unsupported");
+
+const keyBytes = (b64) => Uint8Array.from(atob(b64.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(b64.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+
+export async function enableOrderPush() {
+  const shop = shopOf();
+  if (!shop?.slug || !pushSupported()) throw new Error("unsupported");
+  if (await Notification.requestPermission() !== "granted") throw Object.assign(new Error("denied"), { code: "denied" });
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription()
+    ?? await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(pushPublicKey) });
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch(`${aiReaderUrl}/push/subscribe`, {
+    method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ slug: shop.slug, subscription: sub.toJSON() }),
+  });
+  if (!res.ok) throw new Error(`subscribe ${res.status}`);
+}
+
+// Uygulama açıkken yeni sipariş: kısa iki notalı ses (telefonun sesi açıksa).
+export function orderChime() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [[880, 0], [1320, 0.18]].forEach(([f, at]) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + at);
+      g.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + 0.35);
+      o.connect(g).connect(ctx.destination);
+      o.start(ctx.currentTime + at);
+      o.stop(ctx.currentTime + at + 0.4);
+    });
+    setTimeout(() => ctx.close(), 1200);
+  } catch { /* ses çalınamadı */ }
 }
 
 // Siparişin durumu: new (yeni), done (satışa çevrildi), rejected (reddedildi).

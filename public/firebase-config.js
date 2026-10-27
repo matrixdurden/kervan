@@ -14,3 +14,6 @@ export const firebaseConfig = {
 // Anahtarsız fatura okuma için Cloudflare Worker'ının adresi (worker/, npm run deploy:ai).
 // Gizli değildir. Boşsa anahtarsız yol kapalıdır; işletmeler kendi Gemini anahtarıyla okur.
 export const aiReaderUrl = "https://kervan-ai.muhammethilalx.workers.dev";
+
+// Sipariş bildirimi (Web Push) için açık anahtar; gizli eşi Worker'da sır olarak durur. Gizli değildir.
+export const pushPublicKey = "BNkIKqtSchPb6k5plLsykDrOvTwel7-vhwLjpRQhWsSipDxbn0yIodPKvHNQ6VTpLzYQzQnfbSf2fP2fQG2tJbk";

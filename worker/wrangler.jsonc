@@ -1,4 +1,4 @@
-// Anahtarsız fatura okuma Worker'ı (bkz. worker/index.js). Yayınlamak: npm run deploy:ai
+// Fatura okuma ve sipariş bildirimi Worker'ı (bkz. worker/index.js). Yayınlamak: npm run deploy:ai
 {
   "name": "kervan-ai",
   "main": "index.js",
@@ -6,5 +6,9 @@
   "workers_dev": true,
   "preview_urls": false,
   "ai": { "binding": "AI" },
+  // Sipariş bildirimi: telefon kayıtları (KV) ve VAPID açık anahtarı; gizli anahtar sır olarak
+  // (wrangler secret put VAPID_PRIVATE_JWK).
+  "kv_namespaces": [{ "binding": "PUSH", "id": "4b4ffd558a9b4df6b9ccb9876363e667" }],
+  "vars": { "VAPID_PUBLIC": "BNkIKqtSchPb6k5plLsykDrOvTwel7-vhwLjpRQhWsSipDxbn0yIodPKvHNQ6VTpLzYQzQnfbSf2fP2fQG2tJbk" },
   "observability": { "enabled": true }
 }

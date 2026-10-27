@@ -1,3 +1,5 @@
+// İki iş: (1) anahtarsız fatura okuma, (2) online mağaza sipariş bildirimi (Web Push, aşağıda).
+//
 // Anahtarsız fatura okuma: uygulama faturanın görselini (ya da PDF'in metnini) buraya yollar,
 // Worker onu Cloudflare Workers AI'daki görsel okuyabilen bir modele sorar. Kullanıcı anahtar
 // girmez; isteği sadece kervan'a Google ile girmiş biri atabilir (Firebase kimlik jetonu).
@@ -63,6 +65,77 @@ export async function verifyIdToken(token, { project = PROJECT, now = Date.now()
   return ok ? claims.sub : null;
 }
 
+// ---- Sipariş bildirimi (Web Push) ----
+// Dükkânın telefonu /push/subscribe ile kaydolur: sadece o mağazanın işletmesinin ortağı (Firestore,
+// kişinin kendi jetonuyla okunabiliyorsa ortaktır). Müşteri sipariş gönderince vitrin /push/notify'ı
+// çağırır; sipariş Firestore'dan doğrulanır (var, yeni, birkaç dakikalık) ve kayıtlı telefonlara
+// içeriksiz bildirim gider (telefon "Yeni sipariş" yazar). Kayıtlar KV'de (PUSH), gizli anahtar
+// VAPID_PRIVATE_JWK sırrında, açık anahtar VAPID_PUBLIC değişkeninde.
+
+const FIRESTORE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
+const SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
+const enc64 = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const text64 = (obj) => enc64(new TextEncoder().encode(JSON.stringify(obj)));
+
+async function sha256(s) {
+  return enc64(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))));
+}
+
+// VAPID başlığı (ES256 imzalı kısa JWT): push sunucusu isteğin bu uygulamadan geldiğini anlar.
+export async function vapidAuth(endpoint, privateJwk, publicKey, now = Date.now() / 1000) {
+  const head = text64({ typ: "JWT", alg: "ES256" });
+  const body = text64({ aud: new URL(endpoint).origin, exp: Math.floor(now) + 12 * 3600, sub: "https://kervanim.web.app" });
+  const key = await crypto.subtle.importKey("jwk", privateJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, new TextEncoder().encode(`${head}.${body}`)));
+  return `vapid t=${head}.${body}.${enc64(sig)}, k=${publicKey}`;
+}
+
+// Sipariş bildirim için uygun mu: var, durumu yeni, son 15 dakikada oluşmuş.
+export function freshOrder(doc, now = Date.now()) {
+  const f = doc?.fields;
+  if (!f || f.status?.stringValue !== "new") return false;
+  const at = Date.parse(f.at?.timestampValue ?? "");
+  return Number.isFinite(at) && now - at < 15 * 60 * 1000 && at - now < 60 * 1000;
+}
+
+async function subscribe(request, env, origin, idToken, fetcher = fetch) {
+  const body = await request.json().catch(() => null);
+  const slug = String(body?.slug ?? "");
+  const endpoint = String(body?.subscription?.endpoint ?? "");
+  if (!SLUG.test(slug) || !/^https:\/\//.test(endpoint) || endpoint.length > 1000) return reply(origin, 400, { error: "bad" });
+  const shop = await (await fetcher(`${FIRESTORE}/shops/${slug}`)).json().catch(() => null);
+  const firm = shop?.fields?.firm?.stringValue;
+  if (!firm) return reply(origin, 404, { error: "shop" });
+  const member = await fetcher(`${FIRESTORE}/firms/${firm}`, { headers: { authorization: `Bearer ${idToken}` } });
+  if (!member.ok) return reply(origin, 403, { error: "member" });
+  await env.PUSH.put(`sub:${slug}:${await sha256(endpoint)}`, JSON.stringify({ endpoint }), { expirationTtl: 90 * 24 * 3600 });
+  return reply(origin, 200, { ok: true });
+}
+
+export async function notify(body, env, fetcher = fetch, now = Date.now()) {
+  const slug = String(body?.slug ?? "");
+  const order = String(body?.order ?? "");
+  if (!SLUG.test(slug) || !/^[A-Za-z0-9]{10,40}$/.test(order)) return { status: 400, sent: 0 };
+  const doc = await (await fetcher(`${FIRESTORE}/shops/${slug}/orders/${order}`)).json().catch(() => null);
+  if (!freshOrder(doc, now)) return { status: 404, sent: 0 };
+  if (await env.PUSH.get(`sent:${order}`)) return { status: 200, sent: 0 };
+  await env.PUSH.put(`sent:${order}`, "1", { expirationTtl: 3600 });
+  const privateJwk = JSON.parse(env.VAPID_PRIVATE_JWK);
+  let sent = 0;
+  const { keys: subs } = await env.PUSH.list({ prefix: `sub:${slug}:` });
+  for (const { name } of subs) {
+    const sub = JSON.parse(await env.PUSH.get(name) ?? "null");
+    if (!sub?.endpoint) continue;
+    const res = await fetcher(sub.endpoint, {
+      method: "POST",
+      headers: { authorization: await vapidAuth(sub.endpoint, privateJwk, env.VAPID_PUBLIC, now / 1000), ttl: "86400", urgency: "high", "content-length": "0" },
+    }).catch(() => null);
+    if (res?.status === 404 || res?.status === 410) await env.PUSH.delete(name); // telefon aboneliği bırakmış
+    else if (res?.ok) sent++;
+  }
+  return { status: 200, sent };
+}
+
 // ---- İstek ----
 
 const cors = (origin) => (ORIGINS.includes(origin) ? {
@@ -97,9 +170,19 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(origin) });
     if (request.method !== "POST") return reply(origin, 405, { error: "ai-failed" });
     if (!ORIGINS.includes(origin)) return reply(origin, 403, { error: "ai-setup" });
+    const path = new URL(request.url).pathname;
 
-    const uid = await verifyIdToken(/^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1]).catch(() => null);
+    // Vitrinden: sipariş geldi (girişsiz; sipariş Firestore'dan doğrulanır).
+    if (path === "/push/notify") {
+      const body = await request.json().catch(() => null);
+      const out = await notify(body, env);
+      return reply(origin, out.status, { sent: out.sent });
+    }
+
+    const idToken = /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1];
+    const uid = await verifyIdToken(idToken).catch(() => null);
     if (!uid) return reply(origin, 401, { error: "ai-setup" });
+    if (path === "/push/subscribe") return subscribe(request, env, origin, idToken);
 
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return reply(origin, 413, { error: "ai-too-big" });
     const body = await request.json().catch(() => null);

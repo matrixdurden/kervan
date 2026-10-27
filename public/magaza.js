@@ -8,7 +8,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebas
 import {
   getFirestore, connectFirestoreEmulator, doc, collection, getDoc, getDocs, setDoc, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
-import { firebaseConfig } from "/firebase-config.js";
+import { firebaseConfig, aiReaderUrl } from "/firebase-config.js";
 import { formatMoney } from "/money.js";
 import { receiptCanvas, receiptPdf, downloadBlob, whatsappUrl, waPhone } from "/receipt.js";
 
@@ -27,6 +27,7 @@ const TEXT = {
     orderMissing: "Sipariş bulunamadı.", orderTitle: "Sipariş", waOrder: "Yeni sipariş", orderLink: "Siparişin fotoğrafı ve PDF'i",
     rc: { receiptTitle: "Sipariş", number: "No", customer: "Müşteri", total: "Toplam", paid: "Ödenen", note: "Not", thanks: "Teşekkür ederiz", balanceOwed: "Kalan", balanceCredit: "Alacak" },
     madeWith: "kervan ile hazırlandı",
+    install: "Uygulama olarak yükle", installIos: "Yüklemek için: Paylaş düğmesi → Ana Ekrana Ekle",
   },
   ar: {
     eyebrow: "متجر إلكتروني", title: "متجر إلكتروني", search: "عمّ تبحث؟", all: "الكل", products: "المنتجات", items: "{n} منتج",
@@ -42,6 +43,7 @@ const TEXT = {
     orderMissing: "لم يُعثر على الطلب.", orderTitle: "طلب", waOrder: "طلب جديد", orderLink: "صورة الطلب وملف PDF",
     rc: { receiptTitle: "طلب", number: "رقم", customer: "العميل", total: "المجموع", paid: "المدفوع", note: "ملاحظة", thanks: "شكرًا لكم", balanceOwed: "المتبقي", balanceCredit: "له" },
     madeWith: "صُنع بـ kervan",
+    install: "ثبّت كتطبيق", installIos: "للتثبيت: زر المشاركة ← إضافة إلى الشاشة الرئيسية",
   },
 };
 
@@ -209,6 +211,7 @@ function render() {
     h("div", { class: "section-head" }, h("h2", {}, cat || say("products")), h("small", {}, say("items", { n: list.length }))),
     h("section", { class: "grid" },
       list.length ? list.map(card) : h("p", { class: "empty" }, say(items.length ? "noMatch" : "noProducts"))),
+    installButton(),
     h("p", { class: "footer" }, h("a", { href: "https://kervanim.web.app", target: "_blank", rel: "noopener" }, say("madeWith"))),
     count > 0 && h("button", { type: "button", class: "cart-bar", onclick: openCart },
       h("span", { class: "count" }, String(count)),
@@ -325,6 +328,10 @@ function send(via, lines, total, error) {
     if (w) w.opener = null;
     else location.href = url;
   }
+  // Dükkânın telefonuna bildirim (uygulama kapalı olsa da); başarısız olursa sipariş yine kayıtlı.
+  saving.then(() => fetch(`${aiReaderUrl}/push/notify`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slug: route.slug, order: ref.id }),
+  }).catch(() => {}));
   saving.then(() => {
     cart.clear();
     saveCart();
@@ -391,14 +398,49 @@ function state(text, title = "") {
   app$.replaceChildren(h("div", { class: "state" }, title && h("h1", {}, title), h("p", {}, text)));
 }
 
+// --- Telefona uygulama olarak yükleme ---
+// Mağazanın kendi uygulama tanımı (/m/{adres}/manifest.webmanifest) ve çalışanı (/m/{adres}/sw.js):
+// yüklenen uygulama doğrudan bu mağazayla açılır. Android'de "Yükle" düğmesi, iPhone'da yol gösterilir.
+let installPrompt = null;
+const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+function setupInstall() {
+  if (!route.pretty) return;
+  const base = `/m/${route.slug}/`;
+  // Uygulamanın kapsamı /m/{adres}/: sayfa da bu adreste olsun ki yükleme düğmesi çıksın.
+  if (!route.order && location.pathname !== base) history.replaceState(null, "", base + location.search);
+  document.head.append(h("link", { rel: "manifest", href: `${base}manifest.webmanifest` }));
+  document.head.append(h("meta", { name: "apple-mobile-web-app-capable", content: "yes" }));
+  document.head.append(h("link", { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png" }));
+  navigator.serviceWorker?.register(`${base}sw.js`, { scope: base }).catch(() => {});
+  addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    render();
+  });
+  addEventListener("appinstalled", () => { installPrompt = null; render(); });
+}
+function installButton() {
+  if (standalone() || !route.pretty) return null;
+  if (installPrompt) {
+    return h("button", {
+      type: "button", class: "btn outline install",
+      onclick: async () => { installPrompt.prompt(); await installPrompt.userChoice.catch(() => null); installPrompt = null; render(); },
+    }, icon("bag"), say("install"));
+  }
+  return isIos ? h("p", { class: "hint center install-hint" }, say("installIos")) : null;
+}
+
 async function start() {
   applyLang();
+  setupInstall();
   if (!route.slug) return state(say("missing"));
   try {
     const snap = await getDoc(doc(db, "shops", route.slug));
     if (!snap.exists()) return state(say("missing"));
     shop = { ...snap.data(), showPrices: snap.data().showPrices !== false };
     document.title = `${shop.name} · ${say("title")}`;
+    document.head.append(h("meta", { name: "apple-mobile-web-app-title", content: shop.name }));
     if (route.order) return showOrder();
     if (!shop.open) return state(say("closed"), shop.name);
     const list = await getDocs(collection(db, "shops", route.slug, "items"));

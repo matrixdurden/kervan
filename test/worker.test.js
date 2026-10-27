@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import worker, { toJsonSchema, verifyIdToken } from "../worker/index.js";
+import worker, { toJsonSchema, verifyIdToken, vapidAuth, notify } from "../worker/index.js";
 
 const PROJECT = "kervan-7c9f64";
 const ORIGIN = "https://kervanim.web.app";
@@ -54,4 +54,47 @@ test("worker: yabancı site ve jetonsuz istek reddedilir", async () => {
   res = await worker.fetch(new Request("https://w.dev", { method: "OPTIONS", headers: { origin: ORIGIN } }), env);
   assert.equal(res.status, 204);
   assert.equal(res.headers.get("access-control-allow-origin"), ORIGIN);
+});
+
+test("worker: VAPID başlığı açık anahtarla doğrulanır", async () => {
+  const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const priv = await crypto.subtle.exportKey("jwk", kp.privateKey);
+  const pub = Buffer.from(new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey))).toString("base64url");
+  const header = await vapidAuth("https://fcm.googleapis.com/fcm/send/abc", priv, pub, NOW);
+  const [, jwt, k] = /^vapid t=([^,]+), k=(.+)$/.exec(header);
+  assert.equal(k, pub);
+  const [h, b, s] = jwt.split(".");
+  const claims = JSON.parse(Buffer.from(b, "base64url"));
+  assert.equal(claims.aud, "https://fcm.googleapis.com");
+  assert.equal(claims.exp, NOW + 12 * 3600);
+  const ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, kp.publicKey, Buffer.from(s, "base64url"), new TextEncoder().encode(`${h}.${b}`));
+  assert.ok(ok);
+});
+
+test("worker: sipariş bildirimi sadece yeni ve taze siparişe, bir kez gider; bırakılmış abonelik silinir", async () => {
+  const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const store = new Map([["sub:dukkan:a", JSON.stringify({ endpoint: "https://push.example/a" })], ["sub:dukkan:b", JSON.stringify({ endpoint: "https://push.example/b" })]]);
+  const env = {
+    VAPID_PRIVATE_JWK: JSON.stringify(await crypto.subtle.exportKey("jwk", kp.privateKey)), VAPID_PUBLIC: "pub",
+    PUSH: {
+      get: async (k) => store.get(k) ?? null, put: async (k, v) => { store.set(k, v); }, delete: async (k) => { store.delete(k); },
+      list: async ({ prefix }) => ({ keys: [...store.keys()].filter((k) => k.startsWith(prefix)).map((name) => ({ name })) }),
+    },
+  };
+  const now = Date.parse("2026-10-27T10:00:00Z");
+  const pushes = [];
+  const fetcher = async (url, opts) => {
+    if (url.includes("/orders/")) {
+      return new Response(JSON.stringify({ fields: { status: { stringValue: url.endsWith("eskiSiparis0001") ? "done" : "new" }, at: { timestampValue: "2026-10-27T09:58:00Z" } } }));
+    }
+    pushes.push(url);
+    return new Response(null, { status: url.endsWith("/b") ? 410 : 201 });
+  };
+  const first = await notify({ slug: "dukkan", order: "yeniSiparis00001" }, env, fetcher, now);
+  assert.deepEqual(first, { status: 200, sent: 1 });
+  assert.equal(pushes.length, 2);
+  assert.ok(!store.has("sub:dukkan:b"));
+  assert.deepEqual(await notify({ slug: "dukkan", order: "yeniSiparis00001" }, env, fetcher, now), { status: 200, sent: 0 });
+  assert.equal((await notify({ slug: "dukkan", order: "eskiSiparis0001" }, env, fetcher, now)).status, 404);
+  assert.equal((await notify({ slug: "Kötü Ad", order: "yeniSiparis00001" }, env, fetcher, now)).status, 400);
 });

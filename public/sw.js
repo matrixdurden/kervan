@@ -1,7 +1,7 @@
 // Uygulama dosyalarını önbelleğe alır ki internet yokken de açılsın.
 // İnternet varsa her zaman en güncel sürüm gelir.
 
-const CACHE = "kervan-v31";
+const CACHE = "kervan-v32";
 const SHELL = [
   "/", "/index.html", "/style.css", "/app.js", "/firm.js", "/party.js", "/forms.js", "/views.js", "/nav.js",
   "/data.js", "/ledger.js", "/money.js", "/rates.js", "/ui.js", "/session.js", "/firebase.js", "/firebase-config.js",
@@ -20,6 +20,33 @@ self.addEventListener("activate", (event) => {
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
+});
+
+// Online mağazadan yeni sipariş (Worker'dan içeriksiz bildirim). Uygulama ekranda açıksa uygulama
+// kendisi ses çalar; değilse telefonun üst perdesinde (sesli) bildirim çıkar.
+self.addEventListener("push", (event) => {
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    if (wins.some((w) => w.visibilityState === "visible")) return;
+    await self.registration.showNotification("Yeni sipariş 🛍️", {
+      body: "Online mağazandan sipariş geldi. Görmek için dokun.",
+      tag: "kervan-order", renotify: true, icon: "/icons/icon-192.png", badge: "/icons/icon-192.png",
+      vibrate: [200, 100, 200], data: { url: "/#orders" },
+    });
+  })());
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const win = wins.find((w) => new URL(w.url).origin === location.origin && !new URL(w.url).pathname.startsWith("/m/"));
+    if (win) {
+      win.postMessage({ type: "open-orders" });
+      return win.focus();
+    }
+    return self.clients.openWindow("/#orders");
+  })());
 });
 
 self.addEventListener("fetch", (event) => {

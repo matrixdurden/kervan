@@ -226,5 +226,7 @@ dialog.sheet[open] { display: flex; flex-direction: column; animation: up .25s e
   padding: 10px 16px; border-radius: 999px; background: var(--dark); color: var(--on-dark); font-weight: 700; font-size: 14px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
 }
+.btn.install { margin-top: 28px; max-width: 360px; margin-inline: auto; }
+.install-hint { text-align: center; margin-top: 24px; }
 .footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 36px; }
 .footer a { color: var(--gold); text-decoration: none; font-weight: 700; }
