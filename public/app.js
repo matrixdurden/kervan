@@ -422,7 +422,7 @@ $("#sign-out").addEventListener("click", async () => {
 
 // Tarayıcı eski stil dosyasını yeni kodla birlikte açarsa (önbellek) ekran bozuk görünür: stil dosyasının
 // sürümü koddakiyle aynı değilse stil dosyası önbelleği atlayarak yeniden yüklenir.
-const CSS_REV = "35";
+const CSS_REV = "36";
 function freshStyles() {
   const link = document.querySelector('link[rel="stylesheet"][href^="/style.css"]');
   const rev = getComputedStyle(document.documentElement).getPropertyValue("--css-rev").trim();

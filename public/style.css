@@ -2,7 +2,7 @@
    koyu deniz yeşili ana renk, her bölümün kendi rengi. */
 
 :root {
-  --css-rev: 35; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
+  --css-rev: 36; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
   --bg: #F3F1EC;
   --card: #FFFFFF;
   --card-border: #E1DCD2;
@@ -323,7 +323,7 @@ button.avatars { height: auto; padding: 4px; border: 0; }
 
 
 /* Özet */
-.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tiles { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .tile {
   height: auto; padding: 14px 16px;
   flex-direction: column; align-items: flex-start; gap: 4px;
@@ -338,8 +338,8 @@ button.avatars { height: auto; padding: 4px; border: 0; }
 .tile.in strong { color: var(--in); }
 .tile.out strong { color: var(--out); }
 
-.quicks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
-.quicks.two { grid-template-columns: 1fr 1fr; }
+.quicks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.quicks.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .quick {
   --c: var(--primary);
   height: 74px; padding: 0 4px;
@@ -349,7 +349,7 @@ button.avatars { height: auto; padding: 4px; border: 0; }
   font-size: 13px;
 }
 .quick svg { width: 24px; height: 24px; color: var(--c); }
-.quicks.three { grid-template-columns: repeat(3, 1fr); margin-top: 8px; }
+.quicks.three { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 8px; }
 .quicks.three.first { margin-top: 0; }
 .quick:disabled { opacity: 0.4; }
 .quicks.two .quick { height: 54px; flex-direction: row; font-size: 15px; }
@@ -496,7 +496,7 @@ button.add-line { align-self: flex-start; }
 .share-row .pct { display: flex; align-items: center; gap: 4px; width: 110px; color: var(--text-3); }
 .share-row input { height: 42px; text-align: end; }
 
-.facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .fact { padding: 10px 12px; background: var(--card); border: 1px solid var(--card-border); border-radius: 14px; min-width: 0; }
 .fact span { display: block; font-size: 12px; color: var(--text-3); }
 .fact strong { display: block; font-size: 15px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
@@ -617,7 +617,7 @@ img.firm-mark { object-fit: cover; background: var(--card); }
 .stat.in strong { color: var(--in); }
 .stat.out strong { color: var(--out); }
 
-.tiles-big { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tiles-big { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .tile-big {
   height: 92px; flex-direction: column; gap: 8px; border: 0; border-radius: 20px;
   color: #fff; font-size: 17px; font-weight: 800; box-shadow: 0 2px 6px rgb(0 0 0 / 0.12);
@@ -628,7 +628,7 @@ img.firm-mark { object-fit: cover; background: var(--card); }
 .tile-collection { background: var(--collect); }
 .tile-expense { background: var(--spend); }
 
-.tiles-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.tiles-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-top: 12px; }
 .tile-small {
   height: 84px; flex-direction: column; gap: 6px;
   background: var(--card); border: 1px solid var(--card-border); border-radius: 18px; box-shadow: var(--shadow);
@@ -650,7 +650,7 @@ button.low-banner {
 .page-head { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
 .page-head .toolbar { margin-bottom: 0; }
 #view > .page-actions { margin-bottom: 12px; }
-.page-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.page-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .page-actions > :first-child { grid-column: 1 / -1; }
 .big-action {
   height: 54px; border-radius: 16px; font-size: 16px;
@@ -680,7 +680,7 @@ button.whatsapp { font-size: 16px; height: 52px; }
 .variants { display: flex; flex-direction: column; gap: 6px; }
 button.variant {
   height: auto; min-height: 44px; padding: 6px 12px; border-radius: 12px;
-  display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center;
   font-weight: 600; text-align: start; background: var(--bg);
 }
 .v-stock { color: var(--text-3); font-size: 13px; }
@@ -938,7 +938,7 @@ dialog.sheet > .menu { flex: 1; min-height: 0; gap: 0; }
 .page-actions .big-action:not(.primary) { height: 48px; font-size: 14.5px; }
 
 /* Sekmeler (Hepsi / Azalanlar) */
-.tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; overflow: hidden; border: 1px solid var(--card-border); border-radius: 14px; background: var(--card); }
+.tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); overflow: hidden; border: 1px solid var(--card-border); border-radius: 14px; background: var(--card); }
 .tabs button { height: 48px; border: 0; border-radius: 0; font-size: 15.5px; font-weight: 800; color: var(--text-2); }
 .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
 
@@ -1049,11 +1049,11 @@ button.card.product-tile {
 .pt-stock.bad { color: var(--danger); }
 .pick-tile.picked { border-color: var(--primary); box-shadow: 0 0 0 1.5px var(--primary) inset; }
 /* Sepetteki ürünün kutucuğunda − adet + (her yerdeki adet düğmeleriyle aynı) */
-.pt-step { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; width: 100%; background: var(--primary); color: var(--on-primary); }
+.pt-step { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; width: 100%; background: var(--primary); color: var(--on-primary); }
 .pt-step button { height: 32px; padding: 0; border: 0; border-radius: 0; color: inherit; }
 .pt-step button svg { width: 18px; height: 18px; stroke-width: 2.8; }
 .pt-step strong { min-width: 24px; text-align: center; font-size: 15px; font-variant-numeric: tabular-nums; }
-.pt-step.add { grid-template-columns: 1fr; background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); }
+.pt-step.add { grid-template-columns: minmax(0, 1fr); background: color-mix(in srgb, var(--primary) 10%, var(--card)); color: var(--primary); }
 /* "+ Yeni ürün" kutucuğu */
 button.pick-tile.new {
   height: auto; min-height: 120px; align-self: stretch; padding: 8px; gap: 6px; justify-content: center; align-items: center;
@@ -1145,7 +1145,7 @@ button.cat-tile.add { border-style: dashed; color: var(--primary); }
 .say-bubble.ready { color: var(--text); border-color: color-mix(in srgb, var(--in) 45%, var(--card)); background: color-mix(in srgb, var(--in) 9%, var(--card)); }
 
 /* Raporlar: özet kutucukları, satış grafiği, pay çubuklu dökümler */
-.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.kpis { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-bottom: 12px; }
 .kpi {
   --c: var(--text); display: flex; flex-direction: column; gap: 2px; min-width: 0;
   padding: 12px 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--card-border);
@@ -1224,8 +1224,8 @@ p.total-line, .pl-row.total-line { display: flex; justify-content: space-between
 .partner-item .statement-actions { margin-top: 6px; }
 
 /* Hareket ayrıntısı: düzenle / sil */
-.move-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.move-actions.one { grid-template-columns: 1fr; }
+.move-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.move-actions.one { grid-template-columns: minmax(0, 1fr); }
 .move-actions button { height: 50px; }
 .move-actions button.danger { border-color: color-mix(in srgb, var(--danger) 40%, var(--card)); }
 .trash-hint { margin: 0 4px 10px; }
@@ -1289,7 +1289,7 @@ button.card.type-box.consign { --c: var(--accent); }
 .tb-count { font-size: 12px; color: var(--text-3); }
 
 /* Stok değeri ve borçlar: solda satış tarafı, sağda maliyet tarafı; kare kutular */
-.value-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.value-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; margin-bottom: 12px; }
 button.card.value-tile {
   --c: var(--text); width: 100%; height: auto; min-height: 150px; padding: 14px; flex-direction: column; align-items: flex-start;
   justify-content: flex-start; gap: 4px; text-align: start; white-space: normal; font-weight: 400;
@@ -1320,7 +1320,7 @@ button.card.value-tile.in { --c: var(--in); } button.card.value-tile.out { --c: 
 .count-chip { padding: 2px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 700;
   background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .count-chip.status { background: color-mix(in srgb, var(--st) 16%, transparent); color: var(--st); }
-.count-step { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 8px;
+.count-step { display: grid; grid-template-columns: 52px minmax(0, 1fr) 52px; align-items: center; gap: 8px;
   padding: 6px; border-radius: 14px; background: color-mix(in srgb, var(--st) 10%, var(--bg)); }
 .count-step button { width: 52px; height: 52px; padding: 0; border-radius: 50%; }
 .count-step button svg { width: 22px; height: 22px; stroke-width: 2.6; }
@@ -1329,7 +1329,7 @@ button.card.value-tile.in { --c: var(--in); } button.card.value-tile.out { --c: 
   border: 0; background: transparent; color: var(--text); }
 .count-input:focus { background: var(--card); border-radius: 10px; }
 .count-nums small { font-size: 16px; color: var(--text-3); white-space: nowrap; }
-.count-bar { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; }
+.count-bar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; }
 .count-bar > button.primary { height: 54px; border-radius: 16px; }
 .count-progress { display: flex; flex-direction: column; padding: 4px 12px; border-radius: 14px; background: var(--card); line-height: 1.15; }
 .count-progress small { color: var(--text-2); font-size: 12.5px; }
@@ -1349,7 +1349,7 @@ button.card.row.check-row { width: 100%; height: auto; text-align: start; font-w
 .pick-check svg { width: 16px; height: 16px; stroke-width: 3; }
 button.card.row.trash-record { width: 100%; height: auto; text-align: start; font-weight: 400; white-space: normal; }
 .card.picked { border-color: var(--danger); box-shadow: 0 0 0 1.5px var(--danger) inset; }
-.purge-bar { display: grid; grid-template-columns: 1fr 1.3fr; gap: 8px; }
+.purge-bar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 8px; }
 .purge-bar > button { height: 54px; border-radius: 16px; }
 button.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
 button.danger-fill.armed { animation: pulse 0.9s ease-in-out infinite alternate; }
@@ -1397,3 +1397,8 @@ button.danger-fill.armed { animation: pulse 0.9s ease-in-out infinite alternate;
 .shop-item .si-links button.link { height: auto; padding: 0; font-size: 13px; }
 .shop-item .si-toggle { flex: none; width: 26px; height: 26px; accent-color: var(--primary); }
 .shop-stats { width: 100%; }
+
+/* Izgara kutucukları eşit kalsın: uzun yazı (ör. "Stok değeri ve borçlar") sütunu genişletmez, alt satıra geçer. */
+.tiles-grid > *, .tiles-big > *, .quicks > *, .move-actions > *, .order-view .actions > *, .tabs > *, .kpis > *, .value-grid > * { min-width: 0; }
+.tile-small, .tile-big, .quick { white-space: normal; text-align: center; line-height: 1.2; padding-inline: 8px; overflow-wrap: anywhere; }
+.tile-small { height: 108px; padding-block: 6px; gap: 8px; line-height: 1.15; }

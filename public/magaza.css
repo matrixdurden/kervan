@@ -252,7 +252,7 @@ dialog.sheet[open] { display: flex; flex-direction: column; animation: up .25s e
 
 .order-view { padding: 24px 0; }
 .order-view canvas { display: block; width: 100%; max-width: 576px; height: auto; margin: 0 auto 16px; border-radius: 16px; box-shadow: var(--shadow); background: #fff; }
-.order-view .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 576px; margin: 0 auto; }
+.order-view .actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; max-width: 576px; margin: 0 auto; }
 .order-view .actions .btn + .btn { margin-top: 0; }
 
 .toast {
