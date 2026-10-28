@@ -17,6 +17,8 @@ import { aiReaderUrl, pushPublicKey } from "./firebase-config.js";
 // İşletmenin mağaza ayarı: { slug, on, phone, showPrices, hideSoldOut } (yoksa null).
 export const shopOf = (firm = currentFirm()) => firm?.shop ?? null;
 export const shopUrl = (slug) => `${location.origin}/m/${slug}`;
+// Tek ürünün bağlantısı: vitrin açılınca o ürün açılır.
+export const productUrl = (slug, id) => `${shopUrl(slug)}?p=${encodeURIComponent(id)}`;
 
 // Adres: küçük harf, Türkçe harfler sadeleşir ("Doğu Toptan" → "dogu-toptan").
 export function slugify(s) {
@@ -38,16 +40,18 @@ export async function saveShop(settings) {
   const old = shopOf(firm)?.slug;
   const shop = { ...settings, slug: slugify(settings.slug) };
   try {
+    // merge: kategori fotoğrafları gibi üst bilgiler silinmesin.
     await setDoc(doc(db, "shops", shop.slug), {
       firm: firm.id, by: session.uid, name: firm.name, logo: firm.logo ?? "", phone: shop.phone ?? "",
       currency: base(), showPrices: shop.showPrices !== false, hideSoldOut: Boolean(shop.hideSoldOut), open: Boolean(shop.on),
-      updatedAt: serverTimestamp(),
-    });
+      cover: shop.cover ?? "", cats: firm.categoryPhotos ?? {}, updatedAt: serverTimestamp(),
+    }, { merge: true });
   } catch (err) {
     if (err?.code === "permission-denied") throw Object.assign(new Error("taken"), { code: "taken" });
     throw err;
   }
   await saveFirmSettings({ shop });
+  headerHash = "";
   if (old && old !== shop.slug) await updateDoc(doc(db, "shops", old), { open: false }).catch(() => {});
   published = null;
   if (shop.on) await syncShop();
@@ -57,7 +61,7 @@ export async function saveShop(settings) {
 // İşletmenin adı, logosu, para birimi ya da kategori fotoğrafları değişince vitrinin üst bilgisi de güncellenir.
 async function syncHeader(shop) {
   const firm = currentFirm();
-  const head = { name: firm.name, logo: firm.logo ?? "", currency: base(), cats: firm.categoryPhotos ?? {} };
+  const head = { name: firm.name, logo: firm.logo ?? "", currency: base(), cats: firm.categoryPhotos ?? {}, cover: shop.cover ?? "" };
   const h = hashOf(head);
   if (h === headerHash) return;
   await updateDoc(doc(db, "shops", shop.slug), { ...head, updatedAt: serverTimestamp() });

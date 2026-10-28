@@ -10,7 +10,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { auth, db } from "./firebase.js";
 import {
-  $, h, store, toast, avatar, avatarStack, PALETTE, randomCode, normalizeCode, formatCode, applyTheme, currentTheme,
+  $, h, store, toast, avatar, avatarStack, PALETTE, randomCode, normalizeCode, formatCode, applyTheme, currentTheme, appVersion,
 } from "./ui.js";
 import { session, currentFirm, myName, myColor, members } from "./session.js";
 import { show } from "./nav.js";
@@ -37,6 +37,19 @@ let pendingInvite = store.get("invite");
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
+
+// Giriş bu cihazda kalıcı olsun: telefon yer açmak için sitelerin verisini silebilir; "kalıcı depolama"
+// istenince (yüklü uygulamada Chrome genelde sormadan verir) giriş ve çevrimdışı kayıtlar silinmez.
+const keepStorage = () => navigator.storage?.persist?.().catch(() => false);
+
+// Yine de çıkış olursa giriş ekranı son hesabı hatırlar: Google o hesapla tek dokunuşla açılır.
+function showLastAccount() {
+  const last = store.get("lastAccount");
+  provider.setCustomParameters(last ? { login_hint: last } : { prompt: "select_account" });
+  const hint = $("#login-last");
+  hint.hidden = !last;
+  hint.textContent = last ? t("loginAs", { email: last }) : "";
+}
 
 $("#google").addEventListener("click", async (e) => {
   const button = e.currentTarget;
@@ -76,9 +89,12 @@ onAuthStateChanged(auth, (user) => {
     stopFirms();
     session.uid = null;
     session.user = null;
+    showLastAccount();
     show("login");
     return;
   }
+  if (user.email) store.set("lastAccount", user.email);
+  keepStorage();
   if (session.uid === user.uid) return;
   session.uid = user.uid;
   session.user = user;
@@ -398,6 +414,7 @@ $("#sign-out").addEventListener("click", async () => {
   accountMenu.close();
   store.set("firm", null);
   store.set("name", null);
+  store.set("lastAccount", null);
   await signOut(auth);
 });
 
@@ -405,7 +422,7 @@ $("#sign-out").addEventListener("click", async () => {
 
 // Tarayıcı eski stil dosyasını yeni kodla birlikte açarsa (önbellek) ekran bozuk görünür: stil dosyasının
 // sürümü koddakiyle aynı değilse stil dosyası önbelleği atlayarak yeniden yüklenir.
-const CSS_REV = "34";
+const CSS_REV = "35";
 function freshStyles() {
   const link = document.querySelector('link[rel="stylesheet"][href^="/style.css"]');
   const rev = getComputedStyle(document.documentElement).getPropertyValue("--css-rev").trim();
@@ -419,6 +436,29 @@ else addEventListener("load", freshStyles);
 
 // Telefonda açık kalan uygulama da yeni sürümü alsın: öne gelince güncelleme aranır; yeni sürüm
 // devreye girince açık form yoksa hemen, varsa form kapanınca sayfa yenilenir (yazılan kaybolmaz).
+let reloading = false;
+const reloadWhenIdle = () => {
+  if (reloading || document.querySelector("dialog[open]")) return;
+  reloading = true;
+  location.reload();
+};
+// Yeni sürüme geç: açık form yoksa hemen, varsa form kapanınca (yazılan kaybolmaz).
+const reloadSoon = () => {
+  document.addEventListener("close", reloadWhenIdle, true); // pencere kapanınca (close kabarcıklanmaz)
+  reloadWhenIdle();
+};
+
+// Sürüm: sw.js'teki önbellek adı. Uygulama öne gelince yeniden okunur; açılıştakinden farklıysa yeni sürüm
+// yayınlanmıştır ve sayfa yenilenir. Service worker güncellemesi bir yerde takılsa da eski sürümde kalınmaz.
+const readVersion = () => fetch("/sw.js", { cache: "no-store" })
+  .then((r) => (r.ok ? r.text() : "")).then((s) => s.match(/CACHE = "kervan-v(\d+)"/)?.[1] ?? "").catch(() => "");
+readVersion().then((v) => { appVersion.value = v; });
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState !== "visible" || !appVersion.value) return;
+  const now = await readVersion();
+  if (now && now !== appVersion.value) reloadSoon();
+});
+
 if ("serviceWorker" in navigator) {
   const hadController = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.register("/sw.js").then((reg) => {
@@ -426,15 +466,8 @@ if ("serviceWorker" in navigator) {
       if (document.visibilityState === "visible") reg.update().catch(() => {});
     });
   }).catch(() => {});
-  let reloading = false;
-  const reloadWhenIdle = () => {
-    if (reloading || document.querySelector("dialog[open]")) return;
-    reloading = true;
-    location.reload();
-  };
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (!hadController) return; // ilk kurulum: zaten en yeni sürüm açık
-    document.addEventListener("close", reloadWhenIdle, true); // pencere kapanınca (close kabarcıklanmaz)
-    reloadWhenIdle();
+    reloadSoon();
   });
 }

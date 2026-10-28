@@ -13,7 +13,7 @@ import {
 import { PARTY_KIND, hasLines, lineTotal, avgCost, roundQty } from "./ledger.js";
 import {
   recordMoves, voidMoves, replaceMove, restoreMove, saveProduct, saveParty, deleteProduct, deleteParty, restoreProduct, restoreParty, saveShares,
-  setCategories, saveDeal, deleteDeal, putDeal, saveGuest, deleteGuest, putGuest, dealOf, productByBarcode, barcodesOf, productLabel, saveFirmSettings, shareReceipt,
+  setCategories, saveDeal, deleteDeal, putDeal, saveGuest, deleteGuest, putGuest, dealOf, productByBarcode, barcodesOf, productLabel, saveFirmSettings, shareReceipt, setShopHidden,
 } from "./data.js";
 import {
   byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory, NO_CATEGORY,
@@ -22,11 +22,11 @@ import {
 import {
   RECEIPT_LABEL_KEYS, MONEY_KINDS, receiptBlob, receiptPdf, printReceipt, shareOnWhatsApp, canShareFiles, waPhone, canCopyImage, copyImageAndOpenChat,
 } from "./receipt.js";
-import { shopOf, shopUrl, slugify, saveShop, syncShop, setOrderStatus, deleteOrder, pushSupported, pushPermission, enableOrderPush } from "./shop.js";
+import { shopOf, shopUrl, productUrl, slugify, saveShop, syncShop, setOrderStatus, deleteOrder, pushSupported, pushPermission, enableOrderPush } from "./shop.js";
 import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
 import { lastRate, rememberRate, fetchRate } from "./rates.js";
-import { pickImage, preparePhoto, prepareSquare, loadFullPhoto } from "./photos.js";
+import { pickImage, preparePhoto, prepareSquare, prepareCover, loadFullPhoto } from "./photos.js";
 import { canScan, scanBarcode } from "./scanner.js";
 import { canPickContact, pickContact } from "./contacts.js";
 
@@ -2036,9 +2036,14 @@ export function openShopSheet() {
   const phone = h("input", { type: "tel", maxlength: 24, dir: "ltr", autocomplete: "off", value: cur.phone ?? firm.info?.phone ?? "", placeholder: "0555 555 55 55" });
   const showPrices = check(cur.showPrices !== false);
   const hideSoldOut = check(Boolean(cur.hideSoldOut));
+  const cover = photoField(cur.cover, { prepare: prepareCover, label: t("shopCover") });
   const live = cur.slug && cur.on;
   const fields = [
-    h("p", { class: "muted" }, t("shopIntro")),
+    live ? shopLinkCard(cur) : h("p", { class: "muted" }, t("shopIntro")),
+    live && h("button", { type: "button", class: "block", onclick: openShopProducts }, icon("box"), t("shopProducts")),
+    h("p", { class: "label" }, t("shopCover")),
+    cover.el,
+    h("small", { class: "field-hint center" }, t("shopCoverHint")),
     h("label", { class: "check" }, on, h("span", {}, t("shopOn"))),
     h("label", { class: "field" }, h("span", {}, t("shopAddress")), slug, preview),
     field(t("shopPhone"), phone, t("shopPhoneHint")),
@@ -2051,10 +2056,6 @@ export function openShopSheet() {
     const url = shopUrl(cur.slug);
     buttons.push(
       h("button", { type: "button", class: "block", onclick: () => { sheet.close(); document.dispatchEvent(new Event("kervan:shop-preview")); } }, icon("globe"), t("shopOpen")),
-      h("button", {
-        type: "button", class: "block whatsapp",
-        onclick: () => shareOnWhatsApp({ text: t("shopShareText", { name: firm.name, url }) }),
-      }, icon("whatsapp"), t("shopShare")),
       h("button", {
         type: "button", class: "block",
         onclick: () => syncShop().then(() => toast(t("shopSynced")), failed),
@@ -2070,12 +2071,148 @@ export function openShopSheet() {
     const s = slugify(slug.value);
     if (s.length < 3) return t("shopBadAddress");
     if (on.checked && phone.value.trim() && !waPhone(phone.value)) return t("shopBadPhone");
-    const settings = { slug: s, on: on.checked, phone: phone.value.trim(), showPrices: showPrices.checked, hideSoldOut: hideSoldOut.checked };
+    const pic = cover.value();
+    const settings = {
+      slug: s, on: on.checked, phone: phone.value.trim(), showPrices: showPrices.checked, hideSoldOut: hideSoldOut.checked,
+      cover: pic ? pic.full : pic === null ? "" : cur.cover ?? "",
+    };
     saveShop(settings).then(() => toast(t(settings.on ? "shopSaved" : "shopClosed")),
       (err) => { console.error(err); toast(t(err?.code === "taken" ? "shopTaken" : "saveFailed")); });
     sheet.close();
     return undefined;
   });
+}
+
+// Mağazada görünen ürünler: fiyatı olan, gizlenmemiş (ve "tükenenleri gizle" açıksa stoğu olan).
+const inShop = (p, shop) => !p.shopHide && p.price > 0 && !(shop.hideSoldOut && !(p.stock > 0));
+
+// Mağaza açıkken ayarların üstünde: adres, kopyala / WhatsApp / paylaş / QR kod ve kısa özet.
+function shopLinkCard(shop) {
+  const firm = currentFirm();
+  const url = shopUrl(shop.slug);
+  const products = [...session.firm.products.values()].filter((p) => !p.deleted);
+  const shown = products.filter((p) => inShop(p, shop));
+  const cats = new Set(shown.map((p) => p.category).filter(Boolean));
+  return h("div", { class: "card shop-link" },
+    h("a", { class: "shop-url", href: url, target: "_blank", rel: "noopener", dir: "ltr" }, url.replace(/^https?:\/\//, "")),
+    h("div", { class: "row-buttons" },
+      h("button", { type: "button", class: "block", onclick: () => copyText(url) }, icon("clipboard"), t("copy")),
+      h("button", { type: "button", class: "block", onclick: () => shareOnWhatsApp({ text: t("shopShareText", { name: firm.name, url }) }) }, icon("whatsapp"), "WhatsApp"),
+      h("button", { type: "button", class: "block", onclick: () => shareLink(firm.name, url) }, icon("send"), t("sharePhotoShort")),
+      h("button", { type: "button", class: "block", onclick: () => openShopQr(url, firm.name) }, icon("grid"), t("qrCode"))),
+    h("div", { class: "shop-stats" },
+      h("span", {}, h("strong", {}, String(shown.length)), t("shopStatProducts")),
+      h("span", {}, h("strong", {}, String(cats.size)), t("shopStatCategories")),
+      h("span", {}, h("strong", {}, String(products.length - shown.length)), t("shopStatHidden"))));
+}
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(t("linkCopiedOk"));
+  } catch {
+    toast(text);
+  }
+}
+async function shareLink(title, url) {
+  if (!navigator.share) return copyText(url);
+  try {
+    await navigator.share({ title, url });
+  } catch (e) {
+    if (e?.name !== "AbortError") copyText(url);
+  }
+  return undefined;
+}
+
+// QR kod: kütüphane (qrcode-generator) ilk kullanımda yüklenir; mağaza adı ve adresiyle birlikte resim olur
+// (yazdırılıp tezgâha konabilir, paylaşılabilir).
+const QR_LIB = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js";
+let qrLib = null;
+function loadQr() {
+  qrLib ??= new Promise((resolve, reject) => {
+    const s = h("script", { src: QR_LIB });
+    s.onload = () => resolve(window.qrcode);
+    s.onerror = () => { qrLib = null; reject(new Error("qr")); };
+    document.head.append(s);
+  });
+  return qrLib;
+}
+async function qrCanvas(url, title) {
+  const qrcode = await loadQr();
+  const qr = qrcode(0, "M");
+  qr.addData(url);
+  qr.make();
+  const n = qr.getModuleCount();
+  const cell = Math.max(4, Math.floor(600 / (n + 8)));
+  const side = (n + 8) * cell;
+  const canvas = h("canvas", { width: side, height: side + 130, class: "qr-canvas" });
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#111";
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) ctx.fillRect((c + 4) * cell, (r + 4) * cell, cell, cell);
+  ctx.textAlign = "center";
+  ctx.font = "800 34px Nunito, sans-serif";
+  ctx.fillText(title, side / 2, side + 40, side - 40);
+  ctx.fillStyle = "#555";
+  ctx.font = "600 22px Nunito, sans-serif";
+  ctx.fillText(url.replace(/^https?:\/\//, ""), side / 2, side + 84, side - 40);
+  return canvas;
+}
+async function openShopQr(url, title) {
+  let canvas;
+  try {
+    canvas = await qrCanvas(url, title);
+  } catch (err) {
+    console.error(err);
+    return toast(t("qrFailed"));
+  }
+  const blob = () => new Promise((r) => canvas.toBlob(r, "image/png"));
+  open(t("qrCode"), [
+    canvas,
+    h("small", { class: "field-hint center" }, t("qrHint")),
+  ], [
+    h("button", { type: "button", class: "block primary", onclick: async () => shareOnWhatsApp({ blob: await blob(), filename: "magaza-qr.png" }) }, icon("send"), t("sharePhotoShort")),
+    h("button", { type: "button", class: "block", onclick: async () => downloadFile(new File([await blob()], "magaza-qr.png", { type: "image/png" })) }, icon("receipt"), t("download")),
+    h("button", { type: "button", class: "block ghost", onclick: openShopSheet }, t("back")),
+  ]);
+  return undefined;
+}
+
+// Mağazadaki ürünler: her ürün tek dokunuşla vitrinde gösterilir/gizlenir; ürünün bağlantısı kopyalanır ya da
+// paylaşılır (açılınca vitrinde o ürün açılır). Fiyatı olmayan ürün vitrine çıkamaz.
+function openShopProducts() {
+  const shop = shopOf();
+  const all = [...session.firm.products.values()].filter((p) => !p.deleted).sort(byName);
+  let query = "";
+  const list = h("ul", { class: "cards" });
+  const count = h("small", { class: "field-hint" });
+  const render = () => {
+    count.textContent = t("shopShownCount", { n: all.filter((p) => inShop(p, shop)).length, total: all.length });
+    list.replaceChildren(...all.filter((p) => matches(productLabel(p), query)).map((p) => {
+      const toggle = h("input", {
+        type: "checkbox", class: "si-toggle", checked: !p.shopHide, disabled: !(p.price > 0), "aria-label": t("shopShowProduct"),
+        onchange: () => { p.shopHide = !toggle.checked; setShopHidden(p.id, p.shopHide).catch(failed); render(); },
+      });
+      const url = productUrl(shop.slug, p.id);
+      return h("li", { class: "card shop-item" },
+        h("div", { class: "si-top" },
+          productThumb(p, "sm"),
+          h("span", { class: "main" },
+            h("span", { class: "title" }, h("bdi", {}, productLabel(p))),
+            h("span", { class: "meta" }, p.price > 0 ? formatMoney(p.price) : t("shopNoPrice"),
+              p.category ? ` · ${p.category}` : "", !(p.stock > 0) ? ` · ${t("outOfStock")}` : "")),
+          toggle),
+        p.price > 0 && !p.shopHide && h("div", { class: "si-links" },
+          h("button", { type: "button", class: "link", onclick: () => copyText(url) }, t("copyLink")),
+          h("button", { type: "button", class: "link", onclick: () => shareLink(productLabel(p), url) }, t("sharePhotoShort"))));
+    }));
+  };
+  render();
+  open(t("shopProducts"), [
+    searchBox(t("searchProducts"), "", (v) => { query = v; render(); }),
+    count,
+    list,
+  ], [h("button", { type: "button", class: "block ghost", onclick: openShopSheet }, t("back"))]);
 }
 
 async function partyWhenReady(id) {

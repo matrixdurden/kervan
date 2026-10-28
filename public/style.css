@@ -2,7 +2,7 @@
    koyu deniz yeşili ana renk, her bölümün kendi rengi. */
 
 :root {
-  --css-rev: 34; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
+  --css-rev: 35; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
   --bg: #F3F1EC;
   --card: #FFFFFF;
   --card-border: #E1DCD2;
@@ -798,6 +798,7 @@ label.check input { width: 22px; height: 22px; accent-color: var(--primary); }
 .tone-saleReturns { --c: #8A5A9E; }
 .tone-stockCount { --c: #2E7D6B; }
 .tone-debts { --c: #4F46E5; }
+.tone-stockValue { --c: #0E7C66; }
 .tone-orders { --c: #B7791F; }
 .tone-shop { --c: #8A6A3B; }
 /* Ana ekran kutucuğunda sayı (yeni sipariş) */
@@ -1304,18 +1305,6 @@ button.card.value-tile.in { --c: var(--in); } button.card.value-tile.out { --c: 
 .vt-sub { color: var(--text-3); font-size: 12px; }
 .vt-more { margin-top: auto; display: flex; align-items: center; gap: 2px; font-size: 12.5px; font-weight: 800; color: var(--c); }
 .vt-more svg { width: 14px; height: 14px; }
-/* Ana ekrandaki özet kartı */
-button.card.home-value { width: 100%; height: auto; padding: 12px 14px; flex-direction: column; align-items: stretch; gap: 10px; white-space: normal; font-weight: 400; margin-bottom: 10px; }
-.hv-title { display: flex; align-items: center; gap: 8px; font-weight: 800; }
-.hv-title > span { flex: 1; text-align: start; }
-.hv-title svg { width: 20px; height: 20px; color: var(--primary); }
-.hv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.hv-cell { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 12px; text-align: start;
-  background: color-mix(in srgb, var(--c, var(--text)) 8%, var(--card)); }
-.hv-cell.in { --c: var(--in); } .hv-cell.out { --c: var(--danger); } .hv-cell.blue { --c: var(--blue); }
-.hv-cell small { font-size: 11.5px; color: var(--text-2); font-weight: 700; }
-.hv-cell strong { font-size: 15.5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.hv-cell strong .amounts { display: flex; flex-direction: column; }
 
 /* Stok sayımı: kart rengi durumu söyler (sayılmadı gri, tam yeşil, eksik kırmızı, fazla turuncu) */
 .count-list { gap: 10px; }
@@ -1346,7 +1335,8 @@ button.card.home-value { width: 100%; height: auto; padding: 12px 14px; flex-dir
 .count-progress small { color: var(--text-2); font-size: 12.5px; }
 .count-progress strong { font-size: 19px; font-variant-numeric: tabular-nums; }
 /* Kategoriye ürün seçme listesi */
-.pick-list { max-height: min(48dvh, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 2px; }
+/* Kendi içinde kaymaz: parmak listenin neresinde olursa olsun bütün pencere kayar. */
+.pick-list { padding: 2px; }
 button.card.row.check-row { width: 100%; height: auto; text-align: start; font-weight: 400; white-space: normal; gap: 10px; }
 .check-row.picked { border-color: var(--primary); box-shadow: 0 0 0 1.5px var(--primary) inset; }
 .check-row .pick-check.on { background: var(--primary); border-color: var(--primary); }
@@ -1391,3 +1381,19 @@ button.danger-fill.armed { animation: pulse 0.9s ease-in-out infinite alternate;
 .cat-photo { flex: none; width: 44px; height: 44px; border-radius: 12px; object-fit: cover; }
 .cat-photo.empty { display: grid; place-items: center; background: var(--field); border: 1.5px dashed var(--border); color: var(--text-3); }
 .cat-photo.empty svg { width: 20px; height: 20px; }
+
+/* Mağaza ayarları: bağlantı kartı ve ürün listesi */
+.shop-link { display: flex; flex-direction: column; gap: 10px; }
+.shop-link .shop-url { font-weight: 800; color: var(--primary); overflow-wrap: anywhere; text-align: center; }
+.shop-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; text-align: center; }
+.shop-stats span { display: flex; flex-direction: column; padding: 8px 4px; border-radius: 12px; background: var(--field); border: 1px solid var(--card-border); font-size: 12px; color: var(--text-2); }
+.shop-stats strong { font-size: 20px; color: var(--text); }
+.qr-canvas { display: block; width: 100%; max-width: 360px; margin: 0 auto; border-radius: 12px; border: 1px solid var(--card-border); }
+.shop-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; }
+.shop-item .si-top { display: flex; align-items: center; gap: 10px; }
+.shop-item .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.shop-item .meta { font-size: 13px; color: var(--text-3); }
+.shop-item .si-links { display: flex; gap: 16px; padding-inline-start: 52px; }
+.shop-item .si-links button.link { height: auto; padding: 0; font-size: 13px; }
+.shop-item .si-toggle { flex: none; width: 26px; height: 26px; accent-color: var(--primary); }
+.shop-stats { width: 100%; }

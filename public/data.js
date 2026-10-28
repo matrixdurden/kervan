@@ -385,6 +385,9 @@ export function setCategories(changes) {
   return batch.commit();
 }
 
+// Ürün online mağazada görünsün mü (mağaza ayarlarındaki ürün listesinden tek dokunuşla).
+export const setShopHidden = (id, hide) => updateDoc(ref("products", id), { shopHide: hide });
+
 // Çöp kutusundan geri yükleme.
 export const restoreProduct = (id) => updateDoc(ref("products", id), { deleted: deleteField() });
 export const restoreParty = (id) => updateDoc(ref("parties", id), { deleted: deleteField() });

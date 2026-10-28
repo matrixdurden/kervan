@@ -23,11 +23,22 @@ export const receiptNumber = (move) => `${move.date.replace(/-/g, "")}-${move.id
 const NUMBERED = ["sale", "consignSale", "saleReturn", "collection", "payment", "refund", "debtOut", "debtIn", "purchaseReturn", "supplierRefund"];
 
 // Hareket aramada eşleşiyor mu: kişi, not, fiş numarası, ürün adları, kasa.
+// Belge adıyla arama: "fiş" yazınca satış fişleri, "fatura" yazınca satış ve alış faturaları, "makbuz" yazınca
+// tahsilat/ödeme makbuzları çıkar. Kelimeler dile göre (search_words_{tür}); türün kendi adı da aranır.
+const DOC_WORDS = ["sale", "saleReturn", "purchase", "purchaseReturn", "collection", "payment", "refund", "supplierRefund", "expense"];
+function docWordMatch(move, s) {
+  if (s.length < 3) return false;
+  const lower = s.toLocaleLowerCase("tr");
+  const words = [t(`type_${move.type}`), ...(DOC_WORDS.includes(move.type) ? t(`search_words_${move.type}`).split(",") : [])];
+  return words.some((w) => w.trim().toLocaleLowerCase("tr").split(/\s+/).some((part) => part.startsWith(lower)));
+}
+
 export function moveMatches(move, q) {
   const s = q.trim();
   if (!s) return true;
   const squash = (x) => x.replace(/[-\s]/g, "").toLocaleUpperCase("tr");
   if (move.id && squash(receiptNumber(move)).includes(squash(s))) return true;
+  if (docWordMatch(move, s)) return true;
   return [move.partyName, move.note, move.methodName, move.categoryName, ...(move.lines ?? []).map((l) => l.name)].some((x) => matches(x, s));
 }
 

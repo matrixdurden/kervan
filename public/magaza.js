@@ -29,6 +29,8 @@ const TEXT = {
     madeWith: "kervan ile hazırlandı",
     install: "Uygulama olarak yükle", installIos: "Yüklemek için: Paylaş düğmesi → Ana Ekrana Ekle",
     installAndroid: "Uygulama olarak yüklemek için: sayfayı Chrome'da aç, sağ üstteki ⋮ menüsünden \"Uygulamayı yükle\" ya da \"Ana ekrana ekle\".",
+    installDesktop: "Bilgisayarda (Chrome ya da Edge): adres çubuğunun sağındaki yükle simgesine ya da tarayıcının ⋮ menüsünden \"Yükle\" / \"Uygulamayı yükle\"ye tıkla.",
+    installDone: "Yüklenince mağaza, telefonun ya da bilgisayarın ana ekranında kendi simgesiyle açılır.",
   },
   ar: {
     eyebrow: "متجر إلكتروني", title: "متجر إلكتروني", search: "عمّ تبحث؟", all: "الكل", products: "المنتجات", items: "{n} منتج",
@@ -46,6 +48,8 @@ const TEXT = {
     madeWith: "صُنع بـ kervan",
     install: "ثبّت كتطبيق", installIos: "للتثبيت: زر المشاركة ← إضافة إلى الشاشة الرئيسية",
     installAndroid: "للتثبيت كتطبيق: افتح الصفحة في Chrome، ثم من قائمة ⋮ اختر \"تثبيت التطبيق\" أو \"إضافة إلى الشاشة الرئيسية\".",
+    installDesktop: "على الكمبيوتر (Chrome أو Edge): اضغط أيقونة التثبيت يمين شريط العنوان أو اختر \"تثبيت\" من قائمة ⋮ في المتصفح.",
+    installDone: "بعد التثبيت يفتح المتجر من الشاشة الرئيسية للهاتف أو الكمبيوتر بأيقونته الخاصة.",
   },
 };
 
@@ -205,7 +209,8 @@ function render() {
       h("div", { class: "titles" }, h("p", { class: "eyebrow" }, say("eyebrow")), h("h1", {}, shop.name)),
       h("div", { class: "lang", role: "group" },
         ["tr", "ar"].map((l) => h("button", { type: "button", "aria-pressed": String(l === lang), onclick: () => { lang = l; store.set("lang", l); applyLang(); render(); } }, l === "tr" ? "TR" : "ع")))),
-    installPrompt && !standalone() && h("button", { type: "button", class: "install-chip", onclick: install }, icon("bag"), say("install")),
+    route.pretty && !standalone() && h("button", { type: "button", class: "install-chip", onclick: install }, icon("bag"), say("install")),
+    shop.cover && h("img", { class: "cover", src: shop.cover, alt: "" }),
     h("div", { class: "search-wrap" },
       h("label", { class: "search" }, icon("search"), searchInput,
         query && h("button", { type: "button", class: "clear", "aria-label": say("close"), onclick: () => { query = ""; render(); } }, icon("x")))),
@@ -412,7 +417,15 @@ let installPrompt = null;
 const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const isAndroid = /android/i.test(navigator.userAgent);
+// Tarayıcı yüklemeyi öneriyorsa doğrudan yükler; önermiyorsa (WhatsApp içinden açıldı, iPhone, zaten
+// önerilmedi) cihaza göre yol gösterir.
 async function install() {
+  if (!installPrompt) {
+    const steps = isIos ? ["installIos"] : isAndroid ? ["installAndroid"] : ["installDesktop", "installAndroid"];
+    openSheet("install", say("install"), h("div", { class: "install-help" },
+      steps.map((k) => h("p", {}, say(k))), h("p", { class: "hint" }, say("installDone"))));
+    return;
+  }
   installPrompt.prompt();
   await installPrompt.userChoice.catch(() => null);
   installPrompt = null;
@@ -436,11 +449,7 @@ function setupInstall() {
 }
 function installButton() {
   if (standalone() || !route.pretty) return null;
-  if (installPrompt) {
-    return h("button", { type: "button", class: "btn outline install", onclick: install }, icon("bag"), say("install"));
-  }
-  if (isIos) return h("p", { class: "hint center install-hint" }, say("installIos"));
-  return isAndroid ? h("p", { class: "hint center install-hint" }, say("installAndroid")) : null;
+  return h("button", { type: "button", class: "btn outline install", onclick: install }, icon("bag"), say("install"));
 }
 
 async function start() {
@@ -465,6 +474,9 @@ async function start() {
       cart = new Map();
     }
     render();
+    // Ürün bağlantısıyla gelindiyse (?p=ürünId) o ürün açılır.
+    const linked = items.find((x) => x.id === new URLSearchParams(location.search).get("p"));
+    if (linked) openDetail(linked);
   } catch (err) {
     console.error(err);
     state(say("loadFailed"));

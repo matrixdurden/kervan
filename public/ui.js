@@ -4,6 +4,9 @@ import { lang } from "./i18n.js";
 
 export const $ = (sel) => document.querySelector(sel);
 
+// Açık olan uygulamanın sürümü (Ayarlar'ın altında görünür); app.js açılışta doldurur.
+export const appVersion = { value: "" };
+
 export const store = {
   get(key) {
     try { return localStorage.getItem(`kervan.${key}`); } catch { return null; }

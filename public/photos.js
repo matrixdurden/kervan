@@ -76,6 +76,21 @@ export async function prepareSquare(file) {
   }
 }
 
+// Mağazanın kapak fotoğrafı: en uzun kenarı 900 px, ~90 KB'ı geçmez (işletme belgesinde durur).
+export async function prepareCover(file) {
+  const bitmap = await createImageBitmap(file);
+  try {
+    let full = "";
+    for (const [size, quality] of [[900, 0.72], [900, 0.6], [760, 0.6], [640, 0.55]]) {
+      full = await shrink(bitmap, size, quality);
+      if (full.length <= 90000) break;
+    }
+    return { thumb: full, full };
+  } finally {
+    bitmap.close?.();
+  }
+}
+
 // Ürünün büyük fotoğrafı (yoksa null).
 export async function loadFullPhoto(productId) {
   try {

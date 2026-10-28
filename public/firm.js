@@ -6,7 +6,7 @@ import {
   collection, query, where, orderBy, limit, onSnapshot, getDocs,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
-import { $, h, icon, store, toast, avatar, today, currentTheme, applyTheme, formatDay, formatMonth, millis, dateLocale } from "./ui.js";
+import { $, h, icon, store, toast, avatar, today, currentTheme, applyTheme, formatDay, formatMonth, millis, dateLocale, appVersion } from "./ui.js";
 import { t, unitLabel, lang, setLang } from "./i18n.js";
 import { session, currentFirm, partners, person, sharePlan, resetFirm, myName } from "./session.js";
 import { formatMoney, formatNumber, parseQty, qtyInput, base, setBaseCurrency, CURRENCIES, currencyName } from "./money.js";
@@ -327,9 +327,9 @@ const SECTIONS = [
   ["invoice", "fileScan"], ["expenses", "receipt"],
   ["consign", "send"], ["saleReturns", "undo"],
   ["cash", "wallet"], ["partners", "users"],
-  ["debts", "scale"], ["ledger", "book"],
-  ["reports", "chart"], ["trash", "trash"],
-  ["settings", "gear"],
+  ["debts", "scale"], ["stockValue", "trend"],
+  ["ledger", "book"], ["reports", "chart"],
+  ["trash", "trash"], ["settings", "gear"],
 ];
 
 const HOME = {
@@ -380,7 +380,6 @@ const HOME = {
           h("strong", {}, t("lowStockCount", { n: low.length })),
           h("small", {}, low.slice(0, 3).map(productLabel).join(", ") + (low.length > 3 ? "…" : ""))),
         icon("chevron")),
-      products.size > 0 && homeValueCard(),
       smallTiles(SECTIONS),
     ];
     if (!products.size || !parties("seller").length || !parties("supplier").length) out.push(startGuide());
@@ -684,18 +683,6 @@ function valueGrid() {
   ];
 }
 
-function homeValueCard() {
-  const items = inStock();
-  const cell = (label, value, tone) => h("span", { class: `hv-cell ${tone}` }, h("small", {}, label), h("strong", {}, value));
-  return h("button", { type: "button", class: "card home-value", onclick: () => openPage("stockValue") },
-    h("span", { class: "hv-title" }, icon("chart"), h("span", {}, t("page_stockValue")), icon("chevron")),
-    h("span", { class: "hv-grid" },
-      cell(t("sv_saleValue"), formatMoney(sum(items, saleValueOf)), "in"),
-      cell(t("sv_costValue"), formatMoney(sum(items, costValueOf)), "blue"),
-      cell(t("sv_customersDebt"), formatMoney(sum(owingCustomers(), (p) => p.balance)), "in"),
-      cell(t("sv_suppliersDebt"), payableText(), "out")));
-}
-
 // Borçlar ayrıntısı: bize borçlu olanlar, borçlu olduklarımız ya da herkes.
 const debtListPage = {
   fab: () => [t("new_person"), () => openPartySheet("person")],
@@ -734,9 +721,10 @@ async function scanSearch() {
 }
 
 // Fiş numarası yazıldıysa (20261026-AB12) o günün hareketleri okunur; numaranın kimlik kısmıyla eşleşenler.
+// Dönüş: undefined (yazılan fiş numarası değil), null (okunuyor), liste (bulunanlar).
 function receiptLookup(q) {
   const m = q.replace(/\s/g, "").match(/^(\d{4})(\d{2})(\d{2})-?([a-z0-9]{0,4})$/i);
-  if (!m) return null;
+  if (!m) return undefined;
   const date = `${m[1]}-${m[2]}-${m[3]}`;
   if (!receiptHits.has(date)) {
     receiptHits.set(date, null);
@@ -766,7 +754,7 @@ const searchPage = {
     const people = [...session.firm.parties.values()].filter((p) => matches(p.name, q) || matches(p.phone, q)).sort(byName).slice(0, 30);
     const byReceipt = receiptLookup(q);
     const recentMoves = (pageMoves ?? []).filter((m) => moveMatches(m, q));
-    const moves = [...new Map([...(byReceipt ?? []), ...recentMoves].map((m) => [m.id, m])).values()].slice(0, 30);
+    const moves = [...new Map([...(byReceipt ?? []), ...recentMoves].map((m) => [m.id, m])).values()].slice(0, 100);
     const section = (title, items, row) => items.length ? [h("h2", { class: "sec" }, title), h("ul", { class: "cards" }, items.map(row))] : [];
     const out = [
       ...section(t("page_products"), prods, (p) => valueProductRow(p, "sale")),
@@ -1534,6 +1522,7 @@ const settingsPage = {
         }),
         item("contact", t("account"), session.user?.email ?? "", () => document.dispatchEvent(new Event("kervan:account"))),
         item("home", t("switchFirm"), t("switchFirmHint"), () => document.dispatchEvent(new Event("kervan:firms")))),
+      appVersion.value && h("p", { class: "muted center app-version" }, t("appVersion", { v: appVersion.value })),
     ];
   },
 };

@@ -2,7 +2,7 @@
 // alır. Her zaman önce internetten gelir (fiyatlar güncel kalsın); internet yoksa önbellekteki açılır.
 // /m/{adres}/sw.js adresinden yüklenir; sadece o mağazanın sayfalarına bakar.
 
-const CACHE = "magaza-v3";
+const CACHE = "magaza-v4";
 const SHELL = ["/magaza.css", "/magaza.js", "/money.js", "/receipt.js", "/firebase-config.js", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {
