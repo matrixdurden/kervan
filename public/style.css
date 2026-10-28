@@ -2,7 +2,7 @@
    koyu deniz yeşili ana renk, her bölümün kendi rengi. */
 
 :root {
-  --css-rev: 36; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
+  --css-rev: 37; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
   --bg: #F3F1EC;
   --card: #FFFFFF;
   --card-border: #E1DCD2;
@@ -1402,3 +1402,13 @@ button.danger-fill.armed { animation: pulse 0.9s ease-in-out infinite alternate;
 .tiles-grid > *, .tiles-big > *, .quicks > *, .move-actions > *, .order-view .actions > *, .tabs > *, .kpis > *, .value-grid > * { min-width: 0; }
 .tile-small, .tile-big, .quick { white-space: normal; text-align: center; line-height: 1.2; padding-inline: 8px; overflow-wrap: anywhere; }
 .tile-small { height: 108px; padding-block: 6px; gap: 8px; line-height: 1.15; }
+
+/* Alt alta dizilen kartlar (.card yatayda ortalar): satırlar kartın tam enini kaplasın, ortaya kaymasın. */
+.shop-item, .shop-link, .count-card { align-items: stretch; }
+.shop-item .si-top { width: 100%; }
+.shop-item .thumb { width: 48px; height: 48px; object-fit: contain; background: #fff; border: 1px solid var(--card-border); }
+.shop-item .thumb.blank { background: var(--card-border); }
+.shop-item .title { font-size: 15px; font-weight: 700; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.shop-item .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shop-item .si-links { padding-inline-start: 58px; }
+.shop-item.off .title, .shop-item.off .thumb { opacity: 0.55; }

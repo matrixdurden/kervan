@@ -2194,7 +2194,7 @@ function openShopProducts() {
         onchange: () => { p.shopHide = !toggle.checked; setShopHidden(p.id, p.shopHide).catch(failed); render(); },
       });
       const url = productUrl(shop.slug, p.id);
-      return h("li", { class: "card shop-item" },
+      return h("li", { class: `card shop-item${inShop(p, shop) ? "" : " off"}` },
         h("div", { class: "si-top" },
           productThumb(p, "sm"),
           h("span", { class: "main" },
