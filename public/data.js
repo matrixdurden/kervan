@@ -5,7 +5,7 @@
 
 import {
   doc, collection, writeBatch, serverTimestamp, increment, getDocs, updateDoc, deleteField, setDoc,
-  arrayUnion, arrayRemove,
+  arrayUnion, arrayRemove, query, where, limit,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
 import { base } from "./money.js";
@@ -396,18 +396,31 @@ export const restoreParty = (id) => updateDoc(ref("parties", id), { deleted: del
 export const saveShares = (shares) => updateDoc(firmRef(), { shares });
 
 const newId = (prefix) => prefix + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+export const newDealId = () => newId("d");
 
-// Ürün ortaklığı: { name, products: [ürünId], shares: { ortakId: yüzde } }.
-// Bir ürün tek bir ortaklıkta olur; seçilen ürünler başka ortaklıklardan çıkarılır.
-export function saveDeal(id, { name, products, shares }) {
+// Ürün ortaklığı: { name, products: [ürünId], shares: { ortakId: yüzde }, supplier: cariId }.
+// Bir ürün tek bir ortaklıkta olur; seçilen ürünler başka ortaklıklardan çıkarılır. Ürünsüz ortaklık
+// açılabilir (ürünler sonra ürün formundan eklenir). supplier: malın alındığı tedarikçi (bilgi için).
+export function saveDeal(id, { name, products, shares, supplier = "" }) {
   const dealId = id || newId("d");
-  const update = { [`deals.${dealId}`]: { name, products, shares } };
+  const update = { [`deals.${dealId}`]: { name, products, shares, supplier } };
   for (const [otherId, other] of Object.entries(currentFirm().deals ?? {})) {
     if (otherId === dealId) continue;
     const rest = (other.products ?? []).filter((p) => !products.includes(p));
     if (rest.length !== (other.products ?? []).length) update[`deals.${otherId}.products`] = rest;
   }
   return updateDoc(firmRef(), update);
+}
+
+// Tedarikçiden alınmış ürünler (son 500 hareketindeki iptal edilmemiş alışlar): ortaklığa hızlı seçim için.
+export async function supplierProducts(partyId) {
+  const snap = await getDocs(query(collection(db, "firms", session.firm.id, "moves"), where("party", "==", partyId), limit(500)));
+  const ids = new Set();
+  for (const d of snap.docs) {
+    const m = d.data();
+    if (m.type === "purchase" && !m.voided) for (const l of m.lines ?? []) ids.add(l.product);
+  }
+  return ids;
 }
 
 export const deleteDeal = (id) => updateDoc(firmRef(), { [`deals.${id}`]: deleteField() });

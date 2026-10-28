@@ -13,7 +13,7 @@ import {
 import { PARTY_KIND, hasLines, lineTotal, avgCost, roundQty } from "./ledger.js";
 import {
   recordMoves, voidMoves, replaceMove, restoreMove, saveProduct, saveParty, deleteProduct, deleteParty, restoreProduct, restoreParty, saveShares,
-  setCategories, saveDeal, deleteDeal, putDeal, saveGuest, deleteGuest, putGuest, dealOf, productByBarcode, barcodesOf, productLabel, saveFirmSettings, shareReceipt, setShopHidden,
+  setCategories, saveDeal, deleteDeal, putDeal, newDealId, supplierProducts, saveGuest, deleteGuest, putGuest, dealOf, productByBarcode, barcodesOf, productLabel, saveFirmSettings, shareReceipt, setShopHidden,
 } from "./data.js";
 import {
   byName, matches, searchBox, balanceText, productThumb, productCategories, categoryBubbles, inCategory, NO_CATEGORY,
@@ -240,8 +240,8 @@ export function openProductCategories() {
 const categoryPhoto = (name) => currentFirm().categoryPhotos?.[name] ?? "";
 
 // Bir kategori: fotoğrafı, adı ve içindeki ürünler (işaretli olanlar). Kaydedince işaretlenenler bu kategoriye
-// geçer, işareti kaldırılanlar kategorisiz kalır; ad değişirse hepsi (ve fotoğrafı) yeni adı alır. Hiç ürün
-// kalmazsa kategori silinmiş olur.
+// geçer, işareti kaldırılanlar kategorisiz kalır; ad değişirse hepsi (ve fotoğrafı) yeni adı alır. Ürün seçmek
+// zorunlu değil: ürünsüz kategori işletmenin kategori listesinde (productCats) saklanır, sonra ürün eklenir.
 function openCategoryEditor(current) {
   const products = [...session.firm.products.values()].sort(byName);
   const photo = photoField(categoryPhoto(current), { prepare: prepareSquare, label: t("categoryPhoto") });
@@ -274,10 +274,13 @@ function openCategoryEditor(current) {
     searchBox(t("searchProducts"), "", (v) => { query = v; render(); }),
     list,
     count,
-  ], [saveButton(), h("button", { type: "button", class: "block ghost", onclick: openProductCategories }, t("back"))], () => {
+  ], [
+    saveButton(),
+    current && h("button", { type: "button", class: "block danger", onclick: () => deleteCategory(current) }, t("deleteCategory")),
+    h("button", { type: "button", class: "block ghost", onclick: openProductCategories }, t("back")),
+  ], () => {
     const n = name.value.trim();
     if (!n) return t("enterCategoryName");
-    if (!picked.size && !current) return t("pickSomeProducts");
     const changes = {};
     for (const p of products) {
       const next = picked.has(p.id) ? n : p.category === current && current ? "" : p.category ?? "";
@@ -293,13 +296,30 @@ function openCategoryEditor(current) {
     else if (pic === undefined && keep) photos[n] = keep;
     else delete photos[n];
     const photoChanged = JSON.stringify(photos) !== before;
-    if (!Object.keys(changes).length && !photoChanged) return sheet.close();
+    // Saklı liste: eski ad çıkar; ürünsüz kalan yeni ad girer (ürünü olan kategori ürünlerden zaten bilinir).
+    const stored = currentFirm().productCats ?? [];
+    const cats = [...new Set([...stored.filter((c) => c !== current), ...(picked.size ? [] : [n])])].slice(0, 100);
+    const catsChanged = JSON.stringify(cats) !== JSON.stringify(stored);
+    if (!Object.keys(changes).length && !photoChanged && !catsChanged) return sheet.close();
+    const settings = { ...(photoChanged && { categoryPhotos: photos }), ...(catsChanged && { productCats: cats }) };
     saved(Promise.all([
       Object.keys(changes).length ? setCategories(changes) : null,
-      photoChanged ? saveFirmSettings({ categoryPhotos: photos }) : null,
+      Object.keys(settings).length ? saveFirmSettings(settings) : null,
     ]), t("saved"));
     return undefined;
   });
+}
+
+// Kategoriyi siler: ürünleri kategorisiz kalır, fotoğrafı ve saklı listedeki adı silinir.
+function deleteCategory(name) {
+  const firm = currentFirm();
+  const changes = Object.fromEntries([...session.firm.products.values()].filter((p) => p.category === name).map((p) => [p.id, ""]));
+  const photos = { ...(firm.categoryPhotos ?? {}) };
+  delete photos[name];
+  saved(Promise.all([
+    Object.keys(changes).length ? setCategories(changes) : null,
+    saveFirmSettings({ categoryPhotos: photos, productCats: (firm.productCats ?? []).filter((c) => c !== name) }),
+  ]), t("categoryDeleted", { name }));
 }
 
 // Barkod alanı: yazılabilir ya da kamerayla okutulur.
@@ -426,12 +446,21 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
     shopOf()?.on && h("label", { class: "check" }, shopShow, h("span", {}, t("shopShowProduct"))),
   ];
 
-  // Ortaklık: bu ürünün kârı genel paylarla mı, bir ürün ortaklığıyla mı bölünür?
+  // Ortaklık: bu ürünün kârı genel paylarla mı, bir ürün ortaklığıyla mı bölünür? "Yeni ortaklık aç" seçilirse
+  // adı ve paylar burada yazılır; kaydedince ortaklık bu ürünle birlikte açılır.
   const deals = Object.entries(firm.deals ?? {});
   const currentDeal = product ? dealOf(product.id) : "";
-  let deal;
-  deal = select([["", t("generalShares")], ...deals.map(([id, d]) => [id, d.name])], currentDeal);
-  fields.push(field(t("productDeal"), deal, t(deals.length ? "productDealHint" : "noDealsHint")));
+  const NEW_DEAL = "+new";
+  const deal = select([["", t("generalShares")], ...deals.map(([id, d]) => [id, d.name]), [NEW_DEAL, t("newDealOption")]], currentDeal);
+  const newDealName = textInput({ maxlength: 60, placeholder: t("dealNamePlaceholder") });
+  const newDealShares = shareRows(firm, {});
+  const newDealBox = h("div", { class: "new-deal", hidden: true },
+    h("small", { class: "field-hint" }, t("newDealInline")), field(t("dealName"), newDealName), ...newDealShares.el);
+  deal.addEventListener("change", () => {
+    newDealBox.hidden = deal.value !== NEW_DEAL;
+    if (!newDealBox.hidden) newDealName.focus();
+  });
+  fields.push(field(t("productDeal"), deal, t("productDealHint")), newDealBox);
 
   if (product) {
     // Çeşitler: aynı gruptaki diğer ürünler ve yeni çeşit ekleme.
@@ -513,8 +542,17 @@ export function openProductSheet(product, preset = {}, { inside } = {}) {
       recordMoves([{ type: "costFix", party: "", date: today(), note: "", lines: [{ product: product.id, qty: Math.max(product.stock, 0), price: c }] }])
         .done.catch(failed);
     }
-    const nextDeal = deal && deal.value !== currentDeal ? deal.value : undefined;
+    let newDeal = null;
+    if (deal.value === NEW_DEAL) {
+      const dn = newDealName.value.trim();
+      if (!dn) return t("enterName");
+      const shares = newDealShares.read();
+      if (typeof shares === "string") return shares;
+      newDeal = { name: dn, shares };
+    }
+    const nextDeal = !newDeal && deal.value !== currentDeal ? deal.value : undefined;
     const done = saveProduct(product?.id, data, { opening, lastCost, photo: photo.value(), deal: nextDeal });
+    if (newDeal) saveDeal(newDealId(), { ...newDeal, products: [done.id] }).catch(failed);
     if (inside) {
       done.catch(failed);
       subsheet.close();
@@ -1605,7 +1643,8 @@ export function openDealSheet(dealId) {
 
   // Ürün seçimi: dokununca seçilir; başka ortaklıktaki ürün seçilirse oradan buraya taşınır.
   const otherDeal = (pid) => Object.entries(firm.deals ?? {}).find(([id, d]) => id !== dealId && d.products?.includes(pid))?.[1];
-  const products = [...session.firm.products.values()].sort(byName);
+  const products = [...session.firm.products.values()].filter((p) => !p.deleted).sort(byName);
+  const chips = new Map();
   const productList = h("div", { class: "chips" }, products.map((p) => {
     const other = otherDeal(p.id);
     const chip = h("button", {
@@ -1616,8 +1655,37 @@ export function openDealSheet(dealId) {
         chip.setAttribute("aria-pressed", String(chosen.has(p.id)));
       },
     }, h("bdi", {}, productLabel(p)), other && h("small", {}, ` · ${other.name}`));
+    chips.set(p.id, chip);
     return chip;
   }));
+
+  // Tedarikçi: malın kimden alındığı; seçilince ondan alınmış ürünler tek dokunuşla işaretlenir.
+  const suppliers = [...session.firm.parties.values()].filter((p) => p.kind === "supplier" && !p.deleted).sort(byName);
+  const supplier = select([["", t("noSupplier")], ...suppliers.map((p) => [p.id, p.name])], deal?.supplier ?? "");
+  const pickFromSupplier = h("button", {
+    type: "button", class: "small add-line",
+    onclick: async () => {
+      if (!supplier.value) return;
+      pickFromSupplier.disabled = true;
+      try {
+        const ids = [...await supplierProducts(supplier.value)].filter((id) => chips.has(id));
+        for (const id of ids) {
+          chosen.add(id);
+          chips.get(id).setAttribute("aria-pressed", "true");
+          chips.get(id).hidden = false;
+        }
+        toast(ids.length ? t("supplierProductsAdded", { n: ids.length }) : t("supplierNoProducts"));
+      } catch (err) {
+        console.error(err);
+        toast(t("readFailed"));
+      } finally {
+        pickFromSupplier.disabled = false;
+      }
+    },
+  }, icon("truck"), t("pickSupplierProducts"));
+  const syncSupplier = () => { pickFromSupplier.hidden = !supplier.value; };
+  supplier.addEventListener("change", syncSupplier);
+  syncSupplier();
 
   // Ürün çoksa arama: eşleşmeyenler gizlenir, seçili olanlar hep görünür.
   const filter = products.length > 12 && searchBox(t("searchProducts"), "", (q) => {
@@ -1629,6 +1697,8 @@ export function openDealSheet(dealId) {
   const rows = shareRows(firm, deal?.shares ?? {});
   const fields = [
     field(t("dealName"), name),
+    suppliers.length > 0 && field(t("dealSupplier"), supplier),
+    suppliers.length > 0 && pickFromSupplier,
     h("p", { class: "label" }, t("dealProducts")),
     filter,
     products.length ? productList : h("p", { class: "muted" }, t("needProduct")),
@@ -1648,13 +1718,47 @@ export function openDealSheet(dealId) {
   open(deal ? deal.name : t("newDeal"), fields, buttons, () => {
     const n = name.value.trim();
     if (!n) return t("enterName");
-    if (!chosen.size) return t("chooseDealProducts");
     const shares = rows.read();
     if (typeof shares === "string") return shares;
-    saved(saveDeal(dealId, { name: n, products: [...chosen], shares }), t("saved"));
+    saved(saveDeal(dealId, { name: n, products: [...chosen], shares, supplier: supplier.value }), t("saved"));
     return undefined;
   });
   if (!deal) name.focus();
+}
+
+// Ortaklığın ayrıntısı: tedarikçi, ürünleri (stok ve değer), dönem kârı ve her ortağın payı ile kâr payı.
+// info: { profit, periodLabel, partners: [{ name, pct, amount }] } (Ortaklık sayfası hesaplar).
+export function openDealDetail(dealId, info) {
+  const firm = currentFirm();
+  const deal = firm.deals?.[dealId];
+  if (!deal) return;
+  const products = (deal.products ?? []).map((id) => session.firm.products.get(id)).filter((p) => p && !p.deleted).sort(byName);
+  const supplier = deal.supplier ? session.firm.parties.get(deal.supplier) : null;
+  const stockValue = sum(products, (p) => Math.max(p.value ?? 0, 0));
+  open(deal.name, [
+    h("div", { class: "facts" },
+      supplier && fact(t("supplier"), supplier.name),
+      fact(t("dealProducts"), t("dealProductsCount", { n: products.length })),
+      fact(t("dealStockValue"), formatMoney(stockValue)),
+      fact(t("dealPeriodProfit", { period: info.periodLabel }), formatMoney(info.profit))),
+    h("p", { class: "label" }, t("dealPartnerShares")),
+    h("ul", { class: "cards" }, info.partners.map((x) => h("li", { class: "card row deal-share" },
+      h("span", { class: "main" }, h("span", { class: "title" }, h("bdi", {}, x.name)), h("span", { class: "meta" }, `%${formatNumber(x.pct)}`)),
+      h("span", { class: "end" }, h("span", { class: `amount ${x.amount < 0 ? "out" : "in"}` }, formatMoney(x.amount)),
+        h("span", { class: "after" }, t("dealShareOfProfit")))))),
+    h("p", { class: "label" }, t("dealProducts")),
+    products.length
+      ? h("ul", { class: "cards" }, products.map((p) => h("li", { class: "card row deal-product" },
+        productThumb(p, "sm"),
+        h("span", { class: "main" },
+          h("span", { class: "title" }, h("bdi", {}, productLabel(p))),
+          h("span", { class: "meta" }, `${formatNumber(p.stock ?? 0)} ${unitLabel(p.unit)} · ${formatMoney(p.price ?? 0)}`)),
+        h("span", { class: "end" }, h("span", { class: "amount" }, formatMoney(Math.max(p.value ?? 0, 0)))))))
+      : h("p", { class: "field-hint" }, t("dealNoProductsYet")),
+  ], [
+    h("button", { type: "button", class: "primary block", onclick: () => openDealSheet(dealId) }, icon("pencil"), t("edit")),
+    closeButton(),
+  ]);
 }
 
 // Uygulamayı kullanmayan ortak ekleme (sadece adı).
@@ -2100,10 +2204,11 @@ function shopLinkCard(shop) {
       h("button", { type: "button", class: "block", onclick: () => shareOnWhatsApp({ text: t("shopShareText", { name: firm.name, url }) }) }, icon("whatsapp"), "WhatsApp"),
       h("button", { type: "button", class: "block", onclick: () => shareLink(firm.name, url) }, icon("send"), t("sharePhotoShort")),
       h("button", { type: "button", class: "block", onclick: () => openShopQr(url, firm.name) }, icon("grid"), t("qrCode"))),
+    // Sayılara dokununca ilgili liste açılır: yayındaki ürünler, kategoriler, gizli ürünler.
     h("div", { class: "shop-stats" },
-      h("span", {}, h("strong", {}, String(shown.length)), t("shopStatProducts")),
-      h("span", {}, h("strong", {}, String(cats.size)), t("shopStatCategories")),
-      h("span", {}, h("strong", {}, String(products.length - shown.length)), t("shopStatHidden"))));
+      h("button", { type: "button", onclick: () => openShopProducts("shown") }, h("strong", {}, String(shown.length)), t("shopStatProducts")),
+      h("button", { type: "button", onclick: () => openProductCategories() }, h("strong", {}, String(cats.size)), t("shopStatCategories")),
+      h("button", { type: "button", onclick: () => openShopProducts("hidden") }, h("strong", {}, String(products.length - shown.length)), t("shopStatHidden"))));
 }
 async function copyText(text) {
   try {
@@ -2180,15 +2285,17 @@ async function openShopQr(url, title) {
 
 // Mağazadaki ürünler: her ürün tek dokunuşla vitrinde gösterilir/gizlenir; ürünün bağlantısı kopyalanır ya da
 // paylaşılır (açılınca vitrinde o ürün açılır). Fiyatı olmayan ürün vitrine çıkamaz.
-function openShopProducts() {
+// filter: "" hepsi, "shown" mağazada görünenler, "hidden" görünmeyenler (gizli, fiyatsız ya da tükenmiş).
+function openShopProducts(filter = "") {
   const shop = shopOf();
   const all = [...session.firm.products.values()].filter((p) => !p.deleted).sort(byName);
   let query = "";
   const list = h("ul", { class: "cards" });
   const count = h("small", { class: "field-hint" });
+  const fits = (p) => !filter || (filter === "shown") === inShop(p, shop);
   const render = () => {
     count.textContent = t("shopShownCount", { n: all.filter((p) => inShop(p, shop)).length, total: all.length });
-    list.replaceChildren(...all.filter((p) => matches(productLabel(p), query)).map((p) => {
+    list.replaceChildren(...all.filter((p) => fits(p) && matches(productLabel(p), query)).map((p) => {
       const toggle = h("input", {
         type: "checkbox", class: "si-toggle", checked: !p.shopHide, disabled: !(p.price > 0), "aria-label": t("shopShowProduct"),
         onchange: () => { p.shopHide = !toggle.checked; setShopHidden(p.id, p.shopHide).catch(failed); render(); },
@@ -2209,6 +2316,7 @@ function openShopProducts() {
   };
   render();
   open(t("shopProducts"), [
+    segmented([["", t("filterAll")], ["shown", t("shopFilterShown")], ["hidden", t("shopFilterHidden")]], filter, (v) => { filter = v; render(); }),
     searchBox(t("searchProducts"), "", (v) => { query = v; render(); }),
     count,
     list,

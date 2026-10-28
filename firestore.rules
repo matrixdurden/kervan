@@ -53,6 +53,7 @@ service cloud.firestore {
         && d.get('defaultVat', 0) is number
         && d.get('receipt', {}) is map
         && d.get('categoryPhotos', {}) is map && d.get('categoryPhotos', {}).size() <= 60
+        && d.get('productCats', []) is list && d.get('productCats', []).size() <= 100
         && d.get('currency', 'TRY').matches('^[A-Z]{3}$');
     }
 

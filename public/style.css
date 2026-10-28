@@ -2,7 +2,7 @@
    koyu deniz yeşili ana renk, her bölümün kendi rengi. */
 
 :root {
-  --css-rev: 37; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
+  --css-rev: 38; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
   --bg: #F3F1EC;
   --card: #FFFFFF;
   --card-border: #E1DCD2;
@@ -1412,3 +1412,12 @@ button.danger-fill.armed { animation: pulse 0.9s ease-in-out infinite alternate;
 .shop-item .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .shop-item .si-links { padding-inline-start: 58px; }
 .shop-item.off .title, .shop-item.off .thumb { opacity: 0.55; }
+
+/* Hareket satırı: üst bilgi parçaları (fiş numarası gibi) ortadan bölünmez. */
+.meta .nb { white-space: nowrap; }
+/* Mağaza sayıları dokunulabilir (ilgili liste açılır). */
+.shop-stats button { height: auto; display: flex; flex-direction: column; gap: 0; padding: 8px 4px; border-radius: 12px; background: var(--field); border: 1px solid var(--card-border); font-size: 12px; font-weight: 600; color: var(--text-2); white-space: normal; min-width: 0; }
+.shop-stats button strong { font-size: 18px; color: var(--text); }
+/* Ürün formunda yeni ortaklık kutusu ve ortaklık ayrıntısı. */
+.new-deal { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px dashed var(--card-border); border-radius: 14px; }
+.deal-share .after, .deal-share .meta { font-size: 13px; color: var(--text-3); }

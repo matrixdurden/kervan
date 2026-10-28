@@ -8,6 +8,7 @@ export const RECEIPT_LABEL_KEYS = [
   "total", "paid", "balanceOwed", "balanceCredit", "note", "thanks", "disclaimer",
   "paymentTitle", "collectionTitle", "paidTo", "receivedFrom", "amount", "rate",
   "statementTitle", "previousBalance", "onShelf", "returnTitle", "refunded", "refundTitle",
+  "stDesc", "stTotalDebit", "stTotalCredit", "stAccountType", "stCurrentAccount", "stNone",
 ];
 
 // Makbuz belgeleri (kind): tedarikçiye ödeme ve satıcıdan tahsilat. Satır yok; tek tutar var.
@@ -17,7 +18,7 @@ const FONT = "Nunito, Tajawal, system-ui, sans-serif";
 const SCALE = 2;
 const C = {
   text: "#1E2B2A", text2: "#566664", text3: "#8A9694", border: "#D9D1C1", soft: "#E9E2D4",
-  primary: "#1F6F68", accent: "#C8873A", tint: "#EAF3F2",
+  primary: "#1F6F68", accent: "#C8873A", tint: "#EAF3F2", debit: "#B23A2E", credit: "#1E7B4F",
 };
 
 const moneyFormats = new Map();
@@ -299,33 +300,127 @@ function drawMoney(c, doc, L, logo) {
   thanks(c, L);
 }
 
-// Hesap ekstresi: carinin hareketleri eskiden yeniye, her satırda tutar ve sonraki bakiye; altta
-// güncel bakiye ve (müşteride) emanetteki mal. doc.rows: [{ date, label, detail, amount, sign, balance }].
-// doc.balanceLabel / previousLabel: bakiyenin anlamı ("Bize borçlu" …), uygulama dilinde hazır gelir.
+// Hesap ekstresi, bölüm bölüm (geniş sayfa): üstte işletme ve belge adı, kişi bilgileri kutusu;
+// 1. bölüm borç kalemleri (satış/alış fişleri, ürünleriyle), 2. bölüm ödemeler ve iadeler; altta toplamlar
+// ve kalan bakiye. doc.rows: [{ date, label, number, detail, lines: [{ name, qty, unit, price }], qty, amount,
+// side: "debit" | "credit" }] eskiden yeniye. Bölüm başlıkları ve kişi etiketi uygulama dilinde hazır gelir.
+export function statementSections(doc) {
+  const prev = doc.previous ?? 0;
+  const debit = doc.rows.filter((r) => r.side === "debit");
+  const credit = doc.rows.filter((r) => r.side === "credit");
+  const sumOf = (list) => list.reduce((a, r) => a + (r.amount || 0), 0);
+  return {
+    debit, credit,
+    totalDebit: sumOf(debit) + Math.max(prev, 0),
+    totalCredit: sumOf(credit) + Math.max(-prev, 0),
+  };
+}
+const lineText = (l, cur) => `${l.name} (${qty(l.qty)}${l.unit ? ` ${l.unit}` : ""} × ${money(l.price, cur)} = ${money(Math.round((l.qty || 0) * (l.price || 0)), cur)})`;
+const rowTitle = (r, L) => `${r.label}${r.number ? ` · ${L.number || "No"} ${r.number}` : ""}`;
+const rowSub = (r) => [day(r.date), r.lines?.length ? "" : r.detail].filter(Boolean).join(" · ");
+
 function drawStatement(c, doc, L, logo) {
-  const cur = doc.currency || "TRY", f = doc.firm || {};
-  if (logo) logoAt(c, logo, { align: "center", maxW: 220, maxH: 110 });
-  line(c, f.name || f.title, { size: 30, weight: 800, align: "center", color: C.primary, lh: 1.25 });
-  line(c, f.phone, { size: 19, align: "center", color: C.text2, ltr: true });
-  rule(c, { dash: [6, 5] });
-  line(c, L.statementTitle, { size: 25, weight: 800, align: "center", gap: 6 });
-  pair(c, doc.party?.name ?? "", when(doc), { size: 21, weight: 700 });
-  rule(c, { dash: [6, 5] });
-  if (doc.previous != null) {
-    pair(c, L.previousBalance, money(Math.abs(doc.previous), cur), { size: 19, color: C.text2, gap: 8 });
+  const cur = doc.currency || "TRY", f = doc.firm || {}, p = doc.party || {};
+  const inner = c.W - 2 * c.P;
+  const { debit, credit, totalDebit, totalCredit } = statementSections(doc);
+
+  // Üst: solda işletme, sağda belge adı ve tarih.
+  const y0 = c.y, wEnd = Math.round(inner * 0.42), fw = { w: inner - wEnd - 20 };
+  if (logo) logoAt(c, logo, { ...fw, align: "start", maxW: 200, maxH: 90, gap: 8 });
+  line(c, f.name || f.title, { ...fw, size: 30, weight: 800, color: C.primary, lh: 1.25 });
+  line(c, f.phone, { ...fw, size: 18, color: C.text2, ltr: true });
+  const y1 = c.y;
+  c.y = y0;
+  const eo = { left: c.P + inner - wEnd, w: wEnd, align: "end" };
+  line(c, L.statementTitle, { ...eo, size: 30, weight: 800, lh: 1.2, gap: 4 });
+  line(c, when(doc), { ...eo, size: 18, color: C.text2 });
+  c.y = Math.max(c.y, y1);
+  rule(c, { color: C.primary, width: 3, before: 12, after: 16 });
+
+  // Kişi bilgileri: iki sütunlu açık zeminli kutu.
+  const info = [[p.label || L.customer, p.name], [L.phone, p.phone], [L.date, day(doc.date)], [L.stAccountType, L.stCurrentAccount]]
+    .filter(([k, v]) => k && v);
+  const bg = { t: "rect", x: c.P, y: c.y, w: inner, h: 0, color: C.tint };
+  c.ops.push(bg);
+  c.y += 14;
+  const half = (inner - 48) / 2;
+  const cell = (j, k, v, ltr) => {
+    const o = { left: c.P + 16 + j * (half + 16), w: half };
+    const h1 = put(c, k, { ...o, size: 15, weight: 800, color: C.text3 });
+    c.y += h1;
+    const h2 = put(c, v, { ...o, size: 20, weight: 700, ltr });
+    c.y -= h1;
+    return h1 + h2;
+  };
+  for (let i = 0; i < info.length; i += 2) {
+    c.y += Math.max(...info.slice(i, i + 2).map(([k, v], j) => cell(j, k, v, k === L.phone))) + 8;
   }
-  for (const r of doc.rows) {
-    pair(c, `${day(r.date)}  ${r.label}`, `${r.sign}${money(r.amount, cur)}`, { size: 21, weight: 700, gap: 0 });
-    pair(c, r.detail || "", money(Math.abs(r.balance), cur), { size: 17, color: C.text3, gap: 10 });
-  }
-  rule(c, { before: 2 });
-  pair(c, doc.balanceLabel, money(Math.abs(doc.balance), cur), { size: 28, weight: 800, color: doc.balance ? C.text : C.primary });
+  c.y += 6;
+  bg.h = c.y - bg.y;
+  c.y += 26;
+
+  // Tablo: başlık şeridi, satırlar arasında ince çizgi. widths mantıksal soldan sağa.
+  const table = (title, widths, head, rows) => {
+    line(c, title, { size: 22, weight: 800, color: C.primary, gap: 8 });
+    const cols = widths.map((w, i) => ({ left: c.P + widths.slice(0, i).reduce((a, b) => a + b, 0) + 8, w: w - 16, align: i < 2 ? "start" : "end" }));
+    c.ctx.font = fontOf({ size: 16, weight: 800 });
+    const headH = Math.max(...head.map((s, i) => wrap(c.ctx, s, cols[i].w).length)) * Math.round(16 * 1.4) + 18;
+    c.ops.push({ t: "rect", x: c.P, y: c.y, w: inner, h: headH, color: C.tint });
+    c.y += 9;
+    Math.max(...head.map((s, i) => put(c, s, { ...cols[i], size: 16, weight: 800, color: C.primary })));
+    c.y += headH - 9;
+    rows.forEach((r, i) => {
+      c.y += 10;
+      const desc = cols[1], start = c.y;
+      c.y += put(c, r.title, { ...desc, size: 19, weight: 700 });
+      if (r.sub) c.y += put(c, r.sub, { ...desc, size: 16, color: C.text3 });
+      for (const it of r.items ?? []) c.y += put(c, `• ${it}`, { ...desc, size: 16, color: C.text2 });
+      const hDesc = c.y - start;
+      c.y = start;
+      const ends = r.cells.map((s, j) => put(c, s, { ...cols[cols.length - r.cells.length + j], size: 19, weight: j === r.cells.length - 1 ? 800 : 400,
+        color: j === r.cells.length - 1 ? r.color : C.text2, ltr: true }));
+      const hNo = put(c, String(i + 1), { ...cols[0], size: 17, color: C.text3 });
+      c.y += Math.max(hDesc, hNo, ...ends);
+      rule(c, { color: C.soft, width: 1, before: 10, after: 0 });
+    });
+    c.y += 26;
+  };
+  const prev = doc.previous ?? 0;
+  const prevRow = (side) => ({ title: L.previousBalance, sub: "", items: [], cells: side === "debit" ? ["", money(Math.abs(prev), cur)] : [money(Math.abs(prev), cur)],
+    color: side === "debit" ? C.debit : C.credit });
+  const none = (n) => ({ title: L.stNone, sub: "", items: [], cells: Array(n).fill("—"), color: C.text3 });
+  const debitRows = [
+    ...(prev > 0 ? [prevRow("debit")] : []),
+    ...debit.map((r) => ({ title: rowTitle(r, L), sub: rowSub(r), items: (r.lines ?? []).map((l) => lineText(l, cur)),
+      cells: [r.qty ? qty(r.qty) : "—", money(r.amount, cur)], color: C.debit })),
+  ];
+  const creditRows = [
+    ...(prev < 0 ? [prevRow("credit")] : []),
+    ...credit.map((r) => ({ title: rowTitle(r, L), sub: rowSub(r), items: (r.lines ?? []).map((l) => lineText(l, cur)),
+      cells: [money(r.amount, cur)], color: C.credit })),
+  ];
+  table(`1. ${doc.debitTitle || ""}`, [56, inner - 56 - 110 - 190, 110, 190], ["#", L.stDesc, L.qty, L.amount], debitRows.length ? debitRows : [none(2)]);
+  table(`2. ${doc.creditTitle || ""}`, [56, inner - 56 - 190, 190], ["#", L.stDesc, L.amount], creditRows.length ? creditRows : [none(1)]);
+
+  // Toplamlar ve kalan bakiye: çerçeveli kutu.
+  const frame = { t: "box", x: c.P, y: c.y, w: inner, h: 0, color: C.primary };
+  c.ops.push(frame);
+  const so = { left: c.P + 20, w: inner - 40 };
+  c.y += 16;
+  pair(c, L.stTotalDebit, money(totalDebit, cur), { ...so, size: 21, color: C.debit, gap: 8 });
+  pair(c, L.stTotalCredit, money(totalCredit, cur), { ...so, size: 21, color: C.credit, gap: 4 });
+  c.ops.push({ t: "rule", y: c.y + 6, x0: c.P + 20, x1: c.W - c.P - 20, color: C.border, width: 1.5, dash: [] });
+  c.y += 18;
+  pair(c, doc.balanceLabel, money(Math.abs(doc.balance), cur), { ...so, size: 30, weight: 800, color: doc.balance ? C.text : C.primary, gap: 0 });
+  c.y += 16;
+  frame.h = c.y - frame.y;
+
   if (doc.shelf?.length) {
-    c.y += 10;
+    c.y += 22;
     line(c, `${L.onShelf}:`, { size: 20, weight: 700, gap: 4 });
     for (const s of doc.shelf) pair(c, s.name, s.qty, { size: 19, color: C.text2 });
   }
-  rule(c, { dash: [6, 5] });
+  c.y += 18;
   thanks(c, L);
 }
 
@@ -430,8 +525,9 @@ export async function receiptCanvas(doc, labels) {
   await document.fonts?.ready;
   const logo = await loadLogo(doc.firm?.logo);
   const canvas = document.createElement("canvas");
-  const W = invoice ? 1240 : 576;
-  const c = { ctx: canvas.getContext("2d"), W, P: invoice ? 72 : 28, rtl: L.dir === "rtl", y: 0, ops: [] };
+  const wide = doc.kind === "statement";
+  const W = invoice ? 1240 : wide ? 900 : 576;
+  const c = { ctx: canvas.getContext("2d"), W, P: invoice ? 72 : wide ? 40 : 28, rtl: L.dir === "rtl", y: 0, ops: [] };
   c.y = c.P;
   (DRAW[doc.kind] ?? drawReceipt)(c, doc, L, logo);
   const H = Math.ceil(c.y + c.P);
@@ -550,6 +646,14 @@ h1{font-size:17pt;margin:0 0 4px;color:${C.primary}}h2{font-size:17pt;margin:0 0
 .sum td{padding:3px 0}.sum .tot td{font-size:14pt;font-weight:800;color:${C.primary};border-top:2px solid ${C.primary};padding-top:6px}
 .disc{margin-top:18px;border:1px solid ${C.border};padding:8px 10px;font-size:9pt;font-weight:600;color:${C.text2}}`;
 
+const STATEMENT_CSS = `.info{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;background:${C.tint};padding:10px 12px;margin-bottom:16px}
+.info .lbl{font-size:8.5pt;font-weight:800;color:${C.text3}}.info b{display:block;font-size:11.5pt}
+h3{font-size:12.5pt;color:${C.primary};margin:14px 0 6px}.lines td{vertical-align:top}.lines .no{width:8mm;color:${C.text3}}
+.lines .it{font-size:9pt;color:${C.text2}}.lines .sub{font-size:9pt;color:${C.text3}}.dr{color:${C.debit};font-weight:800}
+.cr{color:${C.credit};font-weight:800}.sbox{border:2px solid ${C.primary};padding:8px 12px;margin-top:16px}
+.sbox td{padding:3px 0}.sbox .tot td{font-size:15pt;font-weight:800;border-top:1px solid ${C.border};padding-top:6px}
+.thanks{color:${C.accent};font-weight:800;margin-top:10px}`;
+
 function receiptBody(doc, L) {
   const cur = doc.currency || "TRY", f = doc.firm || {}, tot = invoiceTotals(doc.lines), logo = safeLogo(f.logo);
   const bal = balanceRow(doc, L);
@@ -576,14 +680,29 @@ ${doc.note ? `<hr>${p(`${L.note}: ${doc.note}`, "mute")}` : ""}<hr>${thanksHtml(
 const head = (f, logo) => `<div class="c">${logo ? `<img class="logo" src="${esc(logo)}" alt="">` : ""}<h1>${esc(f.name || f.title)}</h1>${p(f.phone, "mute")}</div>`;
 
 function statementBody(doc, L) {
-  const cur = doc.currency || "TRY", f = doc.firm || {};
-  const rows = doc.rows.map((r) => tr(`<b>${esc(`${day(r.date)}  ${r.label}`)}</b>`, `${esc(r.sign)}${m(r.amount, cur)}`)
-    + tr(`<span class="mute">${esc(r.detail || "")}</span>`, `<span class="mute">${m(Math.abs(r.balance), cur)}</span>`)).join("");
-  const shelf = doc.shelf?.length ? `<hr><p><b>${esc(L.onShelf)}:</b></p><table>${doc.shelf.map((s) => tr(esc(s.name), esc(s.qty))).join("")}</table>` : "";
-  return `${head(f, safeLogo(f.logo))}<hr><h2 class="c">${esc(L.statementTitle)}</h2>
-<table>${tr(`<b>${esc(doc.party?.name ?? "")}</b>`, esc(when(doc)))}</table><hr>
-<table>${doc.previous != null ? tr(`<span class="mute">${esc(L.previousBalance)}</span>`, `<span class="mute">${m(Math.abs(doc.previous), cur)}</span>`) : ""}${rows}</table><hr>
-<table>${tr(esc(doc.balanceLabel), m(Math.abs(doc.balance), cur), "tot")}</table>${shelf}<hr>${thanksHtml(L)}`;
+  const cur = doc.currency || "TRY", f = doc.firm || {}, pt = doc.party || {}, logo = safeLogo(f.logo);
+  const { debit, credit, totalDebit, totalCredit } = statementSections(doc);
+  const prev = doc.previous ?? 0;
+  const info = [[pt.label || L.customer, pt.name], [L.phone, pt.phone], [L.date, day(doc.date)], [L.stAccountType, L.stCurrentAccount]]
+    .filter(([k, v]) => k && v).map(([k, v]) => `<div><span class="lbl">${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
+  const desc = (r) => `<b>${esc(rowTitle(r, L))}</b>${rowSub(r) ? `<div class="sub">${esc(rowSub(r))}</div>` : ""}`
+    + (r.lines ?? []).map((l) => `<div class="it">• ${esc(lineText(l, cur))}</div>`).join("");
+  const prevRow = (cols) => `<tr><td class="no">·</td><td><b>${esc(L.previousBalance)}</b></td>${cols === 4 ? "<td></td>" : ""}`
+    + `<td class="e ${cols === 4 ? "dr" : "cr"}">${m(Math.abs(prev), cur)}</td></tr>`;
+  const none = (cols) => `<tr><td class="no">—</td><td class="sub" colspan="${cols - 1}">${esc(L.stNone)}</td></tr>`;
+  const dRows = (prev > 0 ? prevRow(4) : "") + debit.map((r, i) => `<tr><td class="no">${i + 1}</td><td>${desc(r)}</td>`
+    + `<td class="e">${r.qty ? esc(qty(r.qty)) : "—"}</td><td class="e dr">${m(r.amount, cur)}</td></tr>`).join("");
+  const cRows = (prev < 0 ? prevRow(3) : "") + credit.map((r, i) => `<tr><td class="no">${i + 1}</td><td>${desc(r)}</td>`
+    + `<td class="e cr">${m(r.amount, cur)}</td></tr>`).join("");
+  const th = (cells) => `<thead><tr>${cells.map((x) => `<th>${esc(x)}</th>`).join("")}</tr></thead>`;
+  const shelf = doc.shelf?.length ? `<h3>${esc(L.onShelf)}</h3><table>${doc.shelf.map((s) => tr(esc(s.name), esc(s.qty))).join("")}</table>` : "";
+  return `<header><div>${logo ? `<img class="logo" src="${esc(logo)}" alt="">` : ""}<h1>${esc(f.name || f.title)}</h1>${p(f.phone, "mute")}</div>
+<div class="end"><h2>${esc(L.statementTitle)}</h2>${p(when(doc), "mute")}</div></header>
+<section class="info">${info}</section>
+<h3>${esc(`1. ${doc.debitTitle || ""}`)}</h3><table class="lines">${th(["#", L.stDesc, L.qty, L.amount])}<tbody>${dRows || none(4)}</tbody></table>
+<h3>${esc(`2. ${doc.creditTitle || ""}`)}</h3><table class="lines">${th(["#", L.stDesc, L.amount])}<tbody>${cRows || none(3)}</tbody></table>
+<section class="sbox"><table>${tr(esc(L.stTotalDebit), `<span class="dr">${m(totalDebit, cur)}</span>`)}${tr(esc(L.stTotalCredit), `<span class="cr">${m(totalCredit, cur)}</span>`)}
+${tr(esc(doc.balanceLabel), m(Math.abs(doc.balance), cur), "tot")}</table></section>${shelf}${thanksHtml(L)}`;
 }
 
 function summaryBody(doc, L) {
@@ -622,7 +741,7 @@ export function receiptHtml(doc, labels) {
   return `<!doctype html><html dir="${dir}" lang="${dir === "rtl" ? "ar" : "tr"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&family=Tajawal:wght@400;500;800&display=swap">
-<style>${BASE_CSS}${invoice ? INVOICE_CSS : L.paper === "58" ? RECEIPT_CSS.replaceAll("80mm", "58mm") : RECEIPT_CSS}</style></head><body>${body}</body></html>`;
+<style>${BASE_CSS}${invoice ? INVOICE_CSS : doc.kind === "statement" ? INVOICE_CSS + STATEMENT_CSS : L.paper === "58" ? RECEIPT_CSS.replaceAll("80mm", "58mm") : RECEIPT_CSS}</style></head><body>${body}</body></html>`;
 }
 
 // Gizli iframe'e koyup yazdırır; bitince (afterprint ya da 60 sn) iframe kaldırılır.

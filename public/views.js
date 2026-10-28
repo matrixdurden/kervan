@@ -20,7 +20,7 @@ export const landedCost = (p) => unitCostOf(p) + extraCostOf(p);
 
 // Fiş numarası: tarih + kayıt kimliğinin başı ("20261026-AB12"). Fişte, listede ve aramada aynıdır.
 export const receiptNumber = (move) => `${move.date.replace(/-/g, "")}-${move.id.slice(0, 4).toUpperCase()}`;
-const NUMBERED = ["sale", "consignSale", "saleReturn", "collection", "payment", "refund", "debtOut", "debtIn", "purchaseReturn", "supplierRefund"];
+export const NUMBERED = ["sale", "consignSale", "saleReturn", "collection", "payment", "refund", "debtOut", "debtIn", "purchaseReturn", "supplierRefund"];
 
 // Hareket aramada eşleşiyor mu: kişi, not, fiş numarası, ürün adları, kasa.
 // Belge adıyla arama: "fiş" yazınca satış fişleri, "fatura" yazınca satış ve alış faturaları, "makbuz" yazınca
@@ -86,8 +86,10 @@ export function moveRow(move, { onclick, after, kind, currency } = {}) {
   const firm = currentFirm();
   const typeLabel = t(`type_${move.type}`);
   const title = kind ? typeLabel : moveTitle(move, firm);
+  // Üst bilgi parçaları bölünmez (fiş numarası satır sonunda ikiye ayrılmasın); sığmayan parça alt satıra geçer.
   const meta = [kind ? null : typeLabel, formatDay(move.date), person(firm, move.by).name,
-    NUMBERED.includes(move.type) && move.id ? `No ${receiptNumber(move)}` : null].filter(Boolean).join(" · ");
+    NUMBERED.includes(move.type) && move.id ? `No ${receiptNumber(move)}` : null].filter(Boolean)
+    .flatMap((part, i) => [i ? " · " : null, h("span", { class: "nb" }, part)]);
   let sub = move.lines && (kind || move.partyName) ? linesSummary(move.lines) : move.type === "expense" ? "" : move.note;
   if (move.currency) sub = [sub, `1 ${move.currency} = ${currencySymbol(base())}${move.rate}`].filter(Boolean).join(" · ");
   const balance = after != null && !move.voided ? balanceText(kind, after, currency) : null;
@@ -96,7 +98,7 @@ export function moveRow(move, { onclick, after, kind, currency } = {}) {
       h("span", { class: "move-icon" }, icon(TYPE_ICON[move.type])),
       h("span", { class: "main" },
         h("span", { class: "title" }, h("bdi", {}, title)),
-        h("span", { class: "meta" }, meta),
+        h("span", { class: "meta" }, ...meta),
         sub && h("span", { class: "meta sub" }, h("bdi", {}, sub))),
       h("span", { class: "end" },
         h("span", { class: "amount" }, formatMoney(move.total, move.currency)),
@@ -123,8 +125,9 @@ export function productThumb(p, size = "") {
 }
 
 // Ürün kategorileri (ürünlerden toplanır; ayrı bir liste tutulmaz): [[ad, ürün sayısı], …] ada göre.
-export function productCategories(products) {
-  const counts = new Map();
+// Ürünsüz açılan kategoriler de (işletmede saklı liste) 0 ürünle listelenir.
+export function productCategories(products, extra = currentFirm()?.productCats ?? []) {
+  const counts = new Map(extra.map((c) => [c, 0]));
   for (const p of products) if (p.category) counts.set(p.category, (counts.get(p.category) ?? 0) + 1);
   return [...counts].sort((a, b) => a[0].localeCompare(b[0], "tr", { numeric: true }));
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { invoiceTotals, waPhone, whatsappUrl, receiptHtml, jpegPdf, RECEIPT_LABEL_KEYS } from "../public/receipt.js";
+import { invoiceTotals, waPhone, whatsappUrl, receiptHtml, jpegPdf, RECEIPT_LABEL_KEYS, statementSections } from "../public/receipt.js";
 
 const labels = {
   dir: "ltr", receiptTitle: "Satış Fişi", invoiceTitle: "Fatura Bilgisi", number: "No", date: "Tarih",
@@ -11,6 +11,7 @@ const labels = {
   disclaimer: "Bu belge e-Fatura / e-Arşiv fatura yerine geçmez.",
   paymentTitle: "Ödeme Makbuzu", collectionTitle: "Tahsilat Makbuzu", paidTo: "Ödeme yapılan", receivedFrom: "Ödeyen",
   amount: "Tutar", rate: "Kur", statementTitle: "Hesap Ekstresi", previousBalance: "Önceki bakiye", onShelf: "Emanetteki mal",
+  stDesc: "Açıklama", stTotalDebit: "Toplam borç", stTotalCredit: "Toplam ödenen", stAccountType: "Hesap türü", stCurrentAccount: "Cari hesap", stNone: "Kayıt yok",
   returnTitle: "İade Fişi", refunded: "Geri verilen", refundTitle: "Para İadesi Makbuzu",
 };
 
@@ -72,24 +73,31 @@ test("whatsappUrl: Türkçe metin ve satır sonu kodlanır", () => {
 
 test("RECEIPT_LABEL_KEYS tam liste", () => {
   assert.deepEqual([...RECEIPT_LABEL_KEYS].sort(), Object.keys(labels).sort());
-  assert.equal(new Set(RECEIPT_LABEL_KEYS).size, 37);
+  assert.equal(new Set(RECEIPT_LABEL_KEYS).size, 43);
 });
 
-test("receiptHtml: hesap ekstresi satırlar, önceki ve güncel bakiye, emanet", () => {
+test("receiptHtml: hesap ekstresi bölüm bölüm: borçlar ürünleriyle, ödemeler, toplamlar, emanet", () => {
   const st = {
     kind: "statement", date: "2026-10-26", time: "14:10", currency: "USD",
-    firm: { name: "Kervan Toptan", logo: "" }, party: { name: "Doğu <Elektronik>", phone: "" },
-    previous: 0,
+    firm: { name: "Kervan Toptan", logo: "" }, party: { name: "Doğu <Elektronik>", phone: "0555", label: "Tedarikçi" },
+    previous: 5000, debitTitle: "Alışlar", creditTitle: "Ödemeler",
     rows: [
-      { date: "2026-10-20", label: "Alış", detail: "Kulaklık 10 adet", amount: 97848, sign: "+", balance: 97848 },
-      { date: "2026-10-26", label: "Ödeme", detail: "1 USD = ₺49.738", amount: 20000, sign: "−", balance: 77848 },
+      { date: "2026-10-20", label: "Alış", number: "", detail: "", lines: [{ name: "Kulaklık", qty: 10, unit: "adet", price: 9785 }], qty: 10, amount: 97850, side: "debit" },
+      { date: "2026-10-26", label: "Ödeme", number: "20261026-AB12", detail: "1 USD = ₺49.738", lines: [], qty: 0, amount: 20000, side: "credit" },
     ],
-    balance: 77848, balanceLabel: "Biz borçluyuz", shelf: [{ name: "Çay", qty: "5 paket" }],
+    balance: 82850, balanceLabel: "Biz borçluyuz", shelf: [{ name: "Çay", qty: "5 paket" }],
   };
+  const sec = statementSections(st);
+  assert.equal(sec.totalDebit, 102850);
+  assert.equal(sec.totalCredit, 20000);
+  assert.equal(sec.totalDebit - sec.totalCredit, st.balance);
   const html = receiptHtml(st, labels);
-  assert.ok(html.includes("Hesap Ekstresi") && html.includes("Doğu &lt;Elektronik&gt;"));
-  assert.ok(html.includes("20.10.2026  Alış") && html.includes("26.10.2026  Ödeme"));
-  assert.ok(html.includes("Önceki bakiye") && html.includes("Biz borçluyuz") && html.includes("Emanetteki mal"));
+  assert.ok(html.includes("Hesap Ekstresi") && html.includes("Doğu &lt;Elektronik&gt;") && html.includes("Tedarikçi"));
+  assert.ok(html.includes("1. Alışlar") && html.includes("2. Ödemeler"));
+  assert.ok(html.includes("• Kulaklık (10 adet × $97.85 = $978.50)") || html.includes("• Kulaklık (10 adet × $97,85 = $978,50)"));
+  assert.ok(html.includes("Ödeme · No 20261026-AB12") && html.includes("26.10.2026 · 1 USD = ₺49.738"));
+  assert.ok(html.includes("Önceki bakiye") && html.includes("Toplam borç") && html.includes("Toplam ödenen"));
+  assert.ok(html.includes("Biz borçluyuz") && html.includes("Emanetteki mal"));
   const sum = receiptHtml({ kind: "summary", title: "Ortak Hesap Özeti", subtitle: "Ali", date: "2026-10-26", firm: { name: "K" },
     rows: [["Dönem", "Bu ay"], ["Kâr payı", "₺100"]], total: ["Toplam hakkı", "₺500"] }, labels);
   assert.ok(sum.includes("Ortak Hesap Özeti") && sum.includes("Kâr payı") && sum.includes("Toplam hakkı"));

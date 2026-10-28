@@ -9,7 +9,7 @@ import { t, unitLabel } from "./i18n.js";
 import { session } from "./session.js";
 import { balanceOf } from "./ledger.js";
 import { formatMoney, formatNumber, base, currencySymbol } from "./money.js";
-import { moveRow, balanceText, emptyState, actionButton, newestFirst, linesSummary, TYPE_ICON } from "./views.js";
+import { moveRow, balanceText, emptyState, actionButton, newestFirst, receiptNumber, NUMBERED, TYPE_ICON } from "./views.js";
 import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptLabels, receiptFirm, openSheet, closeButton, sendPhoto, pastePhoto, directPhoto, photoHint } from "./forms.js";
 import { show } from "./nav.js";
 import { receiptBlob, printReceipt } from "./receipt.js";
@@ -19,19 +19,35 @@ import { today } from "./ui.js";
 
 const STATEMENT_ROWS = 60; // ekstre resmine en son bu kadar hareket; öncesi "önceki bakiye" olur
 
-// Hesap ekstresi belgesi: hareketler eskiden yeniye, her birinin tutarı ve sonraki bakiye.
+// Ekstrenin bölüm başlıkları ve kişi etiketi: carinin türüne göre.
+const STATEMENT_TITLES = {
+  seller: () => [t("st_debit_seller"), t("st_credit_seller")],
+  supplier: () => [t("st_debit_supplier"), t("st_credit_supplier")],
+  person: () => [t("st_debit_person"), t("st_credit_person")],
+};
+
+// Hesap ekstresi belgesi, bölüm bölüm: bakiyeyi artıran hareketler (satış, alış, verilen borç) 1. bölümde
+// ürünleriyle, azaltanlar (tahsilat, ödeme, iade) 2. bölümde. Bakiyeye dokunmayanlar (emanet gibi) yazılmaz.
 function statementDoc(party) {
   const firm = currentFirm();
   const list = (moves ?? []).filter((m) => !m.voided);
   const recent = list.slice(0, STATEMENT_ROWS); // en yeniden geriye
   let running = party.balance;
   const rows = recent.map((m) => {
-    const after = running;
     const fx = balanceOf(m);
     running -= fx;
-    const detail = m.lines ? linesSummary(m.lines, 2) : m.currency ? `1 ${m.currency} = ${currencySymbol(base())}${m.rate}` : m.note || "";
-    return { date: m.date, label: t(`type_${m.type}`), detail, amount: m.total, sign: fx > 0 ? "+" : fx < 0 ? "−" : "", balance: after };
-  }).reverse();
+    if (!fx) return null;
+    const detail = m.currency ? `1 ${m.currency} = ${currencySymbol(base())}${m.rate}` : m.note || "";
+    const lines = (m.lines ?? []).map((l) => {
+      const p = session.firm.products.get(l.product);
+      return { name: l.name || productLabel(p) || "?", qty: l.qty, unit: unitLabel(l.unit ?? p?.unit), price: l.price };
+    });
+    return {
+      date: m.date, label: t(`type_${m.type}`), number: NUMBERED.includes(m.type) && m.id ? receiptNumber(m) : "",
+      detail, lines, qty: lines.reduce((a, l) => a + (l.qty || 0), 0), amount: Math.abs(fx), side: fx > 0 ? "debit" : "credit",
+    };
+  }).filter(Boolean).reverse();
+  const [debitTitle, creditTitle] = (STATEMENT_TITLES[party.kind] ?? STATEMENT_TITLES.seller)();
   const shelf = Object.entries(party.shelf ?? {}).filter(([, s]) => s.stock > 0).map(([id, s]) => {
     const p = session.firm.products.get(id);
     return { name: productLabel(p) || "?", qty: `${formatNumber(s.stock)} ${unitLabel(p?.unit)}` };
@@ -43,9 +59,9 @@ function statementDoc(party) {
     time: new Date().toTimeString().slice(0, 5),
     currency: party.currency || base(),
     firm: receiptFirm(firm),
-    party: { name: party.name, phone: party.phone ?? "" },
+    party: { name: party.name, phone: party.phone ?? "", label: t(party.kind) },
     previous: truncated || running ? running : null,
-    rows,
+    rows, debitTitle, creditTitle,
     balance: party.balance,
     balanceLabel: balanceText(party.kind, party.balance, party.currency).label,
     shelf,

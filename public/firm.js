@@ -17,7 +17,7 @@ import {
 } from "./views.js";
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
-  openDealSheet, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
+  openDealSheet, openDealDetail, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
   openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, sendPhoto, pastePhoto, directPhoto, receiptFirm, openReceiptSettings, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
 } from "./forms.js";
 import { openInvoiceImport, openSaleImport } from "./importer.js";
@@ -1000,10 +1000,18 @@ const partnersPage = {
         h("button", { type: "button", class: "link", onclick: () => openDealSheet() }, `+ ${t("newDeal")}`)),
       h("ul", { class: "cards" },
         dealCard(t("generalShares"), deals.length ? t("generalSharesSub") : null, sharesText(plan("general")), bucketProfit("general"), () => openSharesSheet()),
-        deals.map(([id, d]) => dealCard(
-          d.name,
-          (d.products ?? []).map((pid) => productLabel(products.get(pid))).filter(Boolean).join(", ") || t("noDealProducts"),
-          sharesText(plan(id)), bucketProfit(id), () => openDealSheet(id)))),
+        deals.map(([id, d]) => {
+          const supplier = d.supplier ? session.firm.parties.get(d.supplier)?.name : "";
+          const names = (d.products ?? []).map((pid) => productLabel(products.get(pid))).filter(Boolean).join(", ") || t("noDealProducts");
+          // Ayrıntı: ortakların yüzdesi ve dönem kârından payı.
+          const { ids, shares } = plan(id);
+          const partnersInfo = ids.map((uid) => {
+            const pct = shares[uid] ?? Math.round((100 / ids.length) * 10) / 10;
+            return { name: person(firm, uid).name, pct, amount: Math.round((bucketProfit(id) * pct) / 100) };
+          });
+          return dealCard(d.name, [supplier, names].filter(Boolean).join(" · "), sharesText(plan(id)), bucketProfit(id),
+            () => openDealDetail(id, { profit: bucketProfit(id), periodLabel: t(`period_${period}`), partners: partnersInfo }));
+        })),
       !deals.length && h("p", { class: "field-hint" }, t("dealsIntro")),
       h("h2", { class: "sec" }, h("span", {}, t("partners")),
         h("button", { type: "button", class: "link", onclick: () => openGuestAddSheet() }, `+ ${t("addGuest")}`)),
@@ -1489,6 +1497,7 @@ const settingsPage = {
         item("tag", t("expenseCategories"), cats?.length ? cats.map((c) => c.name).join(", ") : t("defaultCategoriesHint"), () => openCategoriesSheet()),
         item("wallet", t("paymentMethods"), paymentMethods(firm).map((m) => m.name).join(", "), () => openMethodsSheet()),
         item("fileScan", t("aiSettings"), firm.ai?.key || sharedAiReady() ? t("aiReady") : t("aiNotSet"), () => openAiSheet()),
+        item("users", t("dealsSettings"), Object.values(firm.deals ?? {}).map((d) => d.name).join(", ") || t("dealsSettingsHint"), () => openPage("partners")),
         item("wallet", t("page_cash"), t("cashSettingsHint"), () => openPage("cash")),
         item("globe", t("page_shop"), shopOf()?.on ? shopOf().slug : t("shopOffHint"), () => openShopSheet()),
         item("receipt", t("receiptSettings"), t("receiptSettingsHint"), () => openReceiptSettings())),
