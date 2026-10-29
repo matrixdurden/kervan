@@ -27,7 +27,7 @@ import { pickGeminiModel } from "./invoice.js";
 import { sharedAiReady } from "./ai.js";
 import { lastRate, rememberRate, fetchRate } from "./rates.js";
 import { pickImage, preparePhoto, prepareSquare, prepareCover, loadFullPhoto } from "./photos.js";
-import { canScan, scanBarcode } from "./scanner.js";
+import { canScan, scanBarcode, scanMany } from "./scanner.js";
 import { canPickContact, pickContact } from "./contacts.js";
 
 const sheet = $("#sheet");
@@ -221,14 +221,29 @@ function categoryField(current) {
 // Kategoriler (Ürünler sayfasından): var olanlar ürün sayılarıyla; birine ya da "Yeni kategori"ye
 // dokununca adı ve içindeki ürünler seçilir.
 export function openProductCategories() {
-  const products = [...session.firm.products.values()];
-  const cats = productCategories(products);
+  const products = [...session.firm.products.values()].filter((p) => !p.deleted);
+  let cats = productCategories(products);
+  const list = h("ul", { class: "cards" });
+  // Sıra: oklarla yer değiştirir ve hemen kaydedilir (bütün listeler ve mağaza bu sırayı kullanır).
+  const move = (i, d) => {
+    const j = i + d;
+    if (j < 0 || j >= cats.length) return;
+    [cats[i], cats[j]] = [cats[j], cats[i]];
+    paint();
+    saveFirmSettings({ productCats: cats.map(([c]) => c).slice(0, 100) }).catch(failed);
+  };
+  const paint = () => list.replaceChildren(...cats.map(([c, n], i) => h("li", { class: "cat-item" },
+    h("button", { type: "button", class: "card row", onclick: () => openCategoryEditor(c) },
+      categoryPhoto(c) ? h("img", { class: "cat-photo", src: categoryPhoto(c), alt: "" }) : h("span", { class: "cat-photo empty" }, icon("camera")),
+      h("span", { class: "main" }, h("span", { class: "title" }, h("bdi", {}, c)), h("span", { class: "meta" }, t("productCount", { n }))),
+      icon("chevron")),
+    cats.length > 1 && h("span", { class: "cat-order" },
+      h("button", { type: "button", class: "icon", disabled: i === 0, "aria-label": t("moveUp"), title: t("moveUp"), onclick: () => move(i, -1) }, icon("chevronUp")),
+      h("button", { type: "button", class: "icon", disabled: i === cats.length - 1, "aria-label": t("moveDown"), title: t("moveDown"), onclick: () => move(i, 1) }, icon("chevronDown"))))));
+  paint();
   open(t("productCategories"), [
-    h("ul", { class: "cards" },
-      cats.map(([c, n]) => h("li", {}, h("button", { type: "button", class: "card row", onclick: () => openCategoryEditor(c) },
-        categoryPhoto(c) ? h("img", { class: "cat-photo", src: categoryPhoto(c), alt: "" }) : h("span", { class: "cat-photo empty" }, icon("camera")),
-        h("span", { class: "main" }, h("span", { class: "title" }, h("bdi", {}, c)), h("span", { class: "meta" }, t("productCount", { n }))),
-        icon("chevron"))))),
+    cats.length > 1 && h("small", { class: "field-hint" }, t("categoryOrderHint")),
+    list,
     !cats.length && h("p", { class: "field-hint" }, t("noCategoriesYet")),
   ], [
     h("button", { type: "button", class: "primary block", onclick: () => openCategoryEditor("") }, icon("plus"), t("newCategory")),
@@ -296,9 +311,10 @@ function openCategoryEditor(current) {
     else if (pic === undefined && keep) photos[n] = keep;
     else delete photos[n];
     const photoChanged = JSON.stringify(photos) !== before;
-    // Saklı liste: eski ad çıkar; ürünsüz kalan yeni ad girer (ürünü olan kategori ürünlerden zaten bilinir).
+    // Kategori listesi (sıra): yeni ad eskisinin yerine geçer; yeni kategori sona eklenir.
     const stored = currentFirm().productCats ?? [];
-    const cats = [...new Set([...stored.filter((c) => c !== current), ...(picked.size ? [] : [n])])].slice(0, 100);
+    const order = productCategories([...session.firm.products.values()].filter((p) => !p.deleted)).map(([c]) => c);
+    const cats = [...new Set(current && order.includes(current) ? order.map((c) => (c === current ? n : c)) : [...order, n])].slice(0, 100);
     const catsChanged = JSON.stringify(cats) !== JSON.stringify(stored);
     if (!Object.keys(changes).length && !photoChanged && !catsChanged) return sheet.close();
     const settings = { ...(photoChanged && { categoryPhotos: photos }), ...(catsChanged && { productCats: cats }) };
@@ -702,6 +718,100 @@ function rateField(onchange) {
 // Kutucuğa dokununca ürün sepete girer; sepetteki ürünün kutucuğunda − adet + çıkar (azaltmak da
 // buradan). İlk kutucuk "+ Yeni ürün": formdan çıkmadan ürün açılır ve sepete eklenir.
 // products: güncel ürün listesini veren fonksiyon (yeni açılan ürün de görünsün).
+// Ürün kutucuğu (formdaki ürün ızgarası ve barkod ekranı): fotoğraf, ad, fiyat, stok; altta − adet +.
+// badge: okutma ekranında fotoğrafın köşesinde "× 3".
+function pickTile(p, n, { price, sub, onstep, badge = false }) {
+  return h("div", { class: `pick-tile${n ? " picked" : ""}` },
+    h("button", { type: "button", class: "pt-main", onclick: () => { onstep(p, 1); navigator.vibrate?.(15); } },
+      productThumb(p, "tile"),
+      badge && n ? h("span", { class: "pt-badge" }, `× ${formatNumber(n)}`) : null,
+      h("span", { class: "pt-name" }, h("bdi", {}, productLabel(p))),
+      h("span", { class: "pt-price" }, price),
+      h("span", { class: `pt-stock${p.stock <= 0 ? " bad" : ""}` }, sub ?? `${formatNumber(p.stock)} ${unitLabel(p.unit)}`)),
+    n ? h("div", { class: "pt-step" },
+      h("button", { type: "button", "aria-label": t("stepLess"), onclick: () => onstep(p, -1) }, icon("minus")),
+      h("strong", {}, formatNumber(n)),
+      h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => onstep(p, 1) }, icon("plus")))
+      : h("div", { class: "pt-step add" },
+        h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => onstep(p, 1) }, icon("plus"))));
+}
+
+// Sürekli barkod okutma ekranı: kamera üstte açık kalır; her okunan ürün bir artar ve altta "Seçilen
+// ürünler" olarak görünür (adetli). Barkodu okunmayan ürün aramadan bulunup eklenir. Kayıtlı olmayan
+// barkodda "Yeni ürün ekle" çıkar (onnew). done: alttaki düğme ("Satışı tamamla", "Tamam").
+//   items(): [[ürün, adet]] seçilenler; step(ürün, ±1); price(ürün): kutucukta yazan; products(): aranacaklar.
+// Dönüş: { refresh } (form sepeti değişince ekran da güncellensin) ve closed (kapanınca).
+export function scanItems({ done, items, step, price, sub, products, onnew }) {
+  let query = "";
+  const notice = h("div", { class: "scan-notice", hidden: true });
+  const results = h("div", { class: "pick-grid" });
+  const label = h("p", { class: "label" });
+  const grid = h("div", { class: "pick-grid" });
+  const onstep = (p, d) => { step(p, d); render(); };
+  const render = () => {
+    const q = query.trim();
+    const found = q ? products().filter((p) => matches(productLabel(p), q) || barcodesOf(p).includes(q)).slice(0, 12) : [];
+    const picked = new Map(items().map(([p, n]) => [p.id, n]));
+    results.replaceChildren(...found.map((p) => pickTile(p, picked.get(p.id) ?? 0, { price: price(p), sub: sub?.(p), onstep })));
+    results.hidden = !q;
+    const list = items().filter(([, n]) => n > 0);
+    label.textContent = t("scanPicked", { n: formatNumber(list.reduce((a, [, n]) => a + n, 0)) });
+    grid.replaceChildren(...(list.length
+      ? list.map(([p, n]) => pickTile(p, n, { price: price(p), sub: sub?.(p), onstep, badge: true }))
+      : [h("p", { class: "lines-empty wide" }, t("scanEmpty"))]));
+  };
+  const say = (cls, ...children) => {
+    notice.className = `scan-notice ${cls}`;
+    notice.replaceChildren(...children);
+    notice.hidden = false;
+  };
+  let session = null;
+  const addNew = (code) => {
+    notice.hidden = true;
+    session.pause(true);
+    // Ürün formu okutma ekranının üstünde açılır; kapanınca (kaydedilince ya da vazgeçilince) okuma sürer.
+    onnew({ barcode: code });
+    const wait = setInterval(() => {
+      if ($("#subsheet").open) return;
+      clearInterval(wait);
+      session.pause(false);
+      render();
+    }, 300);
+  };
+  render();
+  const panel = h("div", { class: "scan-body" },
+    notice,
+    searchBox(t("scanSearch"), "", (v) => { query = v; render(); }),
+    results, label, grid);
+  session = scanMany({
+    panel, done,
+    onCode: (code) => {
+      const p = productByBarcode(code);
+      if (!p) {
+        say("bad", icon("barcode"), h("span", { class: "main" }, t("barcodeUnknown", { code })),
+          onnew && h("button", { type: "button", class: "small primary", onclick: () => addNew(code) }, icon("plus"), t("newProduct")),
+          h("button", { type: "button", class: "small", onclick: () => { notice.hidden = true; } }, t("skip")));
+        return false;
+      }
+      step(p, 1);
+      say("ok", icon("check"), h("span", { class: "main" }, h("bdi", {}, productLabel(p))));
+      render();
+      return true;
+    },
+  });
+  return { refresh: render, closed: session.closed };
+}
+
+// Tek okumada (ana ekran, ürünler) kayıtlı olmayan barkod: yeni ürün açılsın mı?
+export function offerNewProduct(code) {
+  open(t("barcodeNewTitle"), [
+    h("p", { class: "muted" }, t("barcodeUnknown", { code })),
+  ], [
+    h("button", { type: "button", class: "primary block", onclick: () => openProductSheet(null, { barcode: code }) }, icon("plus"), t("newProduct")),
+    closeButton(),
+  ]);
+}
+
 function productBrowser({ products, count, price, currency, onstep, onnew, onscan }) {
   let query = "";
   let cat = "";
@@ -714,21 +824,8 @@ function productBrowser({ products, count, price, currency, onstep, onnew, onsca
     const shown = all.filter((p) => inCategory(p, cat) && (matches(productLabel(p), q) || barcodesOf(p).includes(q)));
     const add = onnew && h("button", { type: "button", class: "pick-tile new", onclick: () => onnew({ name: q, category: cat && cat !== NO_CATEGORY ? cat : "" }) },
       h("span", { class: "pt-plus", "aria-hidden": "true" }, icon("plus")), h("span", { class: "pt-name" }, t("newProduct")));
-    grid.replaceChildren(...[add].filter(Boolean), ...shown.map((p) => {
-      const n = count(p);
-      return h("div", { class: `pick-tile${n ? " picked" : ""}` },
-        h("button", { type: "button", class: "pt-main", onclick: () => { onstep(p, 1); navigator.vibrate?.(15); } },
-          productThumb(p, "tile"),
-          h("span", { class: "pt-name" }, h("bdi", {}, productLabel(p))),
-          h("span", { class: "pt-price" }, price(p) ? formatMoney(price(p), currency()) : "–"),
-          h("span", { class: `pt-stock${p.stock <= 0 ? " bad" : ""}` }, `${formatNumber(p.stock)} ${unitLabel(p.unit)}`)),
-        n ? h("div", { class: "pt-step" },
-          h("button", { type: "button", "aria-label": t("stepLess"), onclick: () => onstep(p, -1) }, icon("minus")),
-          h("strong", {}, formatNumber(n)),
-          h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => onstep(p, 1) }, icon("plus")))
-          : h("div", { class: "pt-step add" },
-            h("button", { type: "button", "aria-label": t("stepMore"), onclick: () => onstep(p, 1) }, icon("plus"))));
-    }));
+    grid.replaceChildren(...[add].filter(Boolean),
+      ...shown.map((p) => pickTile(p, count(p), { price: price(p) ? formatMoney(price(p), currency()) : "–", onstep })));
     if (!shown.length) grid.append(h("p", { class: "lines-empty wide" }, t(q && onnew ? "noMatchNew" : q ? "noMatch" : "noProducts")));
   };
   const el = h("div", { class: "browser" },
@@ -917,10 +1014,12 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
   }
 
   let browser = null;
+  let scanning = null; // açık barkod ekranı: sepet değişince o da güncellenir
   const refresh = () => {
     for (const el of symbolEls) el.textContent = currency() === base() ? "" : ` (${currencySymbol(currency())})`;
     for (const r of rows) r.refresh();
     browser?.refresh();
+    scanning?.refresh();
     const value = hasLines(type) ? sum(rows, (r) => r.total()) - discountOf(sum(rows, (r) => r.total())) : parseMoney(amount.value) ?? 0;
     total.textContent = formatMoney(value, currency());
     const r = rate.value();
@@ -997,13 +1096,22 @@ export function openMoveSheet(type, { party: fixedParty, edit, lines: presetLine
       const p = session.firm.products.get(l.product);
       if (p) addProduct(p, { qty: l.qty, price: l.price ?? ctx.suggestPrice(p) });
     }
-    // Barkod okutunca ürün forma gelir; aynı ürün tekrar okutulursa adedi artar.
-    const scanLine = async () => {
-      const code = await scanBarcode();
-      if (!code) return;
-      const p = productByBarcode(code);
-      if (!p) return toast(t("barcodeUnknown", { code }));
-      return addProduct(p);
+    // Barkod: kamera üstte açık kalır, okunan her ürün sepette bir artar (aynı ürün tekrar okutulunca adedi).
+    // Kayıtlı olmayan barkodda yeni ürün açılır ve sepete girer. "Satışı tamamla" forma döner.
+    const scanLine = () => {
+      scanning = scanItems({
+        done: t(type === "sale" ? "scanDoneSale" : "scanDone"),
+        items: () => rows.map((r) => [r.product, r.qty()]),
+        step: stepProduct,
+        price: (p) => (ctx.suggestPrice(p) ? formatMoney(ctx.suggestPrice(p), currency()) : "–"),
+        products: () => [...session.firm.products.values()].filter((p) => !p.deleted).sort(byName),
+        onnew: (preset) => newProduct(preset),
+      });
+      scanning.closed.then(() => {
+        scanning = null;
+        browser.refresh();
+        list.scrollIntoView({ block: "nearest" });
+      });
     };
     // Ürünler formun içinde hemen görünür: dokunulan ürün sepete eklenir.
     browser = productBrowser({
@@ -1261,16 +1369,30 @@ export function openShelfSheet(mode, fixedParty) {
     refresh();
   };
 
-  // Barkod okutunca o ürün bir artar (sayımda kalan, iadede iade edilen).
+  // Barkod okuttukça o ürün bir artar (sayımda kalan, iadede iade edilen); kamera açık kalır.
   const scan = h("button", {
-    type: "button", class: "scan-btn block", onclick: async () => {
-      const code = await scanBarcode();
-      if (!code) return;
-      const p = productByBarcode(code);
-      const item = p && items.find((it) => it.id === p.id);
-      if (!item) return toast(p ? t("notOnShelf", { name: productLabel(p) }) : t("barcodeUnknown", { code }));
-      item.add(1);
-      item.el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    type: "button", class: "scan-btn block", onclick: () => {
+      const notice = h("div", { class: "scan-notice", hidden: true });
+      const say = (cls, text) => {
+        notice.className = `scan-notice ${cls}`;
+        notice.replaceChildren(icon(cls === "ok" ? "check" : "barcode"), h("span", { class: "main" }, h("bdi", {}, text)));
+        notice.hidden = false;
+      };
+      scanMany({
+        done: t("scanDone"),
+        panel: h("div", { class: "scan-body" }, notice, h("small", { class: "field-hint" }, t(count ? "countHint" : "returnHint"))),
+        onCode: (code) => {
+          const p = productByBarcode(code);
+          const item = p && items.find((it) => it.id === p.id);
+          if (!item) {
+            say("bad", p ? t("notOnShelf", { name: productLabel(p) }) : t("barcodeUnknown", { code }));
+            return false;
+          }
+          item.add(1);
+          say("ok", productLabel(p));
+          return true;
+        },
+      });
     },
   }, icon("barcode"), t(count ? "scanToCount" : "scanToReturn"));
   partySelect.addEventListener("change", build);
@@ -2141,6 +2263,9 @@ export function openShopSheet() {
   const showPrices = check(cur.showPrices !== false);
   const hideSoldOut = check(Boolean(cur.hideSoldOut));
   const cover = photoField(cur.cover, { prepare: prepareCover, label: t("shopCover") });
+  // Siparişte "Müşteriye WhatsApp'tan yaz"ın hazır mesajı; {müşteri} {sipariş} {tutar} {işletme} yerine geçer.
+  const orderMsg = h("textarea", { rows: 3, maxlength: 500, dir: "auto" });
+  orderMsg.value = firm.orderMsg || t("ord_replyTemplate", MSG_TOKENS);
   const live = cur.slug && cur.on;
   const fields = [
     live ? shopLinkCard(cur) : h("p", { class: "muted" }, t("shopIntro")),
@@ -2154,6 +2279,7 @@ export function openShopSheet() {
     h("label", { class: "check" }, showPrices, h("span", {}, t("shopShowPrices"))),
     h("label", { class: "check" }, hideSoldOut, h("span", {}, t("shopHideSoldOut"))),
     h("small", { class: "field-hint" }, t("shopPrivacy")),
+    field(t("ord_msgLabel"), orderMsg, t("ord_msgHint", MSG_TOKENS)),
   ];
   const buttons = [saveButton()];
   if (live) {
@@ -2182,6 +2308,9 @@ export function openShopSheet() {
     };
     saveShop(settings).then(() => toast(t(settings.on ? "shopSaved" : "shopClosed")),
       (err) => { console.error(err); toast(t(err?.code === "taken" ? "shopTaken" : "saveFailed")); });
+    const msg = orderMsg.value.trim();
+    const nextMsg = msg === t("ord_replyTemplate", MSG_TOKENS) ? "" : msg;
+    if (nextMsg !== (firm.orderMsg ?? "")) saveFirmSettings({ orderMsg: nextMsg }).catch(failed);
     sheet.close();
     return undefined;
   });
@@ -2347,6 +2476,18 @@ async function orderToSale(order) {
 }
 
 // Siparişin ayrıntısı: ürünler, müşteri, not; satışa çevir, müşteriye yaz, fişi, reddet, sil.
+// t() düz {ad} yerlerini boşaltır; şablondaki {tutar} olduğu gibi kalsın.
+const MSG_TOKENS = { tutar: "{tutar}" };
+
+// Siparişte müşteriye gidecek mesaj: Online mağaza ayarlarındaki şablon (yoksa hazır metin).
+function orderMessage(order) {
+  const values = {
+    "müşteri": order.name ?? "", "sipariş": order.code ?? "", "işletme": currentFirm().name,
+    tutar: order.total ? formatMoney(order.total, order.currency || base()) : "",
+  };
+  return (currentFirm().orderMsg || t("ord_replyTemplate", MSG_TOKENS)).replace(/\{([^}]+)\}/g, (m, k) => values[k.toLocaleLowerCase("tr")] ?? m);
+}
+
 export function openShopOrderSheet(order) {
   const shop = shopOf();
   const cur = order.currency || base();
@@ -2386,7 +2527,7 @@ export function openShopOrderSheet(order) {
     order.status !== "done" && h("button", { type: "button", class: "primary block", onclick: () => orderToSale(order) }, icon("out"), t("ord_toSale")),
     order.phone && waPhone(order.phone) && h("button", {
       type: "button", class: "block",
-      onclick: () => shareOnWhatsApp({ phone: order.phone, text: t("ord_reply", { name: order.name, code: order.code, firm: currentFirm().name }) }),
+      onclick: () => shareOnWhatsApp({ phone: order.phone, text: orderMessage(order) }),
     }, icon("whatsapp"), t("ord_writeCustomer")),
     h("button", { type: "button", class: "block whatsapp", onclick: () => sendPhoto(ready, order.phone, `siparis-${order.code}.png`) }, icon("whatsapp"), t("ord_sendReceipt")),
     h("div", { class: "row-buttons" },

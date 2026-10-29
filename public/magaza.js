@@ -27,7 +27,7 @@ const TEXT = {
     orderMissing: "Sipariş bulunamadı.", orderTitle: "Sipariş", waOrder: "Yeni sipariş", orderLink: "Siparişin fotoğrafı ve PDF'i",
     rc: { receiptTitle: "Sipariş", number: "No", customer: "Müşteri", total: "Toplam", paid: "Ödenen", note: "Not", thanks: "Teşekkür ederiz", balanceOwed: "Kalan", balanceCredit: "Alacak" },
     madeWith: "kervan ile hazırlandı",
-    install: "Uygulama olarak yükle", installIos: "Yüklemek için: Paylaş düğmesi → Ana Ekrana Ekle",
+    install: "Uygulama olarak yükle", installShort: "Yükle", installIos: "Yüklemek için: Paylaş düğmesi → Ana Ekrana Ekle",
     installAndroid: "Uygulama olarak yüklemek için: sayfayı Chrome'da aç, sağ üstteki ⋮ menüsünden \"Uygulamayı yükle\" ya da \"Ana ekrana ekle\".",
     installDesktop: "Bilgisayarda (Chrome ya da Edge): adres çubuğunun sağındaki yükle simgesine ya da tarayıcının ⋮ menüsünden \"Yükle\" / \"Uygulamayı yükle\"ye tıkla.",
     installDone: "Yüklenince mağaza, telefonun ya da bilgisayarın ana ekranında kendi simgesiyle açılır.",
@@ -46,7 +46,7 @@ const TEXT = {
     orderMissing: "لم يُعثر على الطلب.", orderTitle: "طلب", waOrder: "طلب جديد", orderLink: "صورة الطلب وملف PDF",
     rc: { receiptTitle: "طلب", number: "رقم", customer: "العميل", total: "المجموع", paid: "المدفوع", note: "ملاحظة", thanks: "شكرًا لكم", balanceOwed: "المتبقي", balanceCredit: "له" },
     madeWith: "صُنع بـ kervan",
-    install: "ثبّت كتطبيق", installIos: "للتثبيت: زر المشاركة ← إضافة إلى الشاشة الرئيسية",
+    install: "ثبّت كتطبيق", installShort: "تثبيت", installIos: "للتثبيت: زر المشاركة ← إضافة إلى الشاشة الرئيسية",
     installAndroid: "للتثبيت كتطبيق: افتح الصفحة في Chrome، ثم من قائمة ⋮ اختر \"تثبيت التطبيق\" أو \"إضافة إلى الشاشة الرئيسية\".",
     installDesktop: "على الكمبيوتر (Chrome أو Edge): اضغط أيقونة التثبيت يمين شريط العنوان أو اختر \"تثبيت\" من قائمة ⋮ في المتصفح.",
     installDone: "بعد التثبيت يفتح المتجر من الشاشة الرئيسية للهاتف أو الكمبيوتر بأيقونته الخاصة.",
@@ -60,6 +60,7 @@ const ICON = {
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
   grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   bag: '<path d="M6 8h12l-1 12H7L6 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+  download: '<path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   whatsapp: '<path d="M12 3.5a8.5 8.5 0 0 0-7.3 12.8L3.5 20.5l4.3-1.1A8.5 8.5 0 1 0 12 3.5z"/><path d="M9 8.5c.2-.5.5-.5.8-.5h.5c.2 0 .4 0 .5.4l.7 1.7c.1.3 0 .5-.1.6l-.5.6c-.1.2-.2.3 0 .6.5.8 1.5 1.8 2.5 2.3.3.1.4.1.6-.1l.6-.7c.2-.2.4-.2.6-.1l1.6.8c.3.1.4.3.4.5 0 .6-.3 1.4-1 1.7-.6.3-1.5.4-3-.3-1.8-.8-3.3-2.5-3.9-3.6-.6-1.1-.6-2.3-.3-2.9z"/>',
   send: '<path d="M4 12l16-8-6 16-2.5-6.5L4 12z"/>',
@@ -184,10 +185,26 @@ function card(it) {
         stepper(it))));
 }
 
+// Mağaza adı tek satıra sığsın: sığmıyorsa yazı adım adım küçülür (en az 13 px), yine de sığmazsa "…".
+function fitTitle() {
+  const el = document.querySelector(".hero h1");
+  if (!el) return;
+  el.style.fontSize = "";
+  let size = parseFloat(getComputedStyle(el).fontSize);
+  while (el.scrollWidth > el.clientWidth + 1 && size > 13) {
+    size -= 1;
+    el.style.fontSize = `${size}px`;
+  }
+}
+addEventListener("resize", () => fitTitle());
+
 function categories() {
   const seen = new Map();
   for (const it of items) if (it.category && !seen.has(it.category)) seen.set(it.category, it);
-  return [...seen].sort((a, b) => a[0].localeCompare(b[0], "tr"));
+  // İşletmenin ayarladığı sıra (listede olmayanlar sonda, ada göre).
+  const order = Array.isArray(shop.catOrder) ? shop.catOrder : [];
+  const at = (c) => { const i = order.indexOf(c); return i < 0 ? Infinity : i; };
+  return [...seen].sort((a, b) => at(a[0]) - at(b[0]) || a[0].localeCompare(b[0], "tr"));
 }
 
 let searchInput = null;
@@ -204,12 +221,17 @@ function render() {
     oninput: (e) => { query = e.target.value; render(); },
   });
   app$.replaceChildren(...clean(
+    // İnce üst şerit: logo, tek satırda adı (uzunsa yazı küçülür), yükle ve dil.
     h("header", { class: "hero" },
       shop.logo ? h("img", { class: "logo", src: shop.logo, alt: "" }) : h("span", { class: "logo" }, shop.name.charAt(0).toLocaleUpperCase("tr")),
-      h("div", { class: "titles" }, h("p", { class: "eyebrow" }, say("eyebrow")), h("h1", {}, shop.name)),
-      h("div", { class: "lang", role: "group" },
-        ["tr", "ar"].map((l) => h("button", { type: "button", "aria-pressed": String(l === lang), onclick: () => { lang = l; store.set("lang", l); applyLang(); render(); } }, l === "tr" ? "TR" : "ع")))),
-    route.pretty && !standalone() && h("button", { type: "button", class: "install-chip", onclick: install }, icon("bag"), say("install")),
+      h("div", { class: "titles" }, h("h1", {}, shop.name)),
+      route.pretty && !standalone() && h("button", { type: "button", class: "install-chip", onclick: install, "aria-label": say("install"), title: say("install") },
+        icon("download"), h("span", {}, say("installShort"))),
+      // Dil: tek düğme, öbür dilin işareti (yer kaplamasın).
+      h("button", {
+        type: "button", class: "lang", "aria-label": lang === "tr" ? "العربية" : "Türkçe",
+        onclick: () => { lang = lang === "tr" ? "ar" : "tr"; store.set("lang", lang); applyLang(); render(); },
+      }, lang === "tr" ? "ع" : "TR")),
     shop.cover && h("img", { class: "cover", src: shop.cover, alt: "" }),
     h("div", { class: "search-wrap" },
       h("label", { class: "search" }, icon("search"), searchInput,
@@ -228,6 +250,7 @@ function render() {
       h("span", { class: "count" }, String(count)),
       h("span", { class: "sum" }, h("small", {}, say("cartCount", { n: count })), h("strong", {}, shop.showPrices ? money(total) : say("cart"))),
       h("span", { class: "go" }, say("seeCart")))));
+  fitTitle();
   if (keepFocus) {
     searchInput.focus();
     searchInput.setSelectionRange(query.length, query.length);

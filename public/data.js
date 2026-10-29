@@ -258,6 +258,9 @@ export function recordMoves(inputs, { newProducts = {}, newParty = null, prices 
 }
 
 // Müşteriye özel fiyatı siler (satışta yine liste fiyatı gelir).
+// Hesabı kapat: o ana kadarki hareketler tamamlandı sayılır, ekstre sonrakilerle (önceki bakiye üstte) başlar.
+// at: kapanış anı (ms); null kapatmayı geri alır.
+export const setPartyClosed = (partyId, at) => updateDoc(ref("parties", partyId), { closedAt: at ?? deleteField() });
 export const clearPartyPrice = (partyId, productId) => updateDoc(ref("parties", partyId), { [`prices.${productId}`]: deleteField() });
 
 // İşletme ayarları (logo, fatura bilgileri, gider kategorileri, yapay zekâ anahtarı, varsayılan KDV).

@@ -4,7 +4,7 @@ import {
   collection, query, where, orderBy, limit, onSnapshot,
 } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 import { db } from "./firebase.js";
-import { $, h, icon, toast } from "./ui.js";
+import { $, h, icon, toast, millis, formatDay } from "./ui.js";
 import { t, unitLabel } from "./i18n.js";
 import { session } from "./session.js";
 import { balanceOf } from "./ledger.js";
@@ -14,7 +14,7 @@ import { openMoveSheet, openMoveDetail, openPartySheet, openShelfSheet, receiptL
 import { show } from "./nav.js";
 import { receiptBlob, printReceipt } from "./receipt.js";
 import { currentFirm } from "./session.js";
-import { productLabel, clearPartyPrice } from "./data.js";
+import { productLabel, clearPartyPrice, setPartyClosed } from "./data.js";
 import { today } from "./ui.js";
 
 const STATEMENT_ROWS = 60; // ekstre resmine en son bu kadar hareket; öncesi "önceki bakiye" olur
@@ -28,9 +28,18 @@ const STATEMENT_TITLES = {
 
 // Hesap ekstresi belgesi, bölüm bölüm: bakiyeyi artıran hareketler (satış, alış, verilen borç) 1. bölümde
 // ürünleriyle, azaltanlar (tahsilat, ödeme, iade) 2. bölümde. Bakiyeye dokunmayanlar (emanet gibi) yazılmaz.
+// ms → yerel gün ("2026-10-29").
+const localDay = (ms) => {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// Hesap kapatıldıysa kapanıştan önceki hareketler tamamlanmış sayılır (ekstreye girmez).
+const settled = (party, m) => party.closedAt > 0 && millis(m.at) <= party.closedAt;
+
 function statementDoc(party) {
   const firm = currentFirm();
-  const list = (moves ?? []).filter((m) => !m.voided);
+  const list = (moves ?? []).filter((m) => !m.voided && !settled(party, m));
   const recent = list.slice(0, STATEMENT_ROWS); // en yeniden geriye
   let running = party.balance;
   const rows = recent.map((m) => {
@@ -52,7 +61,7 @@ function statementDoc(party) {
     const p = session.firm.products.get(id);
     return { name: productLabel(p) || "?", qty: `${formatNumber(s.stock)} ${unitLabel(p?.unit)}` };
   });
-  const truncated = list.length > recent.length || (moves?.length ?? 0) >= 200;
+  const truncated = list.length > recent.length || (moves?.length ?? 0) >= 200 || party.closedAt > 0;
   return {
     kind: "statement",
     date: today(),
@@ -71,7 +80,7 @@ function statementDoc(party) {
 // Ekstre resmi hareketler değiştikçe arka planda hazırlanır ki paylaş dokunuşu kaybolmasın (Safari).
 let statement = { key: "", blob: null, doc: null };
 function prepareStatement(party) {
-  const key = `${party.id}|${party.balance}|${moves?.length ?? -1}|${moves?.[0]?.id ?? ""}|${moves?.filter((m) => m.voided).length ?? 0}`;
+  const key = `${party.id}|${party.balance}|${moves?.length ?? -1}|${moves?.[0]?.id ?? ""}|${moves?.filter((m) => m.voided).length ?? 0}|${party.closedAt ?? 0}`;
   if (statement.key === key) return;
   const doc = statementDoc(party);
   statement = { key, blob: null, doc };
@@ -195,6 +204,36 @@ function shelfCard(party) {
     h("small", { class: "field-hint" }, t("shelfHint")));
 }
 
+// Ekstreyi göndermeden önce görmek: resmi tam ekran, altında gönder ve yazdır.
+function viewStatement(party) {
+  prepareStatement(party);
+  const img = h("img", { class: "statement-preview", alt: t("viewStatement") });
+  statementBlob(party).then((b) => { img.src = URL.createObjectURL(b); }).catch((err) => console.error(err));
+  openSheet(t("viewStatement"), [img], [
+    h("button", { type: "button", class: "block whatsapp", onclick: () => sendPhoto(statementBlob(party), party.phone, `cari-${party.name}.png`) },
+      icon("whatsapp"), t("sendStatement")),
+    h("button", { type: "button", class: "block", onclick: () => printReceipt(statement.doc, receiptLabels()) }, icon("printer"), t("print")),
+    closeButton(),
+  ]);
+}
+
+// Hesabı kapat (✅): şimdiye kadarki fişler, faturalar ve borçlar tamamlandı; ekstre bundan sonrakilerle,
+// kalan bakiye "önceki bakiye" olarak başlar. Bakiye değişmez. Geri alınabilir.
+function closeAccount(party) {
+  const b = balanceText(party.kind, party.balance, party.currency);
+  const done = (p, msg) => p.then(() => toast(msg), (err) => { console.error(err); toast(t("saveFailed")); });
+  openSheet(t("closeAccount"), [
+    h("p", {}, t("closeAccountHint")),
+    h("p", { class: "muted" }, t("closeAccountBalance", { label: b.label, amount: b.amount })),
+  ], [
+    h("button", { type: "button", class: "primary block", onclick: () => { $("#sheet").close(); done(setPartyClosed(party.id, Date.now()), t("accountClosed")); } },
+      icon("checkCircle"), t(party.closedAt ? "closeAccountAgain" : "closeAccount")),
+    party.closedAt && h("button", { type: "button", class: "block", onclick: () => { $("#sheet").close(); done(setPartyClosed(party.id, null), t("accountReopened")); } },
+      icon("undo"), t("reopenAccount")),
+    closeButton(),
+  ]);
+}
+
 function render() {
   const party = session.firm.parties.get(partyId);
   if (!party) return;
@@ -224,9 +263,14 @@ function render() {
           type: "button", class: "small", "aria-label": t("pasteToChat"), title: t("pasteToChat"),
           onclick: () => pastePhoto(statementBlob(party), party.phone, `cari-${party.name}.png`),
         }, icon("clipboard")),
+        h("button", { type: "button", class: "small", "aria-label": t("viewStatement"), title: t("viewStatement"), onclick: () => viewStatement(party) },
+          icon("eye")),
         h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => { prepareStatement(party); printReceipt(statement.doc, receiptLabels()); } },
           icon("printer"))),
-      h("small", { class: "field-hint" }, photoHint())),
+      h("small", { class: "field-hint" }, photoHint()),
+      // Hesabı kapat: tamamlanan fişler/faturalar bir sonraki ekstrede çıkmasın.
+      h("button", { type: "button", class: `small close-account${party.closedAt ? " on" : ""}`, onclick: () => closeAccount(party) },
+        icon("checkCircle"), party.closedAt ? t("accountClosedOn", { date: formatDay(localDay(party.closedAt)) }) : t("closeAccount"))),
   ];
   if (moves) prepareStatement(party);
 
@@ -264,7 +308,18 @@ function render() {
       if (!m.voided) running -= balanceOf(m);
     }
     const row = (m) => moveRow(m, { onclick: () => openMoveDetail(m, { balanceAfter: afters.get(m.id) }), after: afters.get(m.id), kind: party.kind, currency: party.currency });
-    out.push(typeBoxes(party, moves, row), h("h2", { class: "sec" }, t("statement")), h("ul", { class: "cards" }, moves.map(row)));
+    // Kapanıştan öncekiler soluk ve "tamamlandı" çizgisinin altında.
+    const firstSettled = moves.findIndex((m) => settled(party, m));
+    const items = moves.map((m) => {
+      const li = row(m);
+      if (settled(party, m)) li.classList.add("settled");
+      return li;
+    });
+    if (firstSettled >= 0) {
+      items.splice(firstSettled, 0, h("li", { class: "settled-line" }, icon("checkCircle"),
+        t("accountClosedOn", { date: formatDay(localDay(party.closedAt)) })));
+    }
+    out.push(typeBoxes(party, moves, row), h("h2", { class: "sec" }, t("statement")), h("ul", { class: "cards" }, items));
   } else if (moves) {
     out.push(emptyState("📒", t("noPartyMoves")));
   }

@@ -54,6 +54,7 @@ service cloud.firestore {
         && d.get('receipt', {}) is map
         && d.get('categoryPhotos', {}) is map && d.get('categoryPhotos', {}).size() <= 60
         && d.get('productCats', []) is list && d.get('productCats', []).size() <= 100
+        && text(d.get('orderMsg', ''), 500)
         && d.get('currency', 'TRY').matches('^[A-Z]{3}$');
     }
 
@@ -93,6 +94,7 @@ service cloud.firestore {
         && text(d.get('taxOffice', ''), 60)
         && text(d.get('address', ''), 300)
         && d.get('prices', {}) is map && d.get('prices', {}).size() <= 1000
+        && optNumber(d, 'closedAt')
         && trashable(d, d.balance == 0);
     }
 

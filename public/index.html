@@ -185,10 +185,14 @@
 
   <!-- Barkod okutma: arka kamera -->
   <dialog id="scanner" class="scanner">
-    <video playsinline muted></video>
-    <div class="scan-frame" aria-hidden="true"></div>
-    <p data-i18n="scanHint"></p>
-    <button type="button" class="block" data-close data-i18n="close"></button>
+    <div class="scan-cam">
+      <video playsinline muted></video>
+      <div class="scan-frame" aria-hidden="true"><span class="scan-laser"></span></div>
+    </div>
+    <p class="scan-hint" data-i18n="scanHint"></p>
+    <div class="scan-panel"></div>
+    <button type="button" class="block scan-close" data-close data-i18n="close"></button>
+    <button type="button" class="block primary scan-done" data-close data-done></button>
   </dialog>
 
   <div id="toast" class="toast" role="status" popover="manual"><span></span><button type="button" class="link" data-i18n="undo" hidden></button></div>

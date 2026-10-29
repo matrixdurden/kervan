@@ -52,30 +52,38 @@ svg { display: block; }
 .state h1 { font: 600 30px/1.1 var(--display); color: var(--ink); margin: 0 0 8px; }
 
 /* --- Üst bölüm --- */
-.hero { display: flex; align-items: center; gap: 14px; padding: 22px 0 16px; }
+/* İnce üst şerit: logo, tek satır ad, yükle, dil. */
+.hero { display: flex; align-items: center; gap: 10px; padding: 12px 0 6px; }
 .logo {
-  width: 56px; height: 56px; flex: none; border-radius: 50%; object-fit: cover;
+  width: 40px; height: 40px; flex: none; border-radius: 50%; object-fit: cover;
   background: var(--gold-soft); border: 1px solid var(--line);
-  display: grid; place-items: center; font: 700 26px var(--display); color: var(--gold);
+  display: grid; place-items: center; font: 700 19px var(--display); color: var(--gold);
 }
 .hero .titles { flex: 1; min-width: 0; }
 .eyebrow { margin: 0; font-size: 11px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: var(--gold); }
-.hero h1 { margin: 2px 0 0; font: 700 30px/1.05 var(--display); letter-spacing: 0.01em; overflow-wrap: anywhere; }
-/* Üstte, başlığın altında ince altın çerçeveli "Uygulama olarak yükle" */
+.hero h1 {
+  margin: 0; font: 600 21px/1.2 var(--display); letter-spacing: 0.06em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Şeritte ince altın çerçeveli "Yükle" */
 .install-chip {
-  display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 40px; margin: -4px 0 6px;
+  flex: none; display: flex; align-items: center; gap: 5px; height: 32px; padding: 0 11px;
   border-radius: 999px; border: 1px solid var(--gold); background: transparent; color: var(--gold);
-  font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: 12px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
 }
-.install-chip svg { width: 17px; height: 17px; }
+.install-chip svg { width: 15px; height: 15px; }
 .lang {
-  flex: none; display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--surface);
+  flex: none; width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 800;
 }
-.lang button { border: 0; background: none; padding: 7px 12px; font-size: 13px; font-weight: 700; color: var(--muted); }
-.lang button[aria-pressed="true"] { background: var(--dark); color: var(--on-dark); }
+/* Telefonda "Yükle" yalnız simge: mağaza adına yer kalsın. */
+@media (max-width: 480px) {
+  .install-chip { width: 34px; height: 34px; padding: 0; justify-content: center; }
+  .install-chip span { display: none; }
+}
 
 /* Arama: yuvarlak, yumuşak gölgeli; kaydırınca üstte kalır */
-.search-wrap { position: sticky; top: 0; z-index: 5; padding: 8px 0 12px; background: linear-gradient(var(--bg) 75%, transparent); }
+.search-wrap { position: sticky; top: 0; z-index: 5; padding: 6px 0 10px; background: linear-gradient(var(--bg) 75%, transparent); }
 .search {
   display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 18px;
   background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow);
@@ -268,4 +276,4 @@ dialog.sheet[open] { display: flex; flex-direction: column; animation: up .25s e
 .install-help p { margin: 0 0 12px; line-height: 1.5; }
 
 /* Kapak fotoğrafı: başlığın altında, köşeleri yuvarlak */
-.cover { display: block; width: 100%; max-height: 280px; object-fit: cover; border-radius: 18px; margin: 0 0 8px; box-shadow: var(--shadow); }
+.cover { display: block; width: 100%; max-height: 170px; object-fit: cover; border-radius: 16px; margin: 2px 0 4px; box-shadow: var(--shadow); }

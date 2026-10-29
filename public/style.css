@@ -2,7 +2,7 @@
    koyu deniz yeşili ana renk, her bölümün kendi rengi. */
 
 :root {
-  --css-rev: 38; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
+  --css-rev: 39; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
   --bg: #F3F1EC;
   --card: #FFFFFF;
   --card-border: #E1DCD2;
@@ -557,16 +557,38 @@ dialog.scanner {
   display: none; flex-direction: column; gap: 14px;
 }
 dialog.scanner[open] { display: flex; }
-dialog.scanner video { flex: 1; min-height: 0; width: 100%; object-fit: cover; border-radius: 16px; background: #111; }
+.scan-cam { position: relative; flex: 1; min-height: 0; border-radius: 16px; overflow: hidden; background: #111; }
+.scan-cam video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .scan-frame {
-  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   width: min(78vw, 360px); height: 140px;
   border: 3px solid rgb(255 255 255 / 0.85); border-radius: 16px;
   box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.25);
   pointer-events: none;
 }
-dialog.scanner p { margin: 0; text-align: center; font-weight: 700; }
-dialog.scanner button { color: #fff; border-color: rgb(255 255 255 / 0.5); }
+.scan-laser { position: absolute; left: 8px; right: 8px; top: 50%; height: 2px; background: #FF3B30; box-shadow: 0 0 8px #FF3B30; }
+dialog.scanner p.scan-hint { margin: 0; text-align: center; font-weight: 700; }
+dialog.scanner button.scan-close { color: #fff; border-color: rgb(255 255 255 / 0.5); }
+.scan-panel, dialog.scanner .scan-done { display: none; }
+
+/* Sürekli okuma: kamera üstte (ekranın üçte biri), altında açık zeminde seçilen ürünler, en altta tamamla. */
+dialog.scanner.multi { padding: 0; gap: 0; background: var(--bg); color: var(--text); }
+.scanner.multi .scan-cam { flex: none; height: 34vh; min-height: 190px; border-radius: 0; }
+.scanner.multi .scan-frame { width: min(70vw, 320px); height: 96px; box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.18); }
+.scanner.multi .scan-hint, .scanner.multi .scan-close { display: none; }
+.scanner.multi .scan-panel { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px; }
+.scanner.multi .scan-done {
+  display: flex; flex: none; width: auto; height: 56px; margin: 0 14px calc(12px + env(safe-area-inset-bottom)); border-radius: 16px; font-size: 17px; font-weight: 800;
+}
+.scan-notice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-radius: 14px; font-size: 14px; font-weight: 700; }
+.scan-notice.ok { background: color-mix(in srgb, var(--in) 14%, var(--card)); color: color-mix(in srgb, var(--in) 75%, var(--text)); }
+.scan-notice.bad { background: color-mix(in srgb, var(--warn) 16%, var(--card)); color: var(--text); }
+.scan-notice .main { flex: 1; min-width: 0; }
+.scan-notice button { height: 36px; }
+.scan-panel .label { margin: 4px 0 0; }
+.pt-badge { position: absolute; inset: 6px 6px auto auto; min-width: 30px; height: 26px; padding: 0 7px; border-radius: 999px; display: grid; place-items: center;
+  background: var(--ink); color: var(--on-ink); font-size: 14px; font-weight: 800; }
+.pick-tile .pt-main { position: relative; }
 
 /* Ortaklıklar */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1421,3 +1443,35 @@ button.danger-fill.armed { animation: pulse 0.9s ease-in-out infinite alternate;
 /* Ürün formunda yeni ortaklık kutusu ve ortaklık ayrıntısı. */
 .new-deal { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px dashed var(--card-border); border-radius: 14px; }
 .deal-share .after, .deal-share .meta { font-size: 13px; color: var(--text-3); }
+
+/* Ana ekran: arama kutusunun içindeki barkod düğmesi doğrudan okutur; altında ince "Mağazayı aç". */
+.home-search-row { position: relative; margin-bottom: 10px; }
+.home-search-row button.home-search { margin-bottom: 0; padding-inline-end: 56px; }
+.home-search-row button.hs-scan { position: absolute; inset-inline-end: 7px; top: 7px; padding: 0; border: 0; }
+button.home-shop-link {
+  width: 100%; height: 38px; margin: 0 0 12px; padding: 0 14px; gap: 8px; justify-content: flex-start;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, #B08A3E 55%, transparent); background: transparent;
+  color: #A07A2E; font-size: 13px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+}
+button.home-shop-link svg { width: 16px; height: 16px; }
+button.home-shop-link small { flex: 1; min-width: 0; text-align: end; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
+.tone-categories { --c: #8A5A9E; }
+/* Sipariş bildirimi kapalı uyarısı */
+button.notify-banner {
+  width: 100%; height: auto; margin-top: 12px; text-align: start; font-weight: 400; white-space: normal;
+  background: color-mix(in srgb, var(--primary) 10%, var(--card)); border-color: color-mix(in srgb, var(--primary) 30%, var(--card));
+}
+.notify-banner > svg:first-child { color: var(--primary); width: 24px; height: 24px; }
+.notify-banner .main { display: flex; flex-direction: column; }
+/* Kategori sırası okları */
+.cat-item { display: flex; align-items: center; gap: 6px; }
+.cat-item > button.card { flex: 1; min-width: 0; }
+.cat-order { display: flex; flex-direction: column; gap: 2px; }
+.cat-order button.icon { width: 34px; height: 30px; }
+/* Cari: hesabı kapat ve tamamlanmış (kapanış öncesi) hareketler */
+button.close-account { margin-top: 10px; gap: 6px; }
+button.close-account.on { color: var(--in); border-color: color-mix(in srgb, var(--in) 40%, var(--card)); }
+.cards li.settled { opacity: 0.55; }
+.settled-line { display: flex; align-items: center; gap: 8px; justify-content: center; padding: 4px 0; font-size: 13px; font-weight: 800; color: var(--in); }
+.settled-line svg { width: 18px; height: 18px; }
+img.statement-preview { display: block; width: 100%; border-radius: 12px; border: 1px solid var(--card-border); background: #fff; min-height: 200px; }

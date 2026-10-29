@@ -18,7 +18,7 @@ import {
 import {
   openProductSheet, openPartySheet, openMoveSheet, openMoveDetail, openShelfSheet, openCashSheet, openSharesSheet,
   openDealSheet, openDealDetail, openGuestSheet, openGuestAddSheet, openBusinessSheet, openCategoriesSheet, openAiSheet, openOrderSheet, receiptLabels,
-  openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, sendPhoto, pastePhoto, directPhoto, receiptFirm, openReceiptSettings, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet,
+  openMethodsSheet, paymentMethods, methodEmoji, openFundMoveSheet, openFundAdjustSheet, sendToChat, sendPhoto, pastePhoto, directPhoto, receiptFirm, openReceiptSettings, openProductCategories, openSheet, closeButton, failed, openShopSheet, openShopOrderSheet, scanItems, offerNewProduct,
 } from "./forms.js";
 import { openInvoiceImport, openSaleImport } from "./importer.js";
 import { openParty, refreshParty } from "./party.js";
@@ -107,6 +107,9 @@ function watchOrders() {
   if (slug === ordersSlug) return;
   ordersUnsub?.();
   ordersSlug = slug;
+  // Bildirim izni verilmişse bu telefonun kaydı her açılışta tazelenir (kayıt 90 günde düşer, telefon
+  // aboneliği değişebilir): uygulama kapalıyken de sipariş bildirimi gelsin.
+  if (slug && shopOf()?.on && pushSupported() && pushPermission() === "granted") enableOrderPush().catch((err) => console.error(err));
   session.firm.orders = [];
   let seen = null; // ilk okumada gelenler eski sayılır
   ordersUnsub = slug ? listenOrders((list) => {
@@ -316,7 +319,7 @@ const START = {
   expenseStart: () => openCashSheet("expense"), // Giderler → Gider gir ile aynı form
 };
 // Sayfa değil, doğrudan pencere açan kutucuklar.
-const TILE_ACTION = { invoice: () => openInvoiceImport(), shop: () => openShopSheet() };
+const TILE_ACTION = { categories: () => openProductCategories(), shop: () => openShopSheet() };
 // Tahsilatlar ve Ödemeler "Satış başlat / Gider başlat"ın hemen altında ferah renkli geniş kutular.
 const FRESH = [["collections", "plusCircle", "fresh-in"], ["payments", "minusCircle", "fresh-out"]];
 // Online mağaza satırı Tahsilatlar/Ödemeler'in hemen altında; diğer bölümler aşağıda.
@@ -324,7 +327,7 @@ const SHOP_TILES = [["orders", "bag"], ["shop", "globe"]];
 const SECTIONS = [
   ["sellers", "store"], ["suppliers", "truck"],
   ["products", "box"], ["stockCount", "clipboard"],
-  ["invoice", "fileScan"], ["expenses", "receipt"],
+  ["categories", "tag"], ["expenses", "receipt"],
   ["consign", "send"], ["saleReturns", "undo"],
   ["cash", "wallet"], ["partners", "users"],
   ["debts", "scale"], ["stockValue", "trend"],
@@ -360,8 +363,14 @@ const HOME = {
       h("span", {}, label), h("strong", {}, value));
     const out = [
       // Tatlı arama kutusu: dokununca arama sayfası (ürün, müşteri, fiş no, barkod).
-      h("button", { type: "button", class: "home-search", onclick: () => { globalQuery = ""; openPage("search"); } },
-        icon("search"), h("span", {}, t("searchAll")), canScan() && h("span", { class: "hs-scan" }, icon("barcode"))),
+      h("div", { class: "home-search-row" },
+        h("button", { type: "button", class: "home-search", onclick: () => { globalQuery = ""; openPage("search"); } },
+          icon("search"), h("span", {}, t("searchAll"))),
+        canScan() && h("button", { type: "button", class: "hs-scan", "aria-label": t("scanBarcode"), title: t("scanBarcode"), onclick: scanFromHome },
+          icon("barcode"))),
+      // Mağaza açıksa aramanın altında ince "Mağazayı aç".
+      shopOf()?.on && shopOf()?.slug && h("button", { type: "button", class: "home-shop-link", onclick: () => openPage("shop") },
+        icon("globe"), h("span", {}, t("shopOpen")), h("small", { dir: "ltr" }, shopOf().slug), icon("chevron")),
       h("div", { class: "stats" },
         stat(t("receivable"), formatMoney(receivable), "in", () => openPage("sellers")),
         stat(t("cashTotal"), formatMoney(cash), "", () => openPage("cash")),
@@ -375,6 +384,7 @@ const HOME = {
         h("button", { type: "button", class: `tile-fresh ${cls}`, onclick: () => openPage(id) },
           h("span", { class: "fresh-ic" }, icon(ic)), h("span", {}, t(`page_${id}`))))),
       smallTiles(SHOP_TILES),
+      notifyBanner(),
       low.length > 0 && h("button", { type: "button", class: "card low-banner", onclick: () => openPage("products", { filter: "low" }) },
         icon("alert"), h("span", { class: "main" },
           h("strong", {}, t("lowStockCount", { n: low.length })),
@@ -397,6 +407,21 @@ const smallTiles = (list) => h("div", { class: "tiles-grid" }, list.map(([id, ic
   h("button", { type: "button", class: `tile-small tone-${id}`, onclick: () => (TILE_ACTION[id] ? TILE_ACTION[id]() : openPage(id)) },
     h("span", { class: "tile-ic" }, icon(ic)), h("span", {}, t(`page_${id}`)),
     id === "orders" && newOrders() > 0 && h("span", { class: "tile-badge" }, String(newOrders())))));
+
+// Mağaza açık ama bu telefonda sipariş bildirimi kapalı: uygulama kapalıyken sipariş gelince ses gelmez.
+// Tek dokunuşla açılır; izin reddedildiyse nereden açılacağı yazar.
+function notifyBanner() {
+  if (!shopOf()?.on || !pushSupported() || pushPermission() === "granted") return null;
+  const denied = pushPermission() === "denied";
+  return h("button", {
+    type: "button", class: "card notify-banner",
+    onclick: () => (denied ? toast(t("ord_notifyDenied")) : enableOrderPush().then(() => { toast(t("ord_notifyOn")); render(); },
+      (err) => { console.error(err); toast(t(err?.code === "denied" ? "ord_notifyDenied" : "genericError")); render(); })),
+  }, icon("bell"), h("span", { class: "main" },
+    h("strong", {}, t(denied ? "ord_notifyBlocked" : "ord_notifyEnable")),
+    h("small", {}, t(denied ? "ord_notifyDenied" : "ord_notifyAsk"))),
+  icon("chevron"));
+}
 
 // İlk kurulumda ne yapılacağını adım adım gösterir.
 function startGuide() {
@@ -711,6 +736,16 @@ document.addEventListener("kervan:shop-preview", () => openPage("shopPreview"));
 
 let globalQuery = "";
 const receiptHits = new Map(); // "20261026" → o günün hareketleri (eski fiş numaraları için)
+
+// Ana ekrandaki barkod: okunan ürün bulunursa aramada gösterilir; kayıtlı değilse yeni ürün önerilir.
+async function scanFromHome() {
+  const code = await scanBarcode();
+  if (!code) return;
+  if (!productByBarcode(code)) return offerNewProduct(code);
+  globalQuery = code;
+  rendered = null;
+  openPage("search");
+}
 
 async function scanSearch() {
   const code = await scanBarcode();
@@ -1155,20 +1190,22 @@ const countStatus = (p) => {
   return d == null ? "todo" : d === 0 ? "ok" : d < 0 ? "short" : "over";
 };
 
-// Barkod okutma: okunan ürün bir artar ve kamera hemen yeniden açılır; vazgeçince durur.
-async function scanCount() {
-  for (;;) {
-    const code = await scanBarcode();
-    if (!code) return;
-    const p = productByBarcode(code);
-    if (!p) {
-      toast(t("barcodeUnknown", { code }));
-      continue;
-    }
-    setCount(p.id, (counts[p.id] ?? 0) + 1);
-    navigator.vibrate?.(30);
-    toast(t("cnt_scanned", { name: productLabel(p), n: formatNumber(counts[p.id]) }));
-  }
+// Barkod okutma: kamera üstte açık kalır; okunan ürün bir artar ve bu okutmada sayılanlar altta görünür.
+function scanCount() {
+  const seen = [];
+  const s = scanItems({
+    done: t("scanDone"),
+    items: () => seen.map((id) => session.firm.products.get(id)).filter(Boolean).map((p) => [p, counts[p.id] ?? 0]),
+    step: (p, d) => {
+      if (!seen.includes(p.id)) seen.unshift(p.id);
+      setCount(p.id, (counts[p.id] ?? 0) + d);
+    },
+    price: (p) => t("cnt_stockNow", { n: formatNumber(p.stock) }),
+    sub: () => "",
+    products: () => [...session.firm.products.values()].filter((p) => !p.deleted).sort(byName),
+    onnew: null,
+  });
+  s.closed.then(() => rerenderBody());
 }
 
 function countCard(p) {

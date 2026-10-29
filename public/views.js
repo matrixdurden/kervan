@@ -124,13 +124,18 @@ export function productThumb(p, size = "") {
     : h("span", { class: `thumb blank ${size}`, "aria-hidden": "true" }, p.name.charAt(0).toLocaleUpperCase("tr"));
 }
 
-// Ürün kategorileri (ürünlerden toplanır; ayrı bir liste tutulmaz): [[ad, ürün sayısı], …] ada göre.
-// Ürünsüz açılan kategoriler de (işletmede saklı liste) 0 ürünle listelenir.
-export function productCategories(products, extra = currentFirm()?.productCats ?? []) {
-  const counts = new Map(extra.map((c) => [c, 0]));
+// Ürün kategorileri: [[ad, ürün sayısı], …]. Sıra işletmenin kategori listesindeki (productCats, Kategoriler
+// ekranında yukarı/aşağı ile ayarlanır) sıradır; listede olmayanlar sonda, ada göre. Ürünsüz kategoriler de
+// listede olduğu için 0 ürünle görünür. Bu sıra her yerde aynıdır (formlar, ürünler, online mağaza).
+export function productCategories(products, order = currentFirm()?.productCats ?? []) {
+  const counts = new Map(order.map((c) => [c, 0]));
   for (const p of products) if (p.category) counts.set(p.category, (counts.get(p.category) ?? 0) + 1);
-  return [...counts].sort((a, b) => a[0].localeCompare(b[0], "tr", { numeric: true }));
+  return sortCategories([...counts], order);
 }
+export const sortCategories = (list, order = []) => {
+  const at = (c) => { const i = order.indexOf(c); return i < 0 ? Infinity : i; };
+  return list.sort((a, b) => at(a[0]) - at(b[0]) || a[0].localeCompare(b[0], "tr", { numeric: true }));
+};
 
 // Kategoriye göre süzme: "" hepsi, NO_CATEGORY kategorisizler, diğerleri kategori adı.
 export const NO_CATEGORY = "\u0000";
