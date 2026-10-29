@@ -958,7 +958,14 @@ dialog.sheet > .menu { flex: 1; min-height: 0; gap: 0; }
 /* Üstteki yan işlemler: eşit genişlikte, sade */
 .page-actions { display: flex; gap: 8px; }
 .page-actions > * { flex: 1; min-width: 0; }
-.page-actions .big-action:not(.primary) { height: 48px; font-size: 14.5px; }
+.page-actions .big-action:not(.primary) {
+  height: auto; min-height: 48px; padding: 6px 10px; gap: 6px;
+  font-size: 14.5px; line-height: 1.15; white-space: normal; text-align: center;
+}
+.page-actions .big-action svg { flex: none; }
+/* Üç ve daha çok düğme: simge yazının üstünde, yazı düğmenin içinde kalsın (Faturadan Satış…). */
+.page-actions:has(> :nth-child(3)) .big-action:not(.primary) { flex-direction: column; gap: 3px; padding: 7px 4px; font-size: 13.5px; }
+.page-actions:has(> :nth-child(3)) .big-action svg { width: 20px; height: 20px; }
 
 /* Sekmeler (Hepsi / Azalanlar) */
 .tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); overflow: hidden; border: 1px solid var(--card-border); border-radius: 14px; background: var(--card); }
