@@ -2,7 +2,7 @@
    koyu deniz yeşili ana renk, her bölümün kendi rengi. */
 
 :root {
-  --css-rev: 39; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
+  --css-rev: 40; /* app.js'teki CSS_REV ile aynı; stil değişince ikisi birlikte artar */
   --bg: #F3F1EC;
   --card: #FFFFFF;
   --card-border: #E1DCD2;
@@ -100,7 +100,7 @@ bdi { unicode-bidi: isolate; }
 
 /* --- Kontroller ---------------------------------------------------------- */
 
-input, select {
+input, select, textarea {
   width: 100%;
   min-width: 0;
   height: 50px;
@@ -114,8 +114,9 @@ input, select {
   outline: none;
 }
 select { padding: 0 12px; }
-input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
-input::placeholder { color: var(--text-3); }
+textarea { height: auto; min-height: 110px; padding: 12px 14px; line-height: 1.45; resize: none; overflow: hidden; }
+input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
+input::placeholder, textarea::placeholder { color: var(--text-3); }
 input[type="date"] { padding: 0 14px; }
 
 button {
@@ -1240,8 +1241,17 @@ p.total-line, .pl-row.total-line { display: flex; justify-content: space-between
 
 /* Ekstre / ortak özeti: WhatsApp'tan fiş olarak gönder ve yazdır */
 .statement-actions { display: flex; gap: 8px; width: 100%; margin-top: 10px; }
-.statement-actions button.whatsapp { flex: 1; min-width: 0; height: 48px; font-size: 15.5px; white-space: normal; }
+/* Uzun yazı ("WhatsApp'tan cari detayı gönder") düğmenin içinde kalsın: gerekirse iki satır, düğme uzar. */
+.statement-actions button.whatsapp {
+  flex: 1; min-width: 0; height: auto; min-height: 48px; padding: 6px 12px;
+  font-size: 15px; line-height: 1.2; white-space: normal; text-align: center;
+}
+.statement-actions button.whatsapp svg { flex: none; }
 .statement-actions button.small { height: 48px; flex: none; }
+.statement-actions.wide { flex-wrap: wrap; }
+.statement-actions.wide button.whatsapp { flex: 1 1 100%; }
+.statement-actions.wide button.small { flex: 1 1 0; min-width: 0; height: 44px; gap: 6px; padding: 0 8px; font-size: 14px; }
+.statement-actions.wide button.small span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .partner-item { display: flex; flex-direction: column; }
 .partner-item .statement-actions { margin-top: 6px; }
 
@@ -1272,6 +1282,17 @@ button.home-search > span:first-of-type { flex: 1; text-align: start; }
 .row-buttons button { padding: 0 6px; font-size: 13.5px; white-space: normal; line-height: 1.15; height: 52px; flex-direction: column; gap: 2px; }
 .row-buttons button svg { width: 18px; height: 18px; }
 /* Mağaza önizlemesi uygulamanın içinde */
+/* Sipariş mesajı: dokununca eklenen bilgiler ve önizleme */
+.msg-field .chips { margin-top: 2px; }
+.msg-field button.chip { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); }
+.msg-field button.chip svg { width: 15px; height: 15px; }
+.msg-preview-box {
+  display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--radius);
+  background: color-mix(in srgb, #25D366 10%, var(--card)); border: 1px solid color-mix(in srgb, #25D366 30%, var(--border));
+}
+.msg-preview-box .label { margin: 0; }
+.msg-preview { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.msg-preview-box button.link { justify-self: start; }
 .shop-frame { width: 100%; height: calc(100dvh - 120px); border: 0; border-radius: 16px; background: #F6F1E9; }
 /* Kasalar: simgeli kare kutular (nakit, kart, banka…) */
 .fund-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }

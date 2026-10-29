@@ -37,8 +37,10 @@ const sheet = $("#sheet");
 // diğer düğmeler alanların sonuna. Kapat düğmesinin yerini üstteki geri oku alır.
 // onsubmit hata metni döndürürse form açık kalır ve metin ana düğmenin hemen üstünde görünür.
 // dialog: hangi pencerede açılacağı; formun üstünde başka bir form (satıştan yeni ürün) için #subsheet.
+// Düğmelerde backButton varsa üstteki ok ve telefonun geri tuşu pencereyi kapatmaz, bir öncekine döner.
 function open(title, fields, buttons, onsubmit, dialog = sheet) {
   const error = h("p", { class: "error", role: "alert" });
+  dialog.back = buttons.find((b) => b?.back)?.back ?? null;
   const list = buttons.filter((b) => b && !b.hasAttribute?.("data-close"));
   const foot = list.filter((b) => b.classList?.contains("primary") || b.classList?.contains("foot"));
   const rest = list.filter((b) => !foot.includes(b));
@@ -58,7 +60,7 @@ function open(title, fields, buttons, onsubmit, dialog = sheet) {
     },
   },
   h("header", { class: "sheet-top" },
-    h("button", { type: "button", class: "icon back", "aria-label": t("close"), onclick: () => dialog.close() }, icon("back")),
+    h("button", { type: "button", class: "icon back", "aria-label": t(dialog.back ? "back" : "close"), onclick: () => (dialog.back ? dialog.back() : dialog.close()) }, icon("back")),
     h("h3", {}, title)),
   body,
   foot.length > 0 && h("div", { class: "sheet-foot" }, error, foot));
@@ -68,6 +70,18 @@ function open(title, fields, buttons, onsubmit, dialog = sheet) {
 }
 
 const subsheet = $("#subsheet");
+
+// Telefonun geri tuşu (pencerede "cancel"): alt pencerede bir öncekine dön. Tarayıcı kapatmayı
+// engellemeye izin vermezse pencere kapanır, hemen bir öncekisi açılır.
+for (const dialog of [sheet, subsheet]) {
+  dialog.addEventListener("cancel", (e) => {
+    const back = dialog.back;
+    if (!back) return;
+    e.preventDefault();
+    if (e.cancelable) back();
+    else dialog.addEventListener("close", () => back(), { once: true });
+  });
+}
 
 // Formun altındaki özet + ana düğme (toplam, sayılan…): solda özet, sağda düğme.
 const footBar = (summary, button) => h("div", { class: "foot foot-bar" }, summary, button);
@@ -132,6 +146,8 @@ function noteField(input) {
 }
 const saveButton = (label = t("save")) => h("button", { class: "primary block" }, label);
 const closeButton = () => h("button", { type: "button", class: "block ghost", "data-close": true, onclick: () => sheet.close() }, t("close"));
+// "Geri": bir önceki pencereye döner (üstteki ok ve telefonun geri tuşu da).
+const backButton = (fn) => Object.assign(h("button", { type: "button", class: "block ghost", onclick: () => fn() }, t("back")), { back: fn });
 const dateInput = (value) => h("input", { type: "date", value: value || today(), required: true });
 const sum = (list, fn) => list.reduce((s, x) => s + fn(x), 0);
 
@@ -220,7 +236,8 @@ function categoryField(current) {
 
 // Kategoriler (Ürünler sayfasından): var olanlar ürün sayılarıyla; birine ya da "Yeni kategori"ye
 // dokununca adı ve içindeki ürünler seçilir.
-export function openProductCategories() {
+// back: nereden açıldıysa oraya dönüş (mağaza ayarı); yoksa kapatılır.
+export function openProductCategories(back = null) {
   const products = [...session.firm.products.values()].filter((p) => !p.deleted);
   let cats = productCategories(products);
   const list = h("ul", { class: "cards" });
@@ -233,7 +250,7 @@ export function openProductCategories() {
     saveFirmSettings({ productCats: cats.map(([c]) => c).slice(0, 100) }).catch(failed);
   };
   const paint = () => list.replaceChildren(...cats.map(([c, n], i) => h("li", { class: "cat-item" },
-    h("button", { type: "button", class: "card row", onclick: () => openCategoryEditor(c) },
+    h("button", { type: "button", class: "card row", onclick: () => openCategoryEditor(c, back) },
       categoryPhoto(c) ? h("img", { class: "cat-photo", src: categoryPhoto(c), alt: "" }) : h("span", { class: "cat-photo empty" }, icon("camera")),
       h("span", { class: "main" }, h("span", { class: "title" }, h("bdi", {}, c)), h("span", { class: "meta" }, t("productCount", { n }))),
       icon("chevron")),
@@ -246,8 +263,8 @@ export function openProductCategories() {
     list,
     !cats.length && h("p", { class: "field-hint" }, t("noCategoriesYet")),
   ], [
-    h("button", { type: "button", class: "primary block", onclick: () => openCategoryEditor("") }, icon("plus"), t("newCategory")),
-    closeButton(),
+    h("button", { type: "button", class: "primary block", onclick: () => openCategoryEditor("", back) }, icon("plus"), t("newCategory")),
+    back ? backButton(back) : closeButton(),
   ]);
 }
 
@@ -257,7 +274,7 @@ const categoryPhoto = (name) => currentFirm().categoryPhotos?.[name] ?? "";
 // Bir kategori: fotoğrafı, adı ve içindeki ürünler (işaretli olanlar). Kaydedince işaretlenenler bu kategoriye
 // geçer, işareti kaldırılanlar kategorisiz kalır; ad değişirse hepsi (ve fotoğrafı) yeni adı alır. Ürün seçmek
 // zorunlu değil: ürünsüz kategori işletmenin kategori listesinde (productCats) saklanır, sonra ürün eklenir.
-function openCategoryEditor(current) {
+function openCategoryEditor(current, back = null) {
   const products = [...session.firm.products.values()].sort(byName);
   const photo = photoField(categoryPhoto(current), { prepare: prepareSquare, label: t("categoryPhoto") });
   const name = textInput({ maxlength: 40, value: current, placeholder: t("newCategoryPlaceholder") });
@@ -292,7 +309,7 @@ function openCategoryEditor(current) {
   ], [
     saveButton(),
     current && h("button", { type: "button", class: "block danger", onclick: () => deleteCategory(current) }, t("deleteCategory")),
-    h("button", { type: "button", class: "block ghost", onclick: openProductCategories }, t("back")),
+    backButton(() => openProductCategories(back)),
   ], () => {
     const n = name.value.trim();
     if (!n) return t("enterCategoryName");
@@ -2264,12 +2281,11 @@ export function openShopSheet() {
   const hideSoldOut = check(Boolean(cur.hideSoldOut));
   const cover = photoField(cur.cover, { prepare: prepareCover, label: t("shopCover") });
   // Siparişte "Müşteriye WhatsApp'tan yaz"ın hazır mesajı; {müşteri} {sipariş} {tutar} {işletme} yerine geçer.
-  const orderMsg = h("textarea", { rows: 3, maxlength: 500, dir: "auto" });
-  orderMsg.value = firm.orderMsg || t("ord_replyTemplate", MSG_TOKENS);
+  const orderMsg = orderMsgField(firm.orderMsg || t("ord_replyTemplate", MSG_TOKENS));
   const live = cur.slug && cur.on;
   const fields = [
     live ? shopLinkCard(cur) : h("p", { class: "muted" }, t("shopIntro")),
-    live && h("button", { type: "button", class: "block", onclick: openShopProducts }, icon("box"), t("shopProducts")),
+    live && h("button", { type: "button", class: "block", onclick: () => openShopProducts() }, icon("box"), t("shopProducts")),
     h("p", { class: "label" }, t("shopCover")),
     cover.el,
     h("small", { class: "field-hint center" }, t("shopCoverHint")),
@@ -2279,7 +2295,7 @@ export function openShopSheet() {
     h("label", { class: "check" }, showPrices, h("span", {}, t("shopShowPrices"))),
     h("label", { class: "check" }, hideSoldOut, h("span", {}, t("shopHideSoldOut"))),
     h("small", { class: "field-hint" }, t("shopPrivacy")),
-    field(t("ord_msgLabel"), orderMsg, t("ord_msgHint", MSG_TOKENS)),
+    orderMsg.el,
   ];
   const buttons = [saveButton()];
   if (live) {
@@ -2336,7 +2352,7 @@ function shopLinkCard(shop) {
     // Sayılara dokununca ilgili liste açılır: yayındaki ürünler, kategoriler, gizli ürünler.
     h("div", { class: "shop-stats" },
       h("button", { type: "button", onclick: () => openShopProducts("shown") }, h("strong", {}, String(shown.length)), t("shopStatProducts")),
-      h("button", { type: "button", onclick: () => openProductCategories() }, h("strong", {}, String(cats.size)), t("shopStatCategories")),
+      h("button", { type: "button", onclick: () => openProductCategories(openShopSheet) }, h("strong", {}, String(cats.size)), t("shopStatCategories")),
       h("button", { type: "button", onclick: () => openShopProducts("hidden") }, h("strong", {}, String(products.length - shown.length)), t("shopStatHidden"))));
 }
 async function copyText(text) {
@@ -2407,7 +2423,7 @@ async function openShopQr(url, title) {
   ], [
     h("button", { type: "button", class: "block primary", onclick: async () => shareOnWhatsApp({ blob: await blob(), filename: "magaza-qr.png" }) }, icon("send"), t("sharePhotoShort")),
     h("button", { type: "button", class: "block", onclick: async () => downloadFile(new File([await blob()], "magaza-qr.png", { type: "image/png" })) }, icon("receipt"), t("download")),
-    h("button", { type: "button", class: "block ghost", onclick: openShopSheet }, t("back")),
+    backButton(openShopSheet),
   ]);
   return undefined;
 }
@@ -2449,7 +2465,7 @@ function openShopProducts(filter = "") {
     searchBox(t("searchProducts"), "", (v) => { query = v; render(); }),
     count,
     list,
-  ], [h("button", { type: "button", class: "block ghost", onclick: openShopSheet }, t("back"))]);
+  ], [backButton(openShopSheet)]);
 }
 
 async function partyWhenReady(id) {
@@ -2479,13 +2495,54 @@ async function orderToSale(order) {
 // t() düz {ad} yerlerini boşaltır; şablondaki {tutar} olduğu gibi kalsın.
 const MSG_TOKENS = { tutar: "{tutar}" };
 
+// Şablondaki {müşteri} {sipariş} {tutar} {işletme} yerine bilgiler (büyük/küçük harf fark etmez).
+const fillOrderMsg = (template, values) => template.replace(/\{([^}]+)\}/g, (m, k) => values[k.toLocaleLowerCase("tr")] ?? m);
+
 // Siparişte müşteriye gidecek mesaj: Online mağaza ayarlarındaki şablon (yoksa hazır metin).
 function orderMessage(order) {
-  const values = {
+  return fillOrderMsg(currentFirm().orderMsg || t("ord_replyTemplate", MSG_TOKENS), {
     "müşteri": order.name ?? "", "sipariş": order.code ?? "", "işletme": currentFirm().name,
     tutar: order.total ? formatMoney(order.total, order.currency || base()) : "",
+  });
+}
+
+// Mağaza ayarındaki mesaj alanı: yazdıkça büyüyen kutu, dokununca imlecin yerine eklenen bilgiler
+// (Müşteri adı, Sipariş no…) ve müşterinin göreceği mesajın canlı önizlemesi.
+function orderMsgField(value) {
+  const area = h("textarea", { class: "msg-area", rows: 4, maxlength: 500, dir: "auto", "aria-label": t("ord_msgLabel") });
+  area.value = value;
+  const preview = h("p", { class: "msg-preview", dir: "auto" });
+  const grow = () => { area.style.height = "auto"; area.style.height = `${area.scrollHeight + 2}px`; };
+  const paint = () => {
+    preview.textContent = fillOrderMsg(area.value, {
+      "müşteri": t("ord_sampleName"), "sipariş": "K7Q2M", "işletme": currentFirm().name, tutar: formatMoney(5655, base()),
+    });
+    grow();
   };
-  return (currentFirm().orderMsg || t("ord_replyTemplate", MSG_TOKENS)).replace(/\{([^}]+)\}/g, (m, k) => values[k.toLocaleLowerCase("tr")] ?? m);
+  area.addEventListener("input", paint);
+  const insert = (token) => {
+    const at = area.selectionStart ?? area.value.length;
+    const end = area.selectionEnd ?? at;
+    const before = area.value.slice(0, at);
+    const pad = before && !/\s$/.test(before) ? " " : "";
+    area.setRangeText(`${pad}{${token}} `, at, end, "end");
+    area.focus();
+    paint();
+  };
+  const tokens = [["müşteri", "ord_tokCustomer"], ["sipariş", "ord_tokOrder"], ["tutar", "ord_tokTotal"], ["işletme", "ord_tokFirm"]];
+  const el = h("div", { class: "field msg-field" },
+    h("span", {}, t("ord_msgLabel")),
+    area,
+    h("small", { class: "field-hint" }, t("ord_tokHint")),
+    h("div", { class: "chips" }, tokens.map(([token, key]) => h("button", { type: "button", class: "chip", onclick: () => insert(token) }, icon("plus"), t(key)))),
+    h("div", { class: "msg-preview-box" },
+      h("small", { class: "label" }, t("ord_msgPreview")),
+      preview,
+      h("button", { type: "button", class: "link", onclick: () => { area.value = t("ord_replyTemplate", MSG_TOKENS); paint(); } }, t("ord_msgReset"))),
+    h("small", { class: "field-hint" }, t("ord_msgHint", MSG_TOKENS)));
+  paint();
+  requestAnimationFrame(grow);
+  return { el, get value() { return area.value; } };
 }
 
 export function openShopOrderSheet(order) {

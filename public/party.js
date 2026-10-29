@@ -254,7 +254,8 @@ function render() {
         party.phone && h("a", { class: "pill", href: `tel:${party.phone.replace(/[^\d+]/g, "")}`, dir: "ltr" }, icon("phone"), party.phone)),
       // Ekstre: bütün hareketler ve bakiye; yeşil düğme fotoğraf olarak (dosya paylaşamayan cihazda
       // yazı + bağlantı), yanındaki doğrudan kişinin sohbetine yazı + bağlantı, "Yazdır" kâğıda.
-      h("div", { class: "statement-actions" },
+      // Yeşil düğme tam genişlikte tek satır; altında yazılı küçük düğmeler.
+      h("div", { class: "statement-actions wide" },
         h("button", {
           type: "button", class: "whatsapp",
           onclick: () => sendPhoto(statementBlob(party), party.phone, `cari-${party.name}.png`),
@@ -262,11 +263,11 @@ function render() {
         directPhoto(party.phone) && h("button", {
           type: "button", class: "small", "aria-label": t("pasteToChat"), title: t("pasteToChat"),
           onclick: () => pastePhoto(statementBlob(party), party.phone, `cari-${party.name}.png`),
-        }, icon("clipboard")),
+        }, icon("clipboard"), h("span", {}, t("pasteShort"))),
         h("button", { type: "button", class: "small", "aria-label": t("viewStatement"), title: t("viewStatement"), onclick: () => viewStatement(party) },
-          icon("eye")),
+          icon("eye"), h("span", {}, t("viewShort"))),
         h("button", { type: "button", class: "small", "aria-label": t("print"), title: t("print"), onclick: () => { prepareStatement(party); printReceipt(statement.doc, receiptLabels()); } },
-          icon("printer"))),
+          icon("printer"), h("span", {}, t("print")))),
       h("small", { class: "field-hint" }, photoHint()),
       // Hesabı kapat: tamamlanan fişler/faturalar bir sonraki ekstrede çıkmasın.
       h("button", { type: "button", class: `small close-account${party.closedAt ? " on" : ""}`, onclick: () => closeAccount(party) },

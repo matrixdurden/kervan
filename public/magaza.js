@@ -27,9 +27,10 @@ const TEXT = {
     orderMissing: "Sipariş bulunamadı.", orderTitle: "Sipariş", waOrder: "Yeni sipariş", orderLink: "Siparişin fotoğrafı ve PDF'i",
     rc: { receiptTitle: "Sipariş", number: "No", customer: "Müşteri", total: "Toplam", paid: "Ödenen", note: "Not", thanks: "Teşekkür ederiz", balanceOwed: "Kalan", balanceCredit: "Alacak" },
     madeWith: "kervan ile hazırlandı",
-    install: "Uygulama olarak yükle", installShort: "Yükle", installIos: "Yüklemek için: Paylaş düğmesi → Ana Ekrana Ekle",
+    install: "Uygulamayı telefona yükle", installIos: "Yüklemek için: Paylaş düğmesi → Ana Ekrana Ekle",
     installAndroid: "Uygulama olarak yüklemek için: sayfayı Chrome'da aç, sağ üstteki ⋮ menüsünden \"Uygulamayı yükle\" ya da \"Ana ekrana ekle\".",
     installDesktop: "Bilgisayarda (Chrome ya da Edge): adres çubuğunun sağındaki yükle simgesine ya da tarayıcının ⋮ menüsünden \"Yükle\" / \"Uygulamayı yükle\"ye tıkla.",
+    installPreview: "Bu, mağazanın önizlemesi. Müşterin mağaza bağlantısını telefonunda açınca bu düğmeyle mağazayı uygulama olarak yükler.",
     installDone: "Yüklenince mağaza, telefonun ya da bilgisayarın ana ekranında kendi simgesiyle açılır.",
   },
   ar: {
@@ -46,9 +47,10 @@ const TEXT = {
     orderMissing: "لم يُعثر على الطلب.", orderTitle: "طلب", waOrder: "طلب جديد", orderLink: "صورة الطلب وملف PDF",
     rc: { receiptTitle: "طلب", number: "رقم", customer: "العميل", total: "المجموع", paid: "المدفوع", note: "ملاحظة", thanks: "شكرًا لكم", balanceOwed: "المتبقي", balanceCredit: "له" },
     madeWith: "صُنع بـ kervan",
-    install: "ثبّت كتطبيق", installShort: "تثبيت", installIos: "للتثبيت: زر المشاركة ← إضافة إلى الشاشة الرئيسية",
+    install: "ثبّت التطبيق على الهاتف", installIos: "للتثبيت: زر المشاركة ← إضافة إلى الشاشة الرئيسية",
     installAndroid: "للتثبيت كتطبيق: افتح الصفحة في Chrome، ثم من قائمة ⋮ اختر \"تثبيت التطبيق\" أو \"إضافة إلى الشاشة الرئيسية\".",
     installDesktop: "على الكمبيوتر (Chrome أو Edge): اضغط أيقونة التثبيت يمين شريط العنوان أو اختر \"تثبيت\" من قائمة ⋮ في المتصفح.",
+    installPreview: "هذه معاينة المتجر. عندما يفتح عميلك رابط المتجر على هاتفه يثبّته كتطبيق بهذا الزر.",
     installDone: "بعد التثبيت يفتح المتجر من الشاشة الرئيسية للهاتف أو الكمبيوتر بأيقونته الخاصة.",
   },
 };
@@ -221,18 +223,18 @@ function render() {
     oninput: (e) => { query = e.target.value; render(); },
   });
   app$.replaceChildren(...clean(
-    // İnce üst şerit: logo, tek satırda adı (uzunsa yazı küçülür), yükle ve dil.
+    // İnce üst şerit: logo, tek satırda adı (uzunsa yazı küçülür) ve dil.
     h("header", { class: "hero" },
       shop.logo ? h("img", { class: "logo", src: shop.logo, alt: "" }) : h("span", { class: "logo" }, shop.name.charAt(0).toLocaleUpperCase("tr")),
       h("div", { class: "titles" }, h("h1", {}, shop.name)),
-      route.pretty && !standalone() && h("button", { type: "button", class: "install-chip", onclick: install, "aria-label": say("install"), title: say("install") },
-        icon("download"), h("span", {}, say("installShort"))),
       // Dil: tek düğme, öbür dilin işareti (yer kaplamasın).
       h("button", {
         type: "button", class: "lang", "aria-label": lang === "tr" ? "العربية" : "Türkçe",
         onclick: () => { lang = lang === "tr" ? "ar" : "tr"; store.set("lang", lang); applyLang(); render(); },
       }, lang === "tr" ? "ع" : "TR")),
     shop.cover && h("img", { class: "cover", src: shop.cover, alt: "" }),
+    // Yüklenmemişse aramanın üstünde, tam genişlikte ince altın çerçeveli "Uygulamayı telefona yükle".
+    route.pretty && !standalone() && h("button", { type: "button", class: "install-chip", onclick: install }, icon("download"), say("install")),
     h("div", { class: "search-wrap" },
       h("label", { class: "search" }, icon("search"), searchInput,
         query && h("button", { type: "button", class: "clear", "aria-label": say("close"), onclick: () => { query = ""; render(); } }, icon("x")))),
@@ -437,12 +439,18 @@ function state(text, title = "") {
 // yüklenen uygulama doğrudan bu mağazayla açılır. Android'de "Yükle" düğmesi (üstte ve altta); tarayıcı
 // yükleme önermiyorsa (WhatsApp içinden açıldı, ya da zaten önerilmedi) Chrome menüsünden yol gösterilir.
 let installPrompt = null;
-const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+// Dükkân sahibinin uygulamasındaki önizleme (çerçeve içinde): yüklü uygulamanın içinde de "Yükle" görünsün.
+const framed = window.top !== window;
+const standalone = () => !framed && (matchMedia("(display-mode: standalone)").matches || navigator.standalone === true);
 const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const isAndroid = /android/i.test(navigator.userAgent);
 // Tarayıcı yüklemeyi öneriyorsa doğrudan yükler; önermiyorsa (WhatsApp içinden açıldı, iPhone, zaten
 // önerilmedi) cihaza göre yol gösterir.
 async function install() {
+  if (framed) {
+    openSheet("install", say("install"), h("div", { class: "install-help" }, h("p", {}, say("installPreview")), h("p", { class: "hint" }, say("installDone"))));
+    return;
+  }
   if (!installPrompt) {
     const steps = isIos ? ["installIos"] : isAndroid ? ["installAndroid"] : ["installDesktop", "installAndroid"];
     openSheet("install", say("install"), h("div", { class: "install-help" },
@@ -455,7 +463,7 @@ async function install() {
   render();
 }
 function setupInstall() {
-  if (!route.pretty) return;
+  if (!route.pretty || framed) return;
   const base = `/m/${route.slug}/`;
   // Uygulamanın kapsamı /m/{adres}/: sayfa da bu adreste olsun ki yükleme düğmesi çıksın.
   if (!route.order && location.pathname !== base) history.replaceState(null, "", base + location.search);

@@ -369,7 +369,7 @@ const HOME = {
         canScan() && h("button", { type: "button", class: "hs-scan", "aria-label": t("scanBarcode"), title: t("scanBarcode"), onclick: scanFromHome },
           icon("barcode"))),
       // Mağaza açıksa aramanın altında ince "Mağazayı aç".
-      shopOf()?.on && shopOf()?.slug && h("button", { type: "button", class: "home-shop-link", onclick: () => openPage("shop") },
+      shopOf()?.on && shopOf()?.slug && h("button", { type: "button", class: "home-shop-link", onclick: () => openPage("shopPreview") },
         icon("globe"), h("span", {}, t("shopOpen")), h("small", { dir: "ltr" }, shopOf().slug), icon("chevron")),
       h("div", { class: "stats" },
         stat(t("receivable"), formatMoney(receivable), "in", () => openPage("sellers")),
